@@ -1,0 +1,14 @@
+{
+  "name": "ad-fontes",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Fetches a Bible passage from the YouVersion Platform API and prints it.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20.12"
+  }
+}
