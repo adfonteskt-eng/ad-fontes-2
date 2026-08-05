@@ -6,7 +6,8 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "fetch-data": "node scripts/fetch-data.js"
   },
   "engines": {
     "node": ">=20.12"

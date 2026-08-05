@@ -9,6 +9,10 @@
 # Dependencies
 node_modules/
 
+# STEPBible source data — fetched with `npm run fetch-data`, not redistributed
+# (the CC BY 4.0 notice asks that it be distributed from a single source)
+data/
+
 # Logs
 *.log
 npm-debug.log*
