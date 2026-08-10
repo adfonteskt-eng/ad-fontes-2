@@ -29,6 +29,31 @@ export const FILES = [
     path: "Translators Amalgamated OT+NT/TAGNT Act-Rev - Translators Amalgamated Greek NT - STEPBible.org CC-BY.txt",
     description: "Tagged Greek NT, Acts–Revelation",
   },
+  {
+    name: "TBESH.txt",
+    path: "Lexicons/TBESH - Translators Brief lexicon of Extended Strongs for Hebrew - STEPBible.org CC BY.txt",
+    description: "Hebrew lexicon (Extended Strong's)",
+  },
+  {
+    name: "TAHOT-Gen-Deu.txt",
+    path: "Translators Amalgamated OT+NT/TAHOT Gen-Deu - Translators Amalgamated Hebrew OT - STEPBible.org CC BY.txt",
+    description: "Tagged Hebrew OT, Genesis–Deuteronomy",
+  },
+  {
+    name: "TAHOT-Jos-Est.txt",
+    path: "Translators Amalgamated OT+NT/TAHOT Jos-Est - Translators Amalgamated Hebrew OT - STEPBible.org CC BY.txt",
+    description: "Tagged Hebrew OT, Joshua–Esther",
+  },
+  {
+    name: "TAHOT-Job-Sng.txt",
+    path: "Translators Amalgamated OT+NT/TAHOT Job-Sng - Translators Amalgamated Hebrew OT - STEPBible.org CC BY.txt",
+    description: "Tagged Hebrew OT, Job–Song of Songs",
+  },
+  {
+    name: "TAHOT-Isa-Mal.txt",
+    path: "Translators Amalgamated OT+NT/TAHOT Isa-Mal - Translators Amalgamated Hebrew OT - STEPBible.org CC BY.txt",
+    description: "Tagged Hebrew OT, Isaiah–Malachi",
+  },
 ];
 
 export const DATA_DIR = new URL("../data/", import.meta.url);
