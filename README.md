@@ -1,12 +1,25 @@
 # ad-fontes
 
-Give it a Bible reference and it prints, in one go:
+A scripture-studying partner. Give it a Bible reference and it prints, in one go:
 
 - The passage in several English translations (via the [YouVersion Platform API](https://developers.youversion.com))
 - The tagged Greek (New Testament) or Hebrew (Old Testament) — each word with its Strong's number and a short lexicon definition
 - A handful of public-domain commentaries on the passage
+- An AI-generated plain-language takeaway and study notes summarizing all of the above
 
 No dependencies.
+
+## Roadmap
+
+- **Phase 1 — Gather.** Pull the primary-source material for a passage into one
+  structured object: translations, original-language interlinear, commentary.
+  Done — `lib/gather.js`.
+- **Phase 2 — Summarize.** Turn that material into something a person can read
+  quickly: a short takeaway plus deeper study notes. Done — `lib/summarize.js`.
+- **Phase 3 — Productize.** Turn this from a CLI into a website, app, or browser
+  extension. Not started. `gatherPassage()` and `summarizePassage()` are already
+  separated from the console-printing code in `index.js` so a future UI can call
+  them directly instead of parsing terminal output.
 
 ## Setup
 
@@ -61,6 +74,16 @@ Matthew Henry (Concise)
 
 Jamieson-Fausset-Brown
   ...
+
+------------------------------------------------------------
+Summary
+------------------------------------------------------------
+
+[plain-language takeaway]
+
+Study notes
+
+[translation differences, word-study highlights, where commentators agree/disagree]
 ```
 
 Any reference works, Old or New Testament:
@@ -71,6 +94,7 @@ node index.js PSA.23.1
 node index.js ROM.8.28
 node index.js JHN.3.16 --variants
 node index.js JHN.3.16 --no-commentary
+node index.js JHN.3.16 --no-summary
 ```
 
 ## Translations
@@ -111,15 +135,32 @@ downloaded data file (there's no clean, keyless bulk commentary API), so it's th
 piece most likely to need a fix if biblehub ever changes its page markup — if the
 section comes back empty, that's the first place to check (`lib/commentary.js`).
 
+## Summary (Phase 2)
+
+If `ANTHROPIC_API_KEY` is set, ad-fontes sends everything gathered above —
+translations, original-language words with glosses, commentary excerpts — to
+Claude and asks for two things: a short plain-language takeaway (what the
+passage says and why it matters, no jargon) and study notes (meaningful
+translation differences, word-study highlights, where commentators agree or
+genuinely disagree). It's instructed not to invent citations or pad out thin
+material, and to present interpretive disagreement as disagreement rather than
+pick a side.
+
+Without an API key, this section is skipped with a one-line note — everything
+else still works. Skip it explicitly with `--no-summary`, or change the model
+with `SUMMARY_MODEL` in `.env`.
+
 ## Configuration
 
-| Variable      | Description                                          |
-| ------------- | ---------------------------------------- |
-| `YVP_APP_KEY` | App key from developers.youversion.com. Required.     |
-| `BIBLE_IDS`   | Comma-separated Bible version ids. Defaults to BSB, KJV, WEB, ASV. |
-| `BIBLE_ID`    | Single-translation override, kept for backward compatibility. Ignored if `BIBLE_IDS` is set. |
+| Variable            | Description                                          |
+| ------------------- | ---------------------------------------- |
+| `YVP_APP_KEY`        | App key from developers.youversion.com. Required.     |
+| `BIBLE_IDS`          | Comma-separated Bible version ids. Defaults to BSB, KJV, WEB, ASV. |
+| `BIBLE_ID`           | Single-translation override, kept for backward compatibility. Ignored if `BIBLE_IDS` is set. |
+| `ANTHROPIC_API_KEY`  | Key from console.anthropic.com. Optional — enables the summary section. |
+| `SUMMARY_MODEL`      | Which Claude model generates the summary. Defaults to `claude-sonnet-5`. |
 
-`.env` is gitignored. Keep the app key out of source control.
+`.env` is gitignored. Keep both keys out of source control.
 
 ## Data & licence
 
@@ -143,3 +184,14 @@ than redistributed, so this repo points at the source instead of vendoring it.
 
 Commentary text (Matthew Henry, JFB, Barnes, Gill, Geneva) is public domain and
 fetched live from biblehub.com per verse rather than bundled.
+
+## Project layout
+
+| File | Role |
+| ---- | ---- |
+| `lib/gather.js` | Phase 1. `gatherPassage(usfm, opts)` → structured object, no printing. |
+| `lib/summarize.js` | Phase 2. `summarizePassage(gathered, opts)` → `{ shortSummary, studyNotes }`. |
+| `lib/interlinear.js` | Greek/Hebrew parsing against the STEPBible data files. |
+| `lib/commentary.js` | biblehub.com scraper. |
+| `index.js` | CLI: calls the two functions above and prints the result. |
+| `scripts/fetch-data.js` | Downloads the STEPBible data files into `data/`. |
