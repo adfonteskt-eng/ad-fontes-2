@@ -27,7 +27,7 @@ Requires Node 20.12 or newer (`process.loadEnvFile` and global `fetch`).
 
 ```bash
 cp .env.example .env   # then add your app key
-npm run fetch-data     # ~150 MB of STEPBible text files (Greek + Hebrew)
+npm run fetch-data     # ~104 MB of STEPBible text files (~34 MB Greek + ~70 MB Hebrew)
 ```
 
 ## Usage
