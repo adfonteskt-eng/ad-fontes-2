@@ -17,10 +17,12 @@ No dependencies.
 - **Phase 2 — Summarize.** Turn that material into something a person can read
   quickly: a short takeaway plus deeper study notes. Done — `lib/summarize.js`.
 - **Phase 3 — Productize.** Turn this from a CLI into a website, app, or browser
-  extension. In progress — a minimal website (`server.js` + `public/`) is up,
-  reusing `gatherPassage()`/`summarizePassage()` directly rather than parsing
-  CLI output. Not yet done: deployment (currently local-only), and an app or
-  browser extension if that's still wanted after the website.
+  extension. In progress — a website (`server.js` + `public/`) is up, reusing
+  `gatherPassage()`/`summarizePassage()` directly rather than parsing CLI
+  output, plus a conversational chat interface (`lib/chat.js`) on top of the
+  same pipeline for questions that don't fit the one-shot reference-in,
+  report-out flow. Not yet done: deployment (currently local-only), and an
+  app or browser extension if that's still wanted after the website.
 
 ## Setup
 
@@ -116,6 +118,35 @@ GET /api/passage?ref=JHN.3.16&variants=false&commentary=true&summary=true
 
 This is local-only for now — nothing about it is deployed anywhere yet.
 
+## Chat
+
+Below the search results (and usable on its own, without ever searching
+first) is a conversational chat panel. It's not a second, separate
+question-answering path — it calls the same `gatherPassage()` Phase 1
+pipeline, but lets Claude decide what to fetch and when, via a
+`gather_passage` tool it can call mid-conversation (`lib/chat.js`):
+
+- Ask about the passage already on screen ("what does 'only begotten' mean
+  in the Greek here?") without repeating the reference.
+- Start straight from a question with a reference in it ("what does John
+  3:16 mean by...") — no need to search first.
+- Ask something with no specific verse in mind ("what else does Scripture
+  say about this?") — Claude can gather a cross-reference itself if one
+  genuinely helps, rather than being limited to whatever's already on
+  screen.
+
+```
+POST /api/chat
+{ "sessionId": "…", "message": "…" }
+-> { "sessionId": "…", "reply": "…" }
+```
+
+`sessionId` is omitted on a conversation's first message; the server
+creates one and returns it for the client to send with every message after
+that. History is kept in memory only, per server process — restarting the
+server (or clicking "New conversation" in the UI) clears it. No new
+configuration is needed: chat reuses `YVP_APP_KEY` and `ANTHROPIC_API_KEY`.
+
 ## Translations
 
 Defaults to BSB, KJV, WEB, and ASV. Override with `BIBLE_IDS` in `.env` (comma-separated
@@ -209,10 +240,11 @@ fetched live from biblehub.com per verse rather than bundled.
 | File | Role |
 | ---- | ---- |
 | `lib/gather.js` | Phase 1. `gatherPassage(usfm, opts)` → structured object, no printing. |
-| `lib/summarize.js` | Phase 2. `summarizePassage(gathered, opts)` → `{ shortSummary, studyNotes }`. |
+| `lib/summarize.js` | Phase 2. `summarizePassage(gathered, opts)` → `{ shortSummary, studyNotes }`. Also exports `formatGatheredPassage()`, the plain-text formatter shared with `lib/chat.js`. |
+| `lib/chat.js` | Phase 3 chat. `chatTurn(opts)` → `{ sessionId, reply }`, looping Claude tool calls into `gatherPassage()` as needed. In-memory sessions. |
 | `lib/interlinear.js` | Greek/Hebrew parsing against the STEPBible data files. |
 | `lib/commentary.js` | biblehub.com scraper. |
-| `index.js` | CLI: calls the two functions above and prints the result. |
-| `server.js` | Web API: same two functions, one JSON endpoint, plus static file serving. |
+| `index.js` | CLI: calls `gatherPassage()`/`summarizePassage()` and prints the result. |
+| `server.js` | Web API: `/api/passage` and `/api/chat`, plus static file serving. |
 | `public/` | Website frontend — plain HTML/CSS/JS, no build step. |
 | `scripts/fetch-data.js` | Downloads the STEPBible data files into `data/`. |

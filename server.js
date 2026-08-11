@@ -11,12 +11,20 @@
 //   variants   "true" to include TR/Byzantine variant Greek words. Default false.
 //   commentary "false" to skip the biblehub fetch entirely. Default true.
 //   summary    "false" to skip the Anthropic call entirely. Default true.
+//
+//      POST /api/chat   { sessionId?: string, message: string }
+//   -> { sessionId, reply }
+//   sessionId is omitted on the first message of a conversation; the server
+//   creates one and returns it for the client to send with every message
+//   after that. Sessions live in memory only (lib/chat.js) — restarting the
+//   server clears them.
 
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { chatTurn } from "./lib/chat.js";
 import { gatherPassage } from "./lib/gather.js";
 import { summarizePassage } from "./lib/summarize.js";
 
@@ -123,12 +131,70 @@ async function handlePassage(res, searchParams) {
   sendJson(res, 200, { ...gathered, summary, summaryError });
 }
 
+// node:http gives you the request as a readable stream, not a parsed body —
+// no framework here, so read and parse it by hand. Empty body -> {}.
+async function readJsonBody(req) {
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  const raw = Buffer.concat(chunks).toString("utf8");
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error("Invalid JSON body.");
+  }
+}
+
+async function handleChat(req, res) {
+  const appKey = process.env.YVP_APP_KEY;
+  if (!appKey) {
+    sendJson(res, 500, {
+      error:
+        "YVP_APP_KEY is not set on the server. Copy .env.example to .env and add your app key.",
+    });
+    return;
+  }
+
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) {
+    sendJson(res, 500, {
+      error: "ANTHROPIC_API_KEY is not set on the server. Chat requires it.",
+    });
+    return;
+  }
+
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { error: error.message });
+    return;
+  }
+
+  const { sessionId, message } = body;
+  if (!message || typeof message !== "string" || !message.trim()) {
+    sendJson(res, 400, { error: "Missing required field: message." });
+    return;
+  }
+
+  try {
+    const result = await chatTurn({ sessionId, message, appKey, apiKey: anthropicKey });
+    sendJson(res, 200, result);
+  } catch (error) {
+    sendJson(res, 500, { error: error.message });
+  }
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   try {
     if (req.method === "GET" && url.pathname === "/api/passage") {
       await handlePassage(res, url.searchParams);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/chat") {
+      await handleChat(req, res);
       return;
     }
     if (req.method === "GET") {

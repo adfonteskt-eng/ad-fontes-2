@@ -270,6 +270,130 @@ table.interlinear th {
   margin: 0 0 0.4rem;
 }
 
+#chat-section {
+  margin-top: 2.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.chat-heading-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.chat-heading-row .result-heading {
+  margin: 2rem 0 0.75rem;
+  border-bottom: none;
+  padding-bottom: 0;
+  flex: 1;
+}
+
+#chat-clear {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+#chat-clear:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  margin: 1rem 0;
+}
+
+.chat-message {
+  max-width: 85%;
+  padding: 0.7rem 0.95rem;
+  border-radius: 0.7rem;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.chat-message.user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: white;
+  border-bottom-right-radius: 0.15rem;
+}
+
+.chat-message.assistant {
+  align-self: flex-start;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  border-bottom-left-radius: 0.15rem;
+}
+
+.chat-message.pending {
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+.chat-message.error {
+  align-self: flex-start;
+  background: none;
+  border: 1px solid var(--error);
+  color: var(--error);
+  font-family: var(--sans);
+  font-size: 0.9rem;
+}
+
+#chat-form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+#chat-input {
+  flex: 1;
+  padding: 0.7rem 0.9rem;
+  font-size: 1rem;
+  font-family: inherit;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--panel);
+  color: var(--ink);
+  resize: vertical;
+}
+
+#chat-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+#chat-form button {
+  padding: 0.7rem 1.2rem;
+  font-size: 1rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  align-self: stretch;
+}
+
+#chat-form button:hover {
+  opacity: 0.9;
+}
+
+#chat-form button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 footer {
   max-width: 46rem;
   margin: 0 auto;

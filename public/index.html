@@ -35,6 +35,27 @@
 
     <div id="status" class="status" hidden></div>
     <div id="results" hidden></div>
+
+    <section id="chat-section">
+      <div class="chat-heading-row">
+        <h2 class="result-heading">Ask a question</h2>
+        <button type="button" id="chat-clear" title="Start a new conversation">New conversation</button>
+      </div>
+      <p class="section-note">
+        Ask about the passage above, or start fresh with any question — a reference,
+        or something like "what else does Scripture say about this?" No need to look
+        anything up first.
+      </p>
+      <div id="chat-log" aria-live="polite"></div>
+      <form id="chat-form">
+        <textarea
+          id="chat-input"
+          rows="2"
+          placeholder="e.g. What does 'only begotten' mean in the Greek here?"
+        ></textarea>
+        <button type="submit">Send</button>
+      </form>
+    </section>
   </main>
 
   <footer>

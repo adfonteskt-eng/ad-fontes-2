@@ -279,3 +279,81 @@ document.querySelectorAll(".example").forEach((button) => {
     runSearch(button.dataset.ref);
   });
 });
+
+// --- Chat -------------------------------------------------------------
+// A standalone entry point, not just a follow-up box tacked onto search
+// results: you can type a full question here — with or without a
+// reference — and the server (lib/chat.js) figures out what to gather via
+// tool use. sessionId is assigned by the server on the first message and
+// sent back on every message after that so it can find the right
+// in-memory conversation history.
+
+const chatLog = document.getElementById("chat-log");
+const chatForm = document.getElementById("chat-form");
+const chatInput = document.getElementById("chat-input");
+const chatSendButton = chatForm.querySelector('button[type="submit"]');
+const chatClearButton = document.getElementById("chat-clear");
+
+let chatSessionId = null;
+
+function appendChatMessage(role, text) {
+  const el = document.createElement("div");
+  el.className = `chat-message ${role}`;
+  el.textContent = text;
+  chatLog.appendChild(el);
+  chatLog.scrollTop = chatLog.scrollHeight;
+  return el;
+}
+
+async function sendChatMessage(message) {
+  appendChatMessage("user", message);
+  const pending = appendChatMessage("pending", "Thinking…");
+  chatSendButton.disabled = true;
+
+  try {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionId: chatSessionId, message }),
+    });
+    const data = await response.json();
+
+    pending.remove();
+
+    if (!response.ok) {
+      appendChatMessage("error", data.error ?? `Request failed (${response.status}).`);
+      return;
+    }
+
+    chatSessionId = data.sessionId;
+    appendChatMessage("assistant", data.reply);
+  } catch (error) {
+    pending.remove();
+    appendChatMessage("error", `Network error: ${error.message}`);
+  } finally {
+    chatSendButton.disabled = false;
+  }
+}
+
+chatForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const message = chatInput.value.trim();
+  if (!message) return;
+  chatInput.value = "";
+  sendChatMessage(message);
+});
+
+// Enter sends, Shift+Enter inserts a newline (textarea's default for Enter
+// is a newline, so this needs to be handled explicitly).
+chatInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    chatForm.requestSubmit();
+  }
+});
+
+chatClearButton.addEventListener("click", () => {
+  chatSessionId = null;
+  chatLog.innerHTML = "";
+  chatInput.focus();
+});
