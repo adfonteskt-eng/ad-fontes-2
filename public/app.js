@@ -214,6 +214,14 @@ function renderSummary(summary, summaryError) {
     ${notes}`;
 }
 
+const submitButton = form.querySelector('button[type="submit"]');
+
+// Guards against a rapid double-submit (double-click, or mashing Enter while
+// the AI summary call is still in flight) firing two overlapping requests.
+// Without this, a stale response arriving after a newer one could overwrite
+// the results the user actually asked for last.
+let requestId = 0;
+
 async function runSearch(rawInput) {
   const ref = normalizeReference(rawInput);
   if (!ref) {
@@ -225,12 +233,18 @@ async function runSearch(rawInput) {
     return;
   }
 
+  const thisRequest = ++requestId;
   setStatus("Looking that up...");
   resultsEl.hidden = true;
+  submitButton.disabled = true;
 
   try {
     const response = await fetch(`/api/passage?ref=${encodeURIComponent(ref)}`);
     const data = await response.json();
+
+    // A newer search started while this one was still in flight — drop this
+    // result rather than let it clobber what's now on screen.
+    if (thisRequest !== requestId) return;
 
     if (!response.ok) {
       setStatus(data.error ?? `Request failed (${response.status}).`, true);
@@ -247,7 +261,10 @@ async function runSearch(rawInput) {
     ].join("");
     resultsEl.hidden = false;
   } catch (error) {
+    if (thisRequest !== requestId) return;
     setStatus(`Network error: ${error.message}`, true);
+  } finally {
+    if (thisRequest === requestId) submitButton.disabled = false;
   }
 }
 
