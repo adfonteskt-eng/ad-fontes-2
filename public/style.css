@@ -50,42 +50,7 @@ main {
   padding: 0 1.25rem 4rem;
 }
 
-#search-form {
-  display: flex;
-  gap: 0.5rem;
-}
-
-#ref-input {
-  flex: 1;
-  padding: 0.7rem 0.9rem;
-  font-size: 1rem;
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  background: var(--panel);
-  color: var(--ink);
-}
-
-#ref-input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-#search-form button {
-  padding: 0.7rem 1.2rem;
-  font-size: 1rem;
-  border: none;
-  border-radius: 0.5rem;
-  background: var(--accent);
-  color: white;
-  cursor: pointer;
-}
-
-#search-form button:hover {
-  opacity: 0.9;
-}
-
 .examples {
-  margin-top: 0.75rem;
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
@@ -109,28 +74,15 @@ main {
   color: var(--accent);
 }
 
-.status {
-  margin-top: 1.5rem;
-  color: var(--ink-soft);
-}
-
-.status.error {
-  color: var(--error);
-}
-
-#results {
-  margin-top: 1.5rem;
-}
-
-.result-heading {
+.source-heading {
   font-family: var(--serif);
-  font-size: 1.6rem;
-  margin: 2rem 0 0.75rem;
-  padding-bottom: 0.4rem;
+  font-size: 1.15rem;
+  margin: 1.25rem 0 0.6rem;
+  padding-bottom: 0.3rem;
   border-bottom: 1px solid var(--line);
 }
 
-.result-heading:first-child {
+.source-heading:first-child {
   margin-top: 0;
 }
 
@@ -247,47 +199,13 @@ table.interlinear th {
   white-space: pre-wrap;
 }
 
-.summary-box {
-  background: var(--accent-soft);
-  border: 1px solid var(--line);
-  border-radius: 0.6rem;
-  padding: 1rem 1.1rem;
-  font-family: var(--serif);
-  font-size: 1.1rem;
-}
-
-.study-notes {
-  margin-top: 1rem;
-  white-space: pre-wrap;
-  color: var(--ink-soft);
-}
-
-.study-notes-heading {
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--accent);
-  margin: 0 0 0.4rem;
-}
-
-#chat-section {
-  margin-top: 2.5rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--line);
-}
-
 .chat-heading-row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-}
-
-.chat-heading-row .result-heading {
-  margin: 2rem 0 0.75rem;
-  border-bottom: none;
-  padding-bottom: 0;
-  flex: 1;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
 }
 
 #chat-clear {
@@ -351,6 +269,50 @@ table.interlinear th {
   font-size: 0.9rem;
 }
 
+/* The source material Claude gathered while producing a reply — shown
+   full-width (not bubble-constrained) since it can include a whole
+   interlinear table, unlike the prose messages around it. */
+.chat-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.source-passage {
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.source-passage summary {
+  cursor: pointer;
+  padding: 0.6rem 0.9rem;
+  font-family: var(--serif);
+  font-size: 1.1rem;
+  font-style: italic;
+  list-style: none;
+}
+
+.source-passage summary::-webkit-details-marker {
+  display: none;
+}
+
+.source-passage summary::before {
+  content: "▾ ";
+  color: var(--accent);
+  font-style: normal;
+}
+
+.source-passage:not([open]) summary::before {
+  content: "▸ ";
+}
+
+.source-body {
+  padding: 0 0.9rem 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
 #chat-form {
   display: flex;
   gap: 0.5rem;
@@ -411,7 +373,7 @@ footer a {
   header h1 {
     font-size: 1.6rem;
   }
-  .result-heading {
-    font-size: 1.3rem;
+  .chat-message {
+    max-width: 95%;
   }
 }

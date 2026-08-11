@@ -17,12 +17,12 @@ No dependencies.
 - **Phase 2 — Summarize.** Turn that material into something a person can read
   quickly: a short takeaway plus deeper study notes. Done — `lib/summarize.js`.
 - **Phase 3 — Productize.** Turn this from a CLI into a website, app, or browser
-  extension. In progress — a website (`server.js` + `public/`) is up, reusing
-  `gatherPassage()`/`summarizePassage()` directly rather than parsing CLI
-  output, plus a conversational chat interface (`lib/chat.js`) on top of the
-  same pipeline for questions that don't fit the one-shot reference-in,
-  report-out flow. Not yet done: deployment (currently local-only), and an
-  app or browser extension if that's still wanted after the website.
+  extension. In progress — the website (`server.js` + `public/`) is a single
+  chat interface (`lib/chat.js`): one box, ask about any passage, Claude
+  gathers translations/original-language/commentary via tool use as needed
+  and shows them alongside a conversational reply. Not yet done: deployment
+  (currently local-only), and an app or browser extension if that's still
+  wanted after the website.
 
 ## Setup
 
@@ -107,45 +107,46 @@ npm run web            # http://localhost:3000
 PORT=8080 npm run web  # or pick a different port
 ```
 
-A single page: type a reference (loose formats like "John 3:16" or "1 Cor 13:4"
-work, not just USFM), get the same four sections as the CLI. No build step —
-plain HTML/CSS/JS in `public/`, served by a zero-dependency `node:http` server
-(`server.js`) that wraps `gatherPassage()`/`summarizePassage()` in one endpoint:
+One box, no separate search field: type a bare reference ("John 3:16",
+"1 Cor 13:4") or a full question ("what kind of love does Paul mean in
+1 Corinthians 13:4?"), and the reply comes back conversationally with the
+translations, original-language interlinear, and commentary Claude actually
+used shown alongside it in a collapsible block per passage. Ask a follow-up
+without repeating the reference, or ask something with no specific verse in
+mind — Claude can pull in a cross-reference itself if one genuinely helps.
 
-```
-GET /api/passage?ref=JHN.3.16&variants=false&commentary=true&summary=true
-```
-
-This is local-only for now — nothing about it is deployed anywhere yet.
-
-## Chat
-
-Below the search results (and usable on its own, without ever searching
-first) is a conversational chat panel. It's not a second, separate
-question-answering path — it calls the same `gatherPassage()` Phase 1
-pipeline, but lets Claude decide what to fetch and when, via a
-`gather_passage` tool it can call mid-conversation (`lib/chat.js`):
-
-- Ask about the passage already on screen ("what does 'only begotten' mean
-  in the Greek here?") without repeating the reference.
-- Start straight from a question with a reference in it ("what does John
-  3:16 mean by...") — no need to search first.
-- Ask something with no specific verse in mind ("what else does Scripture
-  say about this?") — Claude can gather a cross-reference itself if one
-  genuinely helps, rather than being limited to whatever's already on
-  screen.
+This works because the chat box isn't a second, separate question-answering
+path bolted onto search — there is no separate search anymore. Every
+message goes through `lib/chat.js`, which gives Claude a `gather_passage`
+tool backed directly by the same `gatherPassage()` Phase 1 pipeline the CLI
+uses, and lets it decide what to fetch and when, mid-conversation. That's
+also what fixes the disconnect an earlier version had: because everything —
+the passage data and the conversation — lives in the same message history,
+"what does that mean in the Greek" naturally resolves to whatever was
+gathered a moment ago, without needing separate plumbing to link the two.
 
 ```
 POST /api/chat
 { "sessionId": "…", "message": "…" }
--> { "sessionId": "…", "reply": "…" }
+-> { "sessionId": "…", "reply": "…", "gathered": [ { reference, translations, originalLanguage, commentary }, … ] }
 ```
 
 `sessionId` is omitted on a conversation's first message; the server
 creates one and returns it for the client to send with every message after
-that. History is kept in memory only, per server process — restarting the
-server (or clicking "New conversation" in the UI) clears it. No new
-configuration is needed: chat reuses `YVP_APP_KEY` and `ANTHROPIC_API_KEY`.
+that. `gathered` lists the passages (if any) Claude looked up while
+producing that specific reply — usually one, more if it pulled in a cross-
+reference, empty if the reply didn't need new data (e.g. a follow-up about
+something already gathered earlier in the conversation). History is kept in
+memory only, per server process — restarting the server (or clicking "New
+conversation" in the UI) clears it. No new configuration is needed: chat
+reuses `YVP_APP_KEY` and `ANTHROPIC_API_KEY`.
+
+The old `GET /api/passage?ref=...` endpoint (translations/interlinear/
+commentary/summary for one reference, no chat) still exists in `server.js`
+and works, but the frontend no longer calls it — it's unused dead weight
+now except as a plain data API, kept in case that's useful later.
+
+This is local-only for now — nothing about it is deployed anywhere yet.
 
 ## Translations
 
