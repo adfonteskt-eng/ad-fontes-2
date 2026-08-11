@@ -7,7 +7,7 @@
   --ink-soft: #5c4f3a;
   --paper: #e2d3ab;
   --panel: #f3ebd6;
-  --line: #c3ad7c;
+  --line: #7a6438;
   --accent: #6b4f2a;
   --accent-soft: #d8c493;
   --error: #9a3b3b;
@@ -449,7 +449,12 @@ footer a {
   header h1 {
     font-size: 1.6rem;
   }
-  .chat-message {
+  /* .chat-message.user/.error (two classes) are more specific than a bare
+     .chat-message rule, so this has to target them by the same selectors
+     to actually win the cascade — a bare ".chat-message" rule here would
+     be silently overridden and do nothing. */
+  .chat-message.user,
+  .chat-message.error {
     max-width: 95%;
   }
 }

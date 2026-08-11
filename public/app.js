@@ -27,7 +27,7 @@ function renderTranslations(translations) {
       </div>`;
     })
     .join("");
-  return `<h3 class="source-heading">Translations</h3>${rows}`;
+  return `<h2 class="source-heading">Translations</h2>${rows}`;
 }
 
 function renderOriginalLanguage(ol) {
@@ -78,12 +78,12 @@ function renderOriginalLanguage(ol) {
     }
   }
 
-  return `<h3 class="source-heading">Original language</h3>${body}`;
+  return `<h2 class="source-heading">Original language</h2>${body}`;
 }
 
 function renderCommentary(commentary) {
   if (commentary.error) {
-    return `<h3 class="source-heading">Commentary</h3><p class="section-note">${escapeHtml(commentary.error)}</p>`;
+    return `<h2 class="source-heading">Commentary</h2><p class="section-note">${escapeHtml(commentary.error)}</p>`;
   }
   if (!commentary.entries || commentary.entries.length === 0) {
     return "";
@@ -98,7 +98,7 @@ function renderCommentary(commentary) {
     )
     .join("");
 
-  return `<h3 class="source-heading">Commentary</h3>${entries}
+  return `<h2 class="source-heading">Commentary</h2>${entries}
     <p class="section-note">Public domain, via <a href="${escapeHtml(commentary.url)}" target="_blank" rel="noopener">biblehub.com</a>.</p>`;
 }
 
@@ -143,9 +143,10 @@ function appendChatMessage(role, text) {
 
 // A small flickering candle in place of a generic spinner — fits the site's
 // identity better than a plain "Thinking…" line on its own. Built as inline
-// SVG (no image asset, no build step) with the flicker/glow done in CSS;
-// `.thinking-icon` picks up currentColor via var(--accent)/var(--ink-soft)
-// set directly on the shapes so it stays in sync with the color palette.
+// SVG (no image asset, no build step); the flicker/glow animation lives in
+// CSS (.thinking-icon rules in style.css). Shape fills reference the same
+// --accent/--ink-soft custom properties as the rest of the page, so this
+// stays in sync automatically if the palette changes.
 const THINKING_ICON = `<svg class="thinking-icon" width="18" height="24" viewBox="0 0 20 26" aria-hidden="true">
   <circle class="glow" cx="10" cy="8" r="7" fill="var(--accent)" opacity="0.18"></circle>
   <rect x="7" y="14" width="6" height="10" rx="1" fill="var(--ink-soft)"></rect>
@@ -200,6 +201,13 @@ async function sendChatMessage(message) {
     appendChatMessage("error", `Network error: ${error.message}`);
   } finally {
     chatSendButton.disabled = false;
+    // Return focus to the input so another message can be typed right away
+    // without tapping back into the field — skipped if the user has text
+    // selected (reading/copying something while waiting for the reply),
+    // so refocusing doesn't clear a selection out from under them.
+    if (window.getSelection().toString().length === 0) {
+      chatInput.focus();
+    }
   }
 }
 
