@@ -17,9 +17,10 @@ No dependencies.
 - **Phase 2 — Summarize.** Turn that material into something a person can read
   quickly: a short takeaway plus deeper study notes. Done — `lib/summarize.js`.
 - **Phase 3 — Productize.** Turn this from a CLI into a website, app, or browser
-  extension. Not started. `gatherPassage()` and `summarizePassage()` are already
-  separated from the console-printing code in `index.js` so a future UI can call
-  them directly instead of parsing terminal output.
+  extension. In progress — a minimal website (`server.js` + `public/`) is up,
+  reusing `gatherPassage()`/`summarizePassage()` directly rather than parsing
+  CLI output. Not yet done: deployment (currently local-only), and an app or
+  browser extension if that's still wanted after the website.
 
 ## Setup
 
@@ -96,6 +97,24 @@ node index.js JHN.3.16 --variants
 node index.js JHN.3.16 --no-commentary
 node index.js JHN.3.16 --no-summary
 ```
+
+## Website
+
+```bash
+npm run web            # http://localhost:3000
+PORT=8080 npm run web  # or pick a different port
+```
+
+A single page: type a reference (loose formats like "John 3:16" or "1 Cor 13:4"
+work, not just USFM), get the same four sections as the CLI. No build step —
+plain HTML/CSS/JS in `public/`, served by a zero-dependency `node:http` server
+(`server.js`) that wraps `gatherPassage()`/`summarizePassage()` in one endpoint:
+
+```
+GET /api/passage?ref=JHN.3.16&variants=false&commentary=true&summary=true
+```
+
+This is local-only for now — nothing about it is deployed anywhere yet.
 
 ## Translations
 
@@ -194,4 +213,6 @@ fetched live from biblehub.com per verse rather than bundled.
 | `lib/interlinear.js` | Greek/Hebrew parsing against the STEPBible data files. |
 | `lib/commentary.js` | biblehub.com scraper. |
 | `index.js` | CLI: calls the two functions above and prints the result. |
+| `server.js` | Web API: same two functions, one JSON endpoint, plus static file serving. |
+| `public/` | Website frontend — plain HTML/CSS/JS, no build step. |
 | `scripts/fetch-data.js` | Downloads the STEPBible data files into `data/`. |

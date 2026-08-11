@@ -7,6 +7,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "web": "node server.js",
     "fetch-data": "node scripts/fetch-data.js"
   },
   "engines": {

@@ -169,7 +169,11 @@ async function main() {
   const skipSummary = args.includes("--no-summary");
   const usfm = args.find((arg) => !arg.startsWith("--")) ?? DEFAULT_REFERENCE;
 
-  const gathered = await gatherPassage(usfm, { appKey, includeVariants });
+  const gathered = await gatherPassage(usfm, {
+    appKey,
+    includeVariants,
+    includeCommentary: !skipCommentary,
+  });
 
   const bar = "=".repeat(60);
   console.log(`${bar}\n${gathered.reference.usfm}\n${bar}`);
