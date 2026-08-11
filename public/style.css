@@ -1,11 +1,15 @@
 :root {
-  --ink: #1f2320;
-  --ink-soft: #4a4f4a;
-  --paper: #fbf9f4;
-  --panel: #ffffff;
-  --line: #e2ddd0;
+  /* Aged-parchment palette — darker than the original cream (#fbf9f4) per
+     request, still a light warm theme rather than a dark-mode flip. --panel
+     stays a lighter, cleaner tone than --paper so cards/bubbles read as
+     "a page" sitting on top of the darker desk-colored background. */
+  --ink: #241c12;
+  --ink-soft: #5c4f3a;
+  --paper: #e2d3ab;
+  --panel: #f3ebd6;
+  --line: #c3ad7c;
   --accent: #6b4f2a;
-  --accent-soft: #f1e9d8;
+  --accent-soft: #d8c493;
   --error: #9a3b3b;
   --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -57,6 +61,14 @@ main {
   align-items: center;
   font-size: 0.85rem;
   color: var(--ink-soft);
+}
+
+/* An unconditional `display` on an element also toggled via the `hidden`
+   attribute needs this override — otherwise the author-stylesheet display
+   rule above beats the browser's default `[hidden] { display: none }`,
+   and the element never actually hides. */
+.examples[hidden] {
+  display: none;
 }
 
 .example {
@@ -224,6 +236,26 @@ table.interlinear th {
   color: var(--accent);
 }
 
+#chat-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.85rem;
+  padding: 2.5rem 1rem;
+  color: var(--ink-soft);
+}
+
+#chat-empty-state[hidden] {
+  display: none;
+}
+
+#chat-empty-state p {
+  max-width: 26rem;
+  margin: 0;
+  font-size: 0.95rem;
+}
+
 #chat-log {
   display: flex;
   flex-direction: column;
@@ -232,36 +264,80 @@ table.interlinear th {
 }
 
 .chat-message {
-  max-width: 85%;
-  padding: 0.7rem 0.95rem;
-  border-radius: 0.7rem;
   white-space: pre-wrap;
   line-height: 1.5;
 }
 
 .chat-message.user {
   align-self: flex-end;
+  max-width: 85%;
+  padding: 0.7rem 0.95rem;
+  border-radius: 0.7rem;
   background: var(--accent);
   color: white;
   border-bottom-right-radius: 0.15rem;
 }
 
+/* Claude's replies are plain flowing text, not a bubble — the point being
+   that this reads like a page of prose, not a chat-app message. The
+   left/right asymmetry with the user's bubble is what keeps the two
+   speakers visually distinct. */
 .chat-message.assistant {
   align-self: flex-start;
-  background: var(--panel);
-  border: 1px solid var(--line);
+  max-width: 100%;
   font-family: var(--serif);
-  font-size: 1.05rem;
-  border-bottom-left-radius: 0.15rem;
+  font-size: 1.08rem;
+  color: var(--ink);
 }
 
 .chat-message.pending {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   color: var(--ink-soft);
   font-style: italic;
 }
 
+.thinking-icon {
+  flex-shrink: 0;
+}
+
+.thinking-icon .flame {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: candle-flicker 1.6s ease-in-out infinite;
+}
+
+.thinking-icon .glow {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: candle-glow 1.6s ease-in-out infinite;
+}
+
+@keyframes candle-flicker {
+  0%, 100% { transform: scaleY(1) scaleX(1) rotate(0deg); opacity: 1; }
+  20% { transform: scaleY(1.1) scaleX(0.94) rotate(-3deg); opacity: 0.9; }
+  45% { transform: scaleY(0.92) scaleX(1.06) rotate(2deg); opacity: 1; }
+  70% { transform: scaleY(1.06) scaleX(0.96) rotate(-2deg); opacity: 0.94; }
+}
+
+@keyframes candle-glow {
+  0%, 100% { opacity: 0.14; transform: scale(1); }
+  50% { opacity: 0.26; transform: scale(1.25); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-icon .flame,
+  .thinking-icon .glow {
+    animation: none;
+  }
+}
+
 .chat-message.error {
   align-self: flex-start;
+  max-width: 85%;
+  padding: 0.7rem 0.95rem;
+  border-radius: 0.7rem;
   background: none;
   border: 1px solid var(--error);
   color: var(--error);

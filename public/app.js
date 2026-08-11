@@ -141,6 +141,27 @@ function appendChatMessage(role, text) {
   return el;
 }
 
+// A small flickering candle in place of a generic spinner — fits the site's
+// identity better than a plain "Thinking…" line on its own. Built as inline
+// SVG (no image asset, no build step) with the flicker/glow done in CSS;
+// `.thinking-icon` picks up currentColor via var(--accent)/var(--ink-soft)
+// set directly on the shapes so it stays in sync with the color palette.
+const THINKING_ICON = `<svg class="thinking-icon" width="18" height="24" viewBox="0 0 20 26" aria-hidden="true">
+  <circle class="glow" cx="10" cy="8" r="7" fill="var(--accent)" opacity="0.18"></circle>
+  <rect x="7" y="14" width="6" height="10" rx="1" fill="var(--ink-soft)"></rect>
+  <rect x="6" y="12" width="8" height="2.2" rx="1" fill="var(--accent)"></rect>
+  <path class="flame" d="M10 2C10 2 6 6.5 6 9.5C6 11.99 7.79 14 10 14C12.21 14 14 11.99 14 9.5C14 6.5 10 2 10 2Z" fill="var(--accent)"></path>
+</svg>`;
+
+function appendPendingMessage() {
+  const el = document.createElement("div");
+  el.className = "chat-message pending";
+  el.innerHTML = `${THINKING_ICON}<span>Thinking…</span>`;
+  chatLog.appendChild(el);
+  chatLog.scrollTop = chatLog.scrollHeight;
+  return el;
+}
+
 function appendSources(gatheredList) {
   const html = renderSources(gatheredList);
   if (!html) return;
@@ -151,8 +172,9 @@ function appendSources(gatheredList) {
 }
 
 async function sendChatMessage(message) {
+  hideEmptyState();
   appendChatMessage("user", message);
-  const pending = appendChatMessage("pending", "Thinking…");
+  const pending = appendPendingMessage();
   chatSendButton.disabled = true;
 
   try {
@@ -198,14 +220,64 @@ chatInput.addEventListener("keydown", (event) => {
   }
 });
 
+// --- Empty state & example prompts --------------------------------------
+// Shown until the first message of a conversation, then hidden — reset by
+// "New conversation". Examples are drawn fresh from a larger pool each time
+// so the same four don't show on every visit.
+
+const emptyState = document.getElementById("chat-empty-state");
+const examplesContainer = document.querySelector(".examples");
+
+function hideEmptyState() {
+  emptyState.hidden = true;
+  examplesContainer.hidden = true;
+}
+
+function showEmptyState() {
+  emptyState.hidden = false;
+  examplesContainer.hidden = false;
+}
+
+const EXAMPLE_POOL = [
+  { label: "John 3:16", question: "What does John 3:16 mean?" },
+  { label: "Genesis 1:1", question: "What does Genesis 1:1 tell us about creation?" },
+  { label: "1 Cor 13:4", question: "What kind of love does Paul describe in 1 Corinthians 13:4?" },
+  { label: "Romans 8:28", question: "What does Romans 8:28 actually promise?" },
+  { label: "Psalm 23:1", question: "What does it mean that 'the LORD is my shepherd' in Psalm 23:1?" },
+  { label: "Matthew 5:3", question: "What does it mean to be 'poor in spirit' in Matthew 5:3?" },
+  { label: "Ephesians 2:8", question: "What does Ephesians 2:8 mean by saved 'by grace through faith'?" },
+  { label: "Philippians 4:6", question: "What is Paul saying about anxiety in Philippians 4:6?" },
+  { label: "Isaiah 53:5", question: "Who is Isaiah 53:5 describing, and what does it mean?" },
+  { label: "1 John 4:8", question: "What does it mean that 'God is love' in 1 John 4:8?" },
+];
+
+function shuffled(array) {
+  const copy = [...array];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function renderExamples() {
+  examplesContainer.querySelectorAll(".example").forEach((button) => button.remove());
+  for (const { label, question } of shuffled(EXAMPLE_POOL).slice(0, 4)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "example";
+    button.textContent = label;
+    button.addEventListener("click", () => sendChatMessage(question));
+    examplesContainer.appendChild(button);
+  }
+}
+
 chatClearButton.addEventListener("click", () => {
   chatSessionId = null;
   chatLog.innerHTML = "";
+  showEmptyState();
+  renderExamples();
   chatInput.focus();
 });
 
-document.querySelectorAll(".example").forEach((button) => {
-  button.addEventListener("click", () => {
-    sendChatMessage(button.dataset.question);
-  });
-});
+renderExamples();
