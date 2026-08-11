@@ -82,7 +82,7 @@ function printTranslations(results) {
 }
 
 function printOriginalLanguage(originalLanguage) {
-  const { type, book, missingFiles, words, variantCount, error, source } =
+  const { type, book, missingFiles, words, variantCount, error, source, hebrewVerseRef } =
     originalLanguage;
 
   if (type === "unsupported") {
@@ -108,6 +108,15 @@ function printOriginalLanguage(originalLanguage) {
     type === "greek" ? "Greek — NA28 critical text" : "Hebrew — Leningrad Codex, Qere-corrected";
   console.log(`\n${label} (${words.length} words)\n`);
   console.log(formatInterlinear(words).join("\n"));
+
+  if (hebrewVerseRef) {
+    console.log(
+      `\nNote: Hebrew versification differs here — this is Hebrew ${book}.${hebrewVerseRef}.` +
+        ` (Most often this is a psalm superscription counted as part of the` +
+        ` verse numbering in Hebrew but not in English, offsetting the rest` +
+        ` of the psalm by one.)`,
+    );
+  }
 
   if (type === "greek" && variantCount > 0) {
     console.log(

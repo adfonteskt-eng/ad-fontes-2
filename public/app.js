@@ -164,6 +164,9 @@ function renderOriginalLanguage(ol) {
     if (ol.type === "greek" && ol.variantCount > 0) {
       body += `<p class="section-note">${ol.variantCount} variant word${ol.variantCount === 1 ? "" : "s"} in the TR/Byzantine tradition hidden.</p>`;
     }
+    if (ol.hebrewVerseRef) {
+      body += `<p class="section-note">Note: Hebrew versification differs here — this is Hebrew ${escapeHtml(ol.book)}.${escapeHtml(ol.hebrewVerseRef)}. (Most often a psalm superscription counted as part of the verse numbering in Hebrew but not English, offsetting the rest of the psalm by one.)</p>`;
+    }
     if (ol.source) {
       body += `<p class="section-note">${escapeHtml(ol.source)}</p>`;
     }
