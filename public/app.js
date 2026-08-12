@@ -144,21 +144,18 @@ function clearInputPlaceholder() {
 let chatSessionId = null;
 
 // --- Client-side persistence ---------------------------------------------
-// The server keeps conversation history in memory (lib/chat.js's sessions
-// Map), so a page refresh used to lose the visible chat log even though
-// nothing about the underlying design required that — this just mirrors the
-// rendered log into localStorage so a refresh restores what was on screen.
+// This mirrors the rendered log into localStorage so a page refresh
+// restores what was on screen instead of starting over blank.
 //
-// Known limitation, not fixed by this: if the server process restarts, its
-// in-memory session is gone even though the browser still has the visual
-// history. chatTurn() already handles an unrecognized sessionId gracefully
-// (silently starts a fresh server-side session rather than erroring — see
-// lib/chat.js), so this doesn't break, but Claude's *actual* memory of the
-// restored-looking conversation resets even though the messages are still
-// on screen. Fixing that would mean persisting conversation history
-// server-side (a database, or at least a file) instead of an in-memory Map,
-// which is a real architectural step up, not a client-side tweak — flagging
-// it rather than doing it silently here.
+// Server-side, whether the underlying conversation survives a restart
+// depends on deployment config (lib/session-store.js: Upstash Redis if
+// configured, in-memory Map otherwise — see README). Without Redis
+// configured, a restart clears the server-side session even though the
+// browser still shows the old messages; chatTurn() handles an unrecognized
+// sessionId gracefully (starts a fresh server-side session rather than
+// erroring), so this doesn't break, it just means Claude's actual memory of
+// the restored-looking conversation is gone even though the messages are
+// still on screen. With Redis configured, both sides genuinely agree.
 const STORAGE_KEY = "adfontes.chat.v1";
 // Caps how much rendered history localStorage carries — mirrors the spirit
 // of lib/chat.js's own MAX_HISTORY_MESSAGES trim (a safety cap, not expected
@@ -232,6 +229,17 @@ function appendPendingMessage() {
   return el;
 }
 
+// On a host that spins a free instance down after inactivity (Render's free
+// plan does — see README -> Deployment), the very first request after a
+// quiet period can take 30-60s just to wake the server, on top of however
+// long the actual reply takes. Without any signal, that looks identical to
+// the app being broken. A normal reply lands well under this threshold, so
+// it never appears in the common case — only when there's genuinely a long
+// wait already underway, at which point it's a reassurance, not clutter.
+const COLD_START_HINT_DELAY_MS = 8000;
+const COLD_START_HINT_TEXT =
+  "Still working… if this is the first message in a while, the server may be waking up (can take up to a minute).";
+
 function appendSources(gatheredList) {
   const html = renderSources(gatheredList);
   if (!html) return;
@@ -250,6 +258,10 @@ async function sendChatMessage(message) {
 
   const pending = appendPendingMessage();
   chatSendButton.disabled = true;
+  const coldStartTimer = setTimeout(() => {
+    const label = pending.querySelector("span");
+    if (label) label.textContent = COLD_START_HINT_TEXT;
+  }, COLD_START_HINT_DELAY_MS);
 
   try {
     const response = await fetch("/api/chat", {
@@ -281,6 +293,7 @@ async function sendChatMessage(message) {
     chatLogData.push({ role: "error", text: errorText });
     saveChatState();
   } finally {
+    clearTimeout(coldStartTimer);
     chatSendButton.disabled = false;
     // Return focus to the input so another message can be typed right away
     // without tapping back into the field — skipped if the user has text
