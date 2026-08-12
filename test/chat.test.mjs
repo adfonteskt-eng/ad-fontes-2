@@ -246,3 +246,61 @@ test("a long real conversation with tool calls never produces a malformed reques
   }
   assert.ok(step > 15, "expected more than one request per turn across 15 turns");
 });
+
+// --- Atomic turn commit: a mid-loop failure must not corrupt the session --
+// Real bug found this session: a transient Anthropic failure (5xx, a
+// fetchWithTimeout timeout, a rate limit) partway through a tool-use loop
+// used to mutate the session's *live* history array before the turn had
+// actually succeeded. The next turn on that same session would then push
+// its own message right after the leftover partial state, breaking strict
+// user/assistant alternation and getting rejected by the real API with a
+// 400 — permanently, since the corruption was already committed to the
+// session. A turn must be all-or-nothing: either it fully lands, or the
+// session is left exactly as it was before the failed attempt.
+test("a transient failure mid-tool-loop doesn't corrupt the session for future turns", async () => {
+  let call = 0;
+
+  globalThis.fetch = async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    // Same alternation check a real Anthropic API would enforce — the stub
+    // needs to actually validate this, or a corrupted history would just
+    // silently "succeed" against a stub that doesn't check anything.
+    for (let i = 1; i < body.messages.length; i++) {
+      assert.notEqual(
+        body.messages[i].role,
+        body.messages[i - 1].role,
+        `messages must strictly alternate roles (index ${i - 1}/${i} both "${body.messages[i].role}")`,
+      );
+    }
+
+    call++;
+    if (call === 1) {
+      return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "first reply" }] });
+    }
+    if (call === 2) {
+      return jsonResponse({
+        stop_reason: "tool_use",
+        content: [{ type: "tool_use", id: "t1", name: "gather_passage", input: { reference: "JHN.3.16" } }],
+      });
+    }
+    if (call === 3) {
+      // The tool call above already succeeded and its result was appended
+      // to history — now simulate the API itself failing on the very next
+      // call within the same turn.
+      throw new Error("Anthropic API returned 529 Overloaded");
+    }
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "recovered reply" }] });
+  };
+
+  const turn1 = await chatTurn({ message: "hello", appKey: "k", apiKey: "fake" });
+
+  await assert.rejects(
+    () => chatTurn({ sessionId: turn1.sessionId, message: "what does john 3:16 mean?", appKey: "k", apiKey: "fake" }),
+    /529|Overloaded/,
+  );
+
+  // The real assertion: a normal follow-up on the SAME session, after the
+  // transient failure has passed, must succeed rather than 400 forever.
+  const turn3 = await chatTurn({ sessionId: turn1.sessionId, message: "try again", appKey: "k", apiKey: "fake" });
+  assert.equal(turn3.reply, "recovered reply");
+});
