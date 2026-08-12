@@ -117,13 +117,38 @@ mind — Claude can pull in a cross-reference itself if one genuinely helps.
 
 This works because the chat box isn't a second, separate question-answering
 path bolted onto search — there is no separate search anymore. Every
-message goes through `lib/chat.js`, which gives Claude a `gather_passage`
-tool backed directly by the same `gatherPassage()` Phase 1 pipeline the CLI
-uses, and lets it decide what to fetch and when, mid-conversation. That's
+message goes through `lib/chat.js`, which gives Claude three tools, all
+backed by real local STEPBible data (no guessing from memory):
+
+- `gather_passage` — the same `gatherPassage()` Phase 1 pipeline the CLI
+  uses: translations, original-language interlinear, commentary for one
+  verse.
+- `search_lexicon` — finds the real Strong's numbers behind an English
+  concept (e.g. "love" → agapaō G0025, phileō G5368, Hebrew ahav H0157),
+  so a topical question doesn't rely on Claude's memory of Greek/Hebrew
+  vocabulary.
+- `find_occurrences` — every verse actually tagged with a given Strong's
+  number, for genuine word studies and cross-references grounded in the
+  data instead of a plausible-sounding guess.
+
+Claude decides what to call and when, mid-conversation, chaining tools for
+topical questions ("what does Scripture say about love?" → search_lexicon →
+find_occurrences → gather_passage on a couple of the strongest hits). That's
 also what fixes the disconnect an earlier version had: because everything —
 the passage data and the conversation — lives in the same message history,
 "what does that mean in the Greek" naturally resolves to whatever was
 gathered a moment ago, without needing separate plumbing to link the two.
+
+A few things make repeated use faster and more resilient without changing
+behavior: `gatherPassage()` results are cached in-memory for 15 minutes
+(`lib/gather.js`), every external call (YouVersion, biblehub, Anthropic) has
+a timeout so a stalled request fails cleanly instead of hanging forever
+(`lib/fetch-timeout.js`), and the browser persists the rendered chat log to
+`localStorage` so a page refresh doesn't lose the conversation (`public/
+app.js`) — though note that's visual-only: if the server process restarts,
+its in-memory session history is gone even though the browser still shows
+the old messages, so Claude won't actually remember them (see the comment
+above `restoreChatState()` in `public/app.js`).
 
 ```
 POST /api/chat
@@ -240,11 +265,12 @@ fetched live from biblehub.com per verse rather than bundled.
 
 | File | Role |
 | ---- | ---- |
-| `lib/gather.js` | Phase 1. `gatherPassage(usfm, opts)` → structured object, no printing. |
+| `lib/gather.js` | Phase 1. `gatherPassage(usfm, opts)` → structured object, no printing. Results cached in-memory for 15 min (`clearGatherCache()` to force-clear). |
 | `lib/summarize.js` | Phase 2. `summarizePassage(gathered, opts)` → `{ shortSummary, studyNotes }`. Also exports `formatGatheredPassage()`, the plain-text formatter shared with `lib/chat.js`. |
-| `lib/chat.js` | Phase 3 chat. `chatTurn(opts)` → `{ sessionId, reply }`, looping Claude tool calls into `gatherPassage()` as needed. In-memory sessions. |
-| `lib/interlinear.js` | Greek/Hebrew parsing against the STEPBible data files. |
+| `lib/chat.js` | Phase 3 chat. `chatTurn(opts)` → `{ sessionId, reply, gathered }`, looping Claude tool calls (`gather_passage`, `search_lexicon`, `find_occurrences`) as needed. In-memory sessions. |
+| `lib/interlinear.js` | Greek/Hebrew parsing against the STEPBible data files. Also exports `searchLexicon()` (keyword → Strong's numbers) and `findStrongsOccurrences()` (Strong's number → every tagged verse). |
 | `lib/commentary.js` | biblehub.com scraper. |
+| `lib/fetch-timeout.js` | `fetchWithTimeout()` — shared AbortController-based timeout wrapper used by every external call (YouVersion, biblehub, Anthropic). |
 | `index.js` | CLI: calls `gatherPassage()`/`summarizePassage()` and prints the result. |
 | `server.js` | Web API: `/api/passage` and `/api/chat`, plus static file serving. |
 | `public/` | Website frontend — plain HTML/CSS/JS, no build step. |
