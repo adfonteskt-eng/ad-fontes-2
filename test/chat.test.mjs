@@ -136,8 +136,8 @@ test("session store: idle expiration, max-count cap, and LRU-correct eviction", 
 
     // --- max-count cap ---
     fakeNow = realDateNow();
-    clearSession(a);
-    clearSession(aAgain);
+    await clearSession(a);
+    await clearSession(aAgain);
 
     const SESSION_MAX_COUNT = 500; // mirrors lib/chat.js's internal constant
     const ids = [];

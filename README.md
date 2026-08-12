@@ -161,14 +161,26 @@ minutes (`lib/gather.js`), every external call (YouVersion, biblehub,
 Anthropic) has a timeout so a stalled request fails cleanly instead of
 hanging forever (`lib/fetch-timeout.js`), the browser persists the rendered
 chat log to `localStorage` so a page refresh doesn't lose the conversation
-(`public/app.js`) — though note that's visual-only: if the server process
-restarts, its in-memory session history is gone even though the browser
-still shows the old messages, so Claude won't actually remember them (see
-the comment above `restoreChatState()` in `public/app.js`) — and the chat
-API call uses Anthropic's automatic prompt caching (1-hour TTL) so the
-system prompt, tool definitions, and growing conversation history are
-billed at a fraction of normal input-token price on repeat calls within a
-conversation, instead of resending everything at full price every turn.
+(`public/app.js`), and the chat API call uses Anthropic's automatic prompt
+caching (1-hour TTL) so the system prompt, tool definitions, and growing
+conversation history are billed at a fraction of normal input-token price on
+repeat calls within a conversation, instead of resending everything at full
+price every turn.
+
+Session history itself is stored through `lib/session-store.js`, which has
+two backends: an in-memory Map (the default — zero setup, but lost on every
+server restart) and Upstash Redis (set `UPSTASH_REDIS_REST_URL` and
+`UPSTASH_REDIS_REST_TOKEN` — see `.env.example`), which makes sessions
+durable across restarts and redeploys. `lib/chat.js` doesn't know or care
+which backend is active. Without Redis configured, a page refresh still
+looks fine (the browser's own `localStorage` copy of the chat log is
+restored), but the server-side session backing it is gone, so Claude won't
+actually remember anything from before the restart even though the messages
+are still on screen — that's the gap Redis closes. Chose Redis over a SQL
+database for this specifically because the data here is just an opaque blob
+per session that should expire after a period of inactivity, which maps
+directly onto Redis's native per-key TTL with no schema needed; a relational
+database is the right tool for the *later* accounts/billing work, not this.
 
 
 
@@ -255,10 +267,12 @@ with `SUMMARY_MODEL` in `.env`.
 | `YVP_APP_KEY`        | App key from developers.youversion.com. Required.     |
 | `BIBLE_IDS`          | Comma-separated Bible version ids. Defaults to BSB, KJV, WEB, ASV. |
 | `BIBLE_ID`           | Single-translation override, kept for backward compatibility. Ignored if `BIBLE_IDS` is set. |
-| `ANTHROPIC_API_KEY`  | Key from console.anthropic.com. Optional — enables the summary section. |
+| `ANTHROPIC_API_KEY`  | Key from console.anthropic.com. Optional — enables the summary section and chat. |
 | `SUMMARY_MODEL`      | Which Claude model generates the summary. Defaults to `claude-sonnet-5`. |
+| `UPSTASH_REDIS_REST_URL` | Optional. Makes chat session history durable across restarts — see the Website section above. Without it, sessions are in-memory only. |
+| `UPSTASH_REDIS_REST_TOKEN` | Optional, paired with the URL above. |
 
-`.env` is gitignored. Keep both keys out of source control.
+`.env` is gitignored. Keep all keys/tokens out of source control.
 
 ## Data & licence
 
@@ -289,10 +303,11 @@ fetched live from biblehub.com per verse rather than bundled.
 | ---- | ---- |
 | `lib/gather.js` | Phase 1. `gatherPassage(usfm, opts)` → structured object, no printing. Results cached in-memory for 15 min (`clearGatherCache()` to force-clear). |
 | `lib/summarize.js` | Phase 2. `summarizePassage(gathered, opts)` → `{ shortSummary, studyNotes }`. Also exports `formatGatheredPassage()`, the plain-text formatter shared with `lib/chat.js`. |
-| `lib/chat.js` | Phase 3 chat. `chatTurn(opts)` → `{ sessionId, reply, gathered }`, looping Claude tool calls (`gather_passage`, `search_lexicon`, `find_occurrences`) as needed. In-memory sessions. |
+| `lib/chat.js` | Phase 3 chat. `chatTurn(opts)` → `{ sessionId, reply, gathered }`, looping Claude tool calls (`gather_passage`, `search_lexicon`, `find_occurrences`) as needed. Session storage delegated to `lib/session-store.js`. |
+| `lib/session-store.js` | Pluggable session storage: Upstash Redis when configured, in-memory Map fallback otherwise. |
 | `lib/interlinear.js` | Greek/Hebrew parsing against the STEPBible data files. Also exports `searchLexicon()` (keyword → Strong's numbers) and `findStrongsOccurrences()` (Strong's number → every tagged verse). |
 | `lib/commentary.js` | biblehub.com scraper. |
-| `lib/fetch-timeout.js` | `fetchWithTimeout()` — shared AbortController-based timeout wrapper used by every external call (YouVersion, biblehub, Anthropic). |
+| `lib/fetch-timeout.js` | `fetchWithTimeout()` — shared AbortController-based timeout wrapper used by every external call (YouVersion, biblehub, Anthropic, Upstash). |
 | `index.js` | CLI: calls `gatherPassage()`/`summarizePassage()` and prints the result. |
 | `server.js` | Web API: `/api/passage` and `/api/chat`, plus static file serving. |
 | `public/` | Website frontend — plain HTML/CSS/JS, no build step. |
