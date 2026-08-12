@@ -304,3 +304,40 @@ test("a transient failure mid-tool-loop doesn't corrupt the session for future t
   const turn3 = await chatTurn({ sessionId: turn1.sessionId, message: "try again", appKey: "k", apiKey: "fake" });
   assert.equal(turn3.reply, "recovered reply");
 });
+
+// --- Exhausting MAX_TOOL_ITERATIONS must still end the turn cleanly -------
+// Third bug in this family: when Claude keeps calling tools and never
+// returns a final plain-text reply within the tool-call budget, the loop
+// exits by exhausting MAX_TOOL_ITERATIONS rather than a natural `break` —
+// which always happens right after a user-role tool_result was pushed. The
+// synthetic "(Reached the tool-call limit...)" fallback reply was returned
+// to the caller but never committed to history, so the session was left
+// ending on a tool_result with no assistant reply after it. The next turn's
+// user message would then land right after that tool_result, creating two
+// consecutive user-role messages and breaking Anthropic's role alternation.
+test("exhausting the tool-call budget doesn't corrupt the session for future turns", async () => {
+  globalThis.fetch = async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    for (let i = 1; i < body.messages.length; i++) {
+      assert.notEqual(
+        body.messages[i].role,
+        body.messages[i - 1].role,
+        `messages must strictly alternate roles (index ${i - 1}/${i} both "${body.messages[i].role}")`,
+      );
+    }
+    // Always ask for another tool call — never give a final text reply, so
+    // the loop is forced to exhaust MAX_TOOL_ITERATIONS.
+    return jsonResponse({
+      stop_reason: "tool_use",
+      content: [{ type: "tool_use", id: `t${Math.random()}`, name: "gather_passage", input: { reference: "JHN.3.16" } }],
+    });
+  };
+
+  const turn1 = await chatTurn({ message: "keep going forever", appKey: "k", apiKey: "fake" });
+  assert.match(turn1.reply, /tool-call limit/i);
+
+  // The real assertion: a normal follow-up on the same session must
+  // succeed, not break on role alternation.
+  const turn2 = await chatTurn({ sessionId: turn1.sessionId, message: "a normal follow-up", appKey: "k", apiKey: "fake" });
+  assert.match(turn2.reply, /tool-call limit/i); // this stub always asks for a tool, so it hits the same limit again
+});
