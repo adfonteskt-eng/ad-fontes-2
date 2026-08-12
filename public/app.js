@@ -132,6 +132,64 @@ const chatClearButton = document.getElementById("chat-clear");
 
 let chatSessionId = null;
 
+// --- Client-side persistence ---------------------------------------------
+// The server keeps conversation history in memory (lib/chat.js's sessions
+// Map), so a page refresh used to lose the visible chat log even though
+// nothing about the underlying design required that — this just mirrors the
+// rendered log into localStorage so a refresh restores what was on screen.
+//
+// Known limitation, not fixed by this: if the server process restarts, its
+// in-memory session is gone even though the browser still has the visual
+// history. chatTurn() already handles an unrecognized sessionId gracefully
+// (silently starts a fresh server-side session rather than erroring — see
+// lib/chat.js), so this doesn't break, but Claude's *actual* memory of the
+// restored-looking conversation resets even though the messages are still
+// on screen. Fixing that would mean persisting conversation history
+// server-side (a database, or at least a file) instead of an in-memory Map,
+// which is a real architectural step up, not a client-side tweak — flagging
+// it rather than doing it silently here.
+const STORAGE_KEY = "adfontes.chat.v1";
+// Caps how much rendered history localStorage carries — mirrors the spirit
+// of lib/chat.js's own MAX_HISTORY_MESSAGES trim (a safety cap, not expected
+// to be hit in normal use, since gathered source blocks are the bulk of the
+// size and most conversations are a handful of turns).
+const CLIENT_HISTORY_CAP = 40;
+
+let chatLogData = []; // mirrors the rendered log: { role, text, gathered? }
+
+function saveChatState() {
+  try {
+    if (chatLogData.length > CLIENT_HISTORY_CAP) {
+      chatLogData = chatLogData.slice(chatLogData.length - CLIENT_HISTORY_CAP);
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ sessionId: chatSessionId, log: chatLogData }));
+  } catch {
+    // localStorage can fail (private browsing, quota, disabled entirely) —
+    // persistence is a convenience, never something a chat message should
+    // be blocked by, so a failure here is silently ignored.
+  }
+}
+
+function clearChatState() {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Same reasoning as saveChatState — not worth surfacing to the user.
+  }
+}
+
+function loadChatState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.log)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 function appendChatMessage(role, text) {
   const el = document.createElement("div");
   el.className = `chat-message ${role}`;
@@ -175,6 +233,9 @@ function appendSources(gatheredList) {
 async function sendChatMessage(message) {
   hideEmptyState();
   appendChatMessage("user", message);
+  chatLogData.push({ role: "user", text: message });
+  saveChatState();
+
   const pending = appendPendingMessage();
   chatSendButton.disabled = true;
 
@@ -189,16 +250,24 @@ async function sendChatMessage(message) {
     pending.remove();
 
     if (!response.ok) {
-      appendChatMessage("error", data.error ?? `Request failed (${response.status}).`);
+      const errorText = data.error ?? `Request failed (${response.status}).`;
+      appendChatMessage("error", errorText);
+      chatLogData.push({ role: "error", text: errorText });
+      saveChatState();
       return;
     }
 
     chatSessionId = data.sessionId;
     appendChatMessage("assistant", data.reply);
     appendSources(data.gathered);
+    chatLogData.push({ role: "assistant", text: data.reply, gathered: data.gathered ?? null });
+    saveChatState();
   } catch (error) {
     pending.remove();
-    appendChatMessage("error", `Network error: ${error.message}`);
+    const errorText = `Network error: ${error.message}`;
+    appendChatMessage("error", errorText);
+    chatLogData.push({ role: "error", text: errorText });
+    saveChatState();
   } finally {
     chatSendButton.disabled = false;
     // Return focus to the input so another message can be typed right away
@@ -282,10 +351,37 @@ function renderExamples() {
 
 chatClearButton.addEventListener("click", () => {
   chatSessionId = null;
+  chatLogData = [];
+  clearChatState();
   chatLog.innerHTML = "";
   showEmptyState();
   renderExamples();
   chatInput.focus();
 });
 
+// Restore a previous conversation from localStorage, if there is one, by
+// replaying it through the same render functions a live turn uses — so a
+// restored log looks pixel-identical to one that just arrived.
+function restoreChatState() {
+  const saved = loadChatState();
+  if (!saved || saved.log.length === 0) return false;
+
+  chatSessionId = saved.sessionId ?? null;
+  chatLogData = saved.log;
+
+  for (const entry of saved.log) {
+    if (entry.role === "user") {
+      appendChatMessage("user", entry.text);
+    } else if (entry.role === "assistant") {
+      appendChatMessage("assistant", entry.text);
+      if (entry.gathered) appendSources(entry.gathered);
+    } else if (entry.role === "error") {
+      appendChatMessage("error", entry.text);
+    }
+  }
+  hideEmptyState();
+  return true;
+}
+
 renderExamples();
+restoreChatState();
