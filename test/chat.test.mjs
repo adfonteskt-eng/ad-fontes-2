@@ -5,7 +5,7 @@
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 
-import { chatTurn, getSessionCount, clearSession } from "../lib/chat.js";
+import { chatTurn, getSessionCount, clearSession, trimHistory } from "../lib/chat.js";
 
 let realFetch;
 
@@ -132,4 +132,117 @@ test("session store: idle expiration, max-count cap, and LRU-correct eviction", 
   } finally {
     Date.now = realDateNow;
   }
+});
+
+// --- trimHistory() boundary safety ---------------------------------------
+// A real bug found this session: a naive slice(length - MAX_HISTORY_MESSAGES)
+// can cut in the middle of a tool_use/tool_result exchange, leaving a
+// tool_result whose matching tool_use was trimmed away. Anthropic's real API
+// rejects that outright — the whole session's next turn would 400 instead of
+// just losing old context, which is a much worse failure than the trim was
+// supposed to prevent.
+
+function userTurn(text) {
+  return { role: "user", content: text };
+}
+function assistantToolUse(id) {
+  return { role: "assistant", content: [{ type: "tool_use", id, name: "gather_passage", input: {} }] };
+}
+function userToolResult(id) {
+  return { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: "stub" }] };
+}
+function assistantText(text) {
+  return { role: "assistant", content: [{ type: "text", text }] };
+}
+
+test("trimHistory never separates a tool_use from its tool_result", () => {
+  // Build 15 turns, each: user text -> assistant tool_use -> user
+  // tool_result -> assistant text. 60 messages total, comfortably over
+  // MAX_HISTORY_MESSAGES (30), and shaped so a naive slice from the end
+  // would land mid-exchange for most cut points.
+  const messages = [];
+  for (let i = 0; i < 15; i++) {
+    messages.push(userTurn(`question ${i}`));
+    messages.push(assistantToolUse(`tool-${i}`));
+    messages.push(userToolResult(`tool-${i}`));
+    messages.push(assistantText(`answer ${i}`));
+  }
+
+  const trimmed = trimHistory(messages);
+
+  assert.ok(trimmed.length < messages.length, "should actually trim something");
+  assert.equal(trimmed[0].role, "user");
+  assert.equal(typeof trimmed[0].content, "string", "must start at a real turn boundary, not a tool_result array");
+
+  // No tool_result anywhere in the trimmed history may reference a
+  // tool_use id that isn't present earlier in that same trimmed array.
+  const seenToolUseIds = new Set();
+  for (const message of trimmed) {
+    if (!Array.isArray(message.content)) continue;
+    for (const block of message.content) {
+      if (block.type === "tool_use") seenToolUseIds.add(block.id);
+      if (block.type === "tool_result") {
+        assert.ok(
+          seenToolUseIds.has(block.tool_use_id),
+          `tool_result for ${block.tool_use_id} has no matching tool_use in the trimmed history`,
+        );
+      }
+    }
+  }
+});
+
+test("trimHistory leaves short history untouched", () => {
+  const messages = [userTurn("hi"), assistantText("hello")];
+  assert.equal(trimHistory(messages), messages);
+});
+
+test("trimHistory doesn't destroy everything when no safe boundary exists in the window", () => {
+  // A pathological single turn longer than MAX_HISTORY_MESSAGES with no
+  // turn-start boundary anywhere past the naive cut point — trimHistory
+  // must not cut down to an empty (or broken) array just to hit the cap.
+  const messages = [userTurn("one giant turn")];
+  for (let i = 0; i < 40; i++) {
+    messages.push(assistantToolUse(`tool-${i}`));
+    messages.push(userToolResult(`tool-${i}`));
+  }
+  const trimmed = trimHistory(messages);
+  assert.ok(trimmed.length > 0, "should never trim down to nothing");
+  assert.equal(trimmed[0].role, "user");
+  assert.equal(typeof trimmed[0].content, "string");
+});
+
+test("a long real conversation with tool calls never produces a malformed request", async () => {
+  // End-to-end version of the same check, through the real chatTurn() loop
+  // rather than calling trimHistory() directly — confirms the fix actually
+  // takes effect in the real code path, not just in isolation.
+  let step = 0;
+  globalThis.fetch = async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    const first = body.messages[0];
+    assert.ok(
+      !(Array.isArray(first?.content) && first.content.some((b) => b.type === "tool_result")),
+      `request #${step} started with an orphan tool_result`,
+    );
+    for (let i = 0; i < body.messages.length; i++) {
+      if (i > 0) {
+        assert.notEqual(body.messages[i - 1].role, body.messages[i].role, `consecutive same-role messages at index ${i}`);
+      }
+    }
+
+    step++;
+    if (step % 2 === 1) {
+      return jsonResponse({
+        stop_reason: "tool_use",
+        content: [{ type: "tool_use", id: `t${step}`, name: "gather_passage", input: { reference: "JHN.3.16" } }],
+      });
+    }
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: `reply ${step}` }] });
+  };
+
+  let sessionId;
+  for (let i = 0; i < 15; i++) {
+    const result = await chatTurn({ sessionId, message: `question ${i}`, appKey: "k", apiKey: "fake" });
+    sessionId = result.sessionId;
+  }
+  assert.ok(step > 15, "expected more than one request per turn across 15 turns");
 });
