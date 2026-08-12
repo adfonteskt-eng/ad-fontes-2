@@ -131,11 +131,32 @@ async function handlePassage(res, searchParams) {
   sendJson(res, 200, { ...gathered, summary, summaryError });
 }
 
+// A chat message has no business being more than a few KB of JSON — without
+// a cap, node:http will happily keep buffering an arbitrarily large request
+// body into memory (a broken client, or a deliberately abusive one, sending
+// megabytes in one POST). 32 KB is generous for { sessionId, message } while
+// still being a real ceiling rather than "unbounded."
+const MAX_CHAT_BODY_BYTES = 32 * 1024;
+
+// Generous for a real study question, but a ceiling — protects against a
+// pathologically long message blowing past Anthropic's token limits with a
+// confusing downstream error instead of a clear one here.
+const MAX_MESSAGE_LENGTH = 4000;
+
 // node:http gives you the request as a readable stream, not a parsed body —
 // no framework here, so read and parse it by hand. Empty body -> {}.
-async function readJsonBody(req) {
+async function readJsonBody(req, { maxBytes = MAX_CHAT_BODY_BYTES } = {}) {
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  let total = 0;
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > maxBytes) {
+      const error = new Error(`Request body too large (max ${maxBytes} bytes).`);
+      error.status = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
   const raw = Buffer.concat(chunks).toString("utf8");
   if (!raw) return {};
   try {
@@ -167,13 +188,19 @@ async function handleChat(req, res) {
   try {
     body = await readJsonBody(req);
   } catch (error) {
-    sendJson(res, 400, { error: error.message });
+    sendJson(res, error.status ?? 400, { error: error.message });
     return;
   }
 
   const { sessionId, message } = body;
   if (!message || typeof message !== "string" || !message.trim()) {
     sendJson(res, 400, { error: "Missing required field: message." });
+    return;
+  }
+  if (message.length > MAX_MESSAGE_LENGTH) {
+    sendJson(res, 400, {
+      error: `Message is too long (${message.length} characters, max ${MAX_MESSAGE_LENGTH}). Try asking a narrower question.`,
+    });
     return;
   }
 
