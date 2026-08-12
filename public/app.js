@@ -130,6 +130,17 @@ const chatInput = document.getElementById("chat-input");
 const chatSendButton = chatForm.querySelector('button[type="submit"]');
 const chatClearButton = document.getElementById("chat-clear");
 
+// The "e.g. John 3:16, or..." hint is only useful before someone's typed
+// their first message — once a conversation is underway, the textarea
+// emptying after each send would otherwise keep bringing that hint back,
+// which reads as clutter rather than help. Captured from the HTML once at
+// load so "New conversation" can restore the exact original text.
+const DEFAULT_INPUT_PLACEHOLDER = chatInput.placeholder;
+
+function clearInputPlaceholder() {
+  chatInput.placeholder = "";
+}
+
 let chatSessionId = null;
 
 // --- Client-side persistence ---------------------------------------------
@@ -232,6 +243,7 @@ function appendSources(gatheredList) {
 
 async function sendChatMessage(message) {
   hideEmptyState();
+  clearInputPlaceholder();
   appendChatMessage("user", message);
   chatLogData.push({ role: "user", text: message });
   saveChatState();
@@ -356,6 +368,7 @@ chatClearButton.addEventListener("click", () => {
   chatLog.innerHTML = "";
   showEmptyState();
   renderExamples();
+  chatInput.placeholder = DEFAULT_INPUT_PLACEHOLDER;
   chatInput.focus();
 });
 
@@ -368,6 +381,7 @@ function restoreChatState() {
 
   chatSessionId = saved.sessionId ?? null;
   chatLogData = saved.log;
+  clearInputPlaceholder(); // restoring a conversation means this isn't a first visit
 
   for (const entry of saved.log) {
     if (entry.role === "user") {
