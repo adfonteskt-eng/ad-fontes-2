@@ -1,0 +1,57 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+# Lets Render provision this service from repo config instead of manual
+# dashboard clicking: on render.com, "New +" -> "Blueprint", point it at this
+# repo, and Render reads this file. Secrets (marked sync: false below) still
+# have to be typed into the Render dashboard by hand — a Blueprint can't see
+# your .env, and shouldn't (this file is committed to the repo).
+#
+# data/ (STEPBible text files, ~105 MB) is deliberately not part of the repo
+# or a persistent disk — the CC BY 4.0 licence on that data asks that it be
+# distributed from a single source rather than redistributed (see README ->
+# Data & licence), so buildCommand re-fetches it fresh from GitHub on every
+# deploy instead. That also means there's nothing here that needs a paid
+# persistent-disk add-on: the free plan's ephemeral filesystem is exactly
+# what this wants, since a fresh fetch on every build is the point, not a
+# workaround.
+services:
+  - type: web
+    name: ad-fontes
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: npm install && npm run fetch-data
+    startCommand: npm run web
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 20.12.0
+
+      # Required — set these by hand in the Render dashboard after the
+      # first deploy (Environment tab). The build will succeed without
+      # them, but the site will report the matching feature as
+      # unconfigured until they're set.
+      - key: YVP_APP_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+      # Optional but strongly recommended in production — without these,
+      # chat sessions and the usage caps below both reset on every restart
+      # (Render restarts free-plan services periodically, not just on
+      # deploy). See README -> Website for what this trades off.
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+
+      # Optional tuning — safe to leave unset and use the code defaults.
+      # Uncomment (and remove sync: false) to pin a value here instead of
+      # setting it in the dashboard.
+      # - key: SUMMARY_MODEL
+      #   value: claude-sonnet-5
+      # - key: CHAT_DAILY_LIMIT
+      #   value: "60"
+      # - key: SUMMARY_DAILY_LIMIT
+      #   value: "40"

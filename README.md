@@ -20,9 +20,10 @@ No dependencies.
   extension. In progress — the website (`server.js` + `public/`) is a single
   chat interface (`lib/chat.js`): one box, ask about any passage, Claude
   gathers translations/original-language/commentary via tool use as needed
-  and shows them alongside a conversational reply. Not yet done: deployment
-  (currently local-only), and an app or browser extension if that's still
-  wanted after the website.
+  and shows them alongside a conversational reply. Deployable to Render via
+  `render.yaml` — see Deployment below. Not yet done: accounts/billing (the
+  free beta has per-IP usage caps instead, see Configuration), and an app or
+  browser extension if that's still wanted after the website.
 
 ## Setup
 
@@ -182,6 +183,20 @@ per session that should expire after a period of inactivity, which maps
 directly onto Redis's native per-key TTL with no schema needed; a relational
 database is the right tool for the *later* accounts/billing work, not this.
 
+Since the beta is free and has no login yet, there's nothing to meter usage
+against except the client's IP — `lib/rate-limit.js` enforces a daily cap
+per IP on both chat messages (`CHAT_DAILY_LIMIT`, default 60/day) and
+passage summaries (`SUMMARY_DAILY_LIMIT`, default 40/day), specifically to
+bound worst-case Anthropic spend from one runaway or abusive client, not to
+police normal study sessions. It shares the same Redis-or-in-memory backend
+split as sessions (via `lib/upstash.js`, the small REST client both modules
+use) — with Redis configured, the cap survives a restart the same way
+sessions do; without it, a restart quietly resets everyone's count for the
+day. Hitting the chat cap returns an HTTP 429; hitting the summary cap
+returns the passage data with a summary error instead of failing the whole
+request, since translations/interlinear/commentary don't depend on
+Anthropic and shouldn't be withheld just because the summary is capped.
+
 
 
 ```
@@ -195,17 +210,60 @@ creates one and returns it for the client to send with every message after
 that. `gathered` lists the passages (if any) Claude looked up while
 producing that specific reply — usually one, more if it pulled in a cross-
 reference, empty if the reply didn't need new data (e.g. a follow-up about
-something already gathered earlier in the conversation). History is kept in
-memory only, per server process — restarting the server (or clicking "New
-conversation" in the UI) clears it. No new configuration is needed: chat
-reuses `YVP_APP_KEY` and `ANTHROPIC_API_KEY`.
+something already gathered earlier in the conversation). Clicking "New
+conversation" in the UI always clears a session; whether a server restart
+also clears it depends on whether Redis is configured (see above). No new
+configuration is required for chat itself: it reuses `YVP_APP_KEY` and
+`ANTHROPIC_API_KEY`.
 
 The old `GET /api/passage?ref=...` endpoint (translations/interlinear/
 commentary/summary for one reference, no chat) still exists in `server.js`
 and works, but the frontend no longer calls it — it's unused dead weight
 now except as a plain data API, kept in case that's useful later.
 
-This is local-only for now — nothing about it is deployed anywhere yet.
+## Deployment
+
+Configured for [Render](https://render.com) via `render.yaml` (a
+"Blueprint" — Render reads this file instead of needing everything clicked
+through the dashboard by hand). To deploy: push this repo somewhere Render
+can see it, then on render.com go New -> Blueprint and point it at the repo.
+Render will read `render.yaml`, provision one free web service, and prompt
+for the secrets marked `sync: false` in that file (`YVP_APP_KEY`,
+`ANTHROPIC_API_KEY`, and — recommended, see below — the two `UPSTASH_*`
+values) before the first deploy finishes.
+
+`data/` (the ~105 MB of STEPBible text files) isn't in the repo or on a
+persistent disk — `render.yaml`'s build step (`npm run fetch-data`)
+re-downloads it from GitHub fresh on every deploy instead, the same as local
+setup. This is deliberate, not a corner cut: the CC BY 4.0 licence on that
+data asks that it be distributed from a single source rather than
+redistributed (see Data & licence below), and it also means the free plan's
+ephemeral filesystem — wiped on every redeploy — is exactly the right fit
+here rather than something to work around.
+
+Two things worth knowing about running this on Render's free plan
+specifically, since they shape what "free beta" actually feels like for a
+user:
+
+- **Free web services spin down after 15 minutes with no traffic**, and the
+  next request wakes it back up — taking on the order of 30–60 seconds
+  before it responds. The first message after a quiet period will feel
+  slow; every one after that (until the next idle period) is normal speed.
+  There's no fix for this on the free plan short of upgrading to a paid
+  instance type once real usage justifies the cost.
+- **Without `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN` set, both
+  chat sessions and the daily usage caps reset on every spin-down/spin-up
+  cycle** — not just on a manual redeploy. Since the free plan spins down
+  after every idle period, that's a real, frequent case here, not an edge
+  case. Setting the two Upstash variables (free tier, no credit card — see
+  `.env.example`) is what makes both of those durable across that cycle;
+  strongly recommended for anything beyond a quick local demo.
+
+None of this requires a paid Render add-on — the persistent-disk option
+Render offers is for services that need to *write* durable data to disk,
+which this app doesn't (its only disk writes are the re-fetched, disposable
+`data/` files). Redis (for sessions/caps) and Render's compute are the only
+two moving pieces, and Upstash's free tier covers the former.
 
 ## Translations
 
@@ -269,8 +327,10 @@ with `SUMMARY_MODEL` in `.env`.
 | `BIBLE_ID`           | Single-translation override, kept for backward compatibility. Ignored if `BIBLE_IDS` is set. |
 | `ANTHROPIC_API_KEY`  | Key from console.anthropic.com. Optional — enables the summary section and chat. |
 | `SUMMARY_MODEL`      | Which Claude model generates the summary. Defaults to `claude-sonnet-5`. |
-| `UPSTASH_REDIS_REST_URL` | Optional. Makes chat session history durable across restarts — see the Website section above. Without it, sessions are in-memory only. |
+| `UPSTASH_REDIS_REST_URL` | Optional. Makes chat session history (and the usage caps below) durable across restarts — see the Website section above. Without it, both fall back to in-memory storage. |
 | `UPSTASH_REDIS_REST_TOKEN` | Optional, paired with the URL above. |
+| `CHAT_DAILY_LIMIT` | Optional. Max chat messages per IP per day during the free beta. Defaults to 60. |
+| `SUMMARY_DAILY_LIMIT` | Optional. Max passage summaries per IP per day during the free beta. Defaults to 40. |
 
 `.env` is gitignored. Keep all keys/tokens out of source control.
 
@@ -305,6 +365,8 @@ fetched live from biblehub.com per verse rather than bundled.
 | `lib/summarize.js` | Phase 2. `summarizePassage(gathered, opts)` → `{ shortSummary, studyNotes }`. Also exports `formatGatheredPassage()`, the plain-text formatter shared with `lib/chat.js`. |
 | `lib/chat.js` | Phase 3 chat. `chatTurn(opts)` → `{ sessionId, reply, gathered }`, looping Claude tool calls (`gather_passage`, `search_lexicon`, `find_occurrences`) as needed. Session storage delegated to `lib/session-store.js`. |
 | `lib/session-store.js` | Pluggable session storage: Upstash Redis when configured, in-memory Map fallback otherwise. |
+| `lib/rate-limit.js` | Per-IP daily usage caps (`checkAndIncrement()`) protecting the Anthropic bill during the free beta. Same Redis/in-memory split as session storage. |
+| `lib/upstash.js` | Shared Upstash Redis REST client (`redisCommand()`, `isRedisConfigured()`) used by both `lib/session-store.js` and `lib/rate-limit.js`. |
 | `lib/interlinear.js` | Greek/Hebrew parsing against the STEPBible data files. Also exports `searchLexicon()` (keyword → Strong's numbers) and `findStrongsOccurrences()` (Strong's number → every tagged verse). |
 | `lib/commentary.js` | biblehub.com scraper. |
 | `lib/fetch-timeout.js` | `fetchWithTimeout()` — shared AbortController-based timeout wrapper used by every external call (YouVersion, biblehub, Anthropic, Upstash). |

@@ -16,8 +16,9 @@
 //   -> { sessionId, reply }
 //   sessionId is omitted on the first message of a conversation; the server
 //   creates one and returns it for the client to send with every message
-//   after that. Sessions live in memory only (lib/chat.js) — restarting the
-//   server clears them.
+//   after that. Session durability (survives a restart or not) and the
+//   per-IP daily usage caps protecting the Anthropic bill are both handled
+//   in lib/ — see lib/session-store.js and lib/rate-limit.js.
 
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -26,6 +27,7 @@ import { fileURLToPath } from "node:url";
 
 import { chatTurn } from "./lib/chat.js";
 import { gatherPassage } from "./lib/gather.js";
+import { CHAT_DAILY_LIMIT, SUMMARY_DAILY_LIMIT, checkAndIncrement } from "./lib/rate-limit.js";
 import { summarizePassage } from "./lib/summarize.js";
 
 try {
@@ -47,6 +49,19 @@ const CONTENT_TYPES = {
   ".ico": "image/x-icon",
   ".woff2": "font/woff2",
 };
+
+// Render (and most hosts fronted by a proxy/load balancer) terminates the
+// real client connection itself and forwards it, so req.socket.remoteAddress
+// would just be the proxy's own address for every request. X-Forwarded-For
+// carries the real chain instead, client IP first — trustworthy here because
+// the proxy in front of this app controls that header, not the client
+// directly. Falls back to the raw socket address for local dev, where
+// there's no proxy setting the header at all.
+function clientIp(req) {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (forwarded) return forwarded.split(",")[0].trim();
+  return req.socket.remoteAddress ?? "unknown";
+}
 
 function sendJson(res, status, data) {
   const body = JSON.stringify(data);
@@ -79,7 +94,7 @@ async function serveStatic(res, pathname) {
   }
 }
 
-async function handlePassage(res, searchParams) {
+async function handlePassage(req, res, searchParams) {
   const appKey = process.env.YVP_APP_KEY;
   if (!appKey) {
     sendJson(res, 500, {
@@ -120,10 +135,15 @@ async function handlePassage(res, searchParams) {
     if (!anthropicKey) {
       summaryError = "ANTHROPIC_API_KEY is not set on the server.";
     } else {
-      try {
-        summary = await summarizePassage(gathered, { apiKey: anthropicKey });
-      } catch (error) {
-        summaryError = error.message;
+      const { allowed } = await checkAndIncrement("summary", clientIp(req), SUMMARY_DAILY_LIMIT);
+      if (!allowed) {
+        summaryError = `Daily summary limit reached (${SUMMARY_DAILY_LIMIT}/day during the free beta). Try again tomorrow, or view the passage without a summary.`;
+      } else {
+        try {
+          summary = await summarizePassage(gathered, { apiKey: anthropicKey });
+        } catch (error) {
+          summaryError = error.message;
+        }
       }
     }
   }
@@ -204,6 +224,14 @@ async function handleChat(req, res) {
     return;
   }
 
+  const { allowed } = await checkAndIncrement("chat", clientIp(req), CHAT_DAILY_LIMIT);
+  if (!allowed) {
+    sendJson(res, 429, {
+      error: `Daily chat limit reached (${CHAT_DAILY_LIMIT} messages/day during the free beta). Try again tomorrow.`,
+    });
+    return;
+  }
+
   try {
     const result = await chatTurn({ sessionId, message, appKey, apiKey: anthropicKey });
     sendJson(res, 200, result);
@@ -217,7 +245,7 @@ const server = createServer(async (req, res) => {
 
   try {
     if (req.method === "GET" && url.pathname === "/api/passage") {
-      await handlePassage(res, url.searchParams);
+      await handlePassage(req, res, url.searchParams);
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/chat") {
