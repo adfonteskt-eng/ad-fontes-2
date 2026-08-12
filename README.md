@@ -195,7 +195,12 @@ sessions do; without it, a restart quietly resets everyone's count for the
 day. Hitting the chat cap returns an HTTP 429; hitting the summary cap
 returns the passage data with a summary error instead of failing the whole
 request, since translations/interlinear/commentary don't depend on
-Anthropic and shouldn't be withheld just because the summary is capped.
+Anthropic and shouldn't be withheld just because the summary is capped. At
+current Claude Sonnet 5 pricing, the defaults work out to a worst-case
+ceiling around $1.50-2.50/day for one IP that never benefits from prompt
+caching at all — real conversational use costs meaningfully less than that
+(see the cost-ceiling comment above `CHAT_DAILY_LIMIT` in
+`lib/rate-limit.js` for the full math).
 
 
 
