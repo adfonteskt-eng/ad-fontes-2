@@ -77,6 +77,38 @@ test("chains search_lexicon -> find_occurrences -> gather_passage against real d
   assert.ok(result.reply.length > 0);
 });
 
+// --- Prompt caching --------------------------------------------------------
+// Verifies the actual request shape sent to Anthropic, per their documented
+// "automatic caching" contract: a single top-level cache_control field with
+// an explicit ttl. This can't verify real-world cost savings (that needs
+// live API usage stats — cache_read_input_tokens / cache_creation_input_tokens
+// in the response, not available to a stub), but it does lock in that the
+// field is actually present and shaped correctly, so a future refactor can't
+// silently drop it.
+test("callAnthropic requests automatic prompt caching with a 1h TTL", async () => {
+  let capturedBody = null;
+  globalThis.fetch = async (url, opts) => {
+    capturedBody = JSON.parse(opts.body);
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "stub reply" }] });
+  };
+
+  await chatTurn({ message: "hello", appKey: "k", apiKey: "fake" });
+
+  assert.ok(capturedBody, "expected a request to have been sent");
+  assert.deepEqual(
+    capturedBody.cache_control,
+    { type: "ephemeral", ttl: "1h" },
+    "expected top-level automatic-caching field per Anthropic's documented request shape",
+  );
+  // Sanity check this is actually placed correctly relative to system/tools
+  // per the docs ("references the entire prompt - tools, system, and
+  // messages (in that order) up to and including the block designated with
+  // cache_control") — system and tools must both be present for there to be
+  // anything worth caching.
+  assert.ok(capturedBody.system, "system prompt must be present for caching to have any effect");
+  assert.ok(Array.isArray(capturedBody.tools) && capturedBody.tools.length === 3);
+});
+
 function jsonResponse(body) {
   return { ok: true, status: 200, json: async () => body };
 }

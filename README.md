@@ -155,16 +155,22 @@ the passage data and the conversation — lives in the same message history,
 "what does that mean in the Greek" naturally resolves to whatever was
 gathered a moment ago, without needing separate plumbing to link the two.
 
-A few things make repeated use faster and more resilient without changing
-behavior: `gatherPassage()` results are cached in-memory for 15 minutes
-(`lib/gather.js`), every external call (YouVersion, biblehub, Anthropic) has
-a timeout so a stalled request fails cleanly instead of hanging forever
-(`lib/fetch-timeout.js`), and the browser persists the rendered chat log to
-`localStorage` so a page refresh doesn't lose the conversation (`public/
-app.js`) — though note that's visual-only: if the server process restarts,
-its in-memory session history is gone even though the browser still shows
-the old messages, so Claude won't actually remember them (see the comment
-above `restoreChatState()` in `public/app.js`).
+A few things make repeated use faster, cheaper, and more resilient without
+changing behavior: `gatherPassage()` results are cached in-memory for 15
+minutes (`lib/gather.js`), every external call (YouVersion, biblehub,
+Anthropic) has a timeout so a stalled request fails cleanly instead of
+hanging forever (`lib/fetch-timeout.js`), the browser persists the rendered
+chat log to `localStorage` so a page refresh doesn't lose the conversation
+(`public/app.js`) — though note that's visual-only: if the server process
+restarts, its in-memory session history is gone even though the browser
+still shows the old messages, so Claude won't actually remember them (see
+the comment above `restoreChatState()` in `public/app.js`) — and the chat
+API call uses Anthropic's automatic prompt caching (1-hour TTL) so the
+system prompt, tool definitions, and growing conversation history are
+billed at a fraction of normal input-token price on repeat calls within a
+conversation, instead of resending everything at full price every turn.
+
+
 
 ```
 POST /api/chat
