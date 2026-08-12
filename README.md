@@ -33,6 +33,22 @@ cp .env.example .env   # then add your app key
 npm run fetch-data     # ~104 MB of STEPBible text files (~34 MB Greek + ~70 MB Hebrew)
 ```
 
+## Tests
+
+```bash
+npm test
+```
+
+Runs against Node's built-in test runner (`node --test`, no new dependency).
+Covers the original-language parsing edge cases that turned out to be real
+bugs at some point (dual versification in both directions, Qere/Ketiv
+placeholder rows, TR/Byzantine-only variants), the `gatherPassage()` cache,
+`fetchWithTimeout()`, and the chat tool-dispatch loop + bounded session
+store — all against real downloaded STEPBible data (requires `npm run
+fetch-data` to have been run first) with external network calls stubbed.
+Doesn't cover live YouVersion/biblehub/Anthropic behavior, browser
+rendering, or the actual UI — those still need a live session to verify.
+
 ## Usage
 
 ```bash

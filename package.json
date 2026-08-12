@@ -8,7 +8,8 @@
   "scripts": {
     "start": "node index.js",
     "web": "node server.js",
-    "fetch-data": "node scripts/fetch-data.js"
+    "fetch-data": "node scripts/fetch-data.js",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=20.12"
