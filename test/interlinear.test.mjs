@@ -101,3 +101,37 @@ test("findStrongsOccurrences returns real cross-references for a common word", a
   assert.ok(totalCount > 100, "agapaō should occur well over 100 times in the NT");
   assert.ok(occurrences.every((o) => /^[A-Za-z0-9]+\.\d+\.\d+$/.test(o.reference)));
 });
+
+test("findStrongsOccurrences caches repeat lookups (real speedup, not just equal output)", async () => {
+  // G2532 (kai, "and") is one of the most common words in the NT — a full,
+  // uncached scan of both TAGNT files is genuinely slow enough (hundreds of
+  // ms) to make a cached repeat's speedup unambiguous rather than noise.
+  const start1 = Date.now();
+  const first = await findStrongsOccurrences("G2532", { limit: 10 });
+  const uncachedMs = Date.now() - start1;
+
+  const start2 = Date.now();
+  const second = await findStrongsOccurrences("G2532", { limit: 10 });
+  const cachedMs = Date.now() - start2;
+
+  assert.deepEqual(second, first, "a cached repeat should return the identical result");
+  assert.ok(
+    cachedMs < uncachedMs / 2 || cachedMs < 20,
+    `expected a cached call to be clearly faster (uncached ${uncachedMs}ms, cached ${cachedMs}ms)`,
+  );
+});
+
+test("findStrongsOccurrences cache is keyed by limit, not just the Strong's number", async () => {
+  const small = await findStrongsOccurrences("G0025", { limit: 3 });
+  const large = await findStrongsOccurrences("G0025", { limit: 8 });
+  assert.equal(small.occurrences.length, 3);
+  assert.equal(large.occurrences.length, 8);
+  assert.equal(small.totalCount, large.totalCount, "totalCount shouldn't depend on limit");
+});
+
+test("searchLexicon cache is keyed by testament, not just the keyword", async () => {
+  const both = await searchLexicon("love", { testament: "both", limit: 30 });
+  const greekOnly = await searchLexicon("love", { testament: "greek", limit: 30 });
+  assert.ok(both.totalCount >= greekOnly.totalCount, "both-testament search shouldn't return fewer matches than Greek alone");
+  assert.ok(greekOnly.results.every((r) => r.strongs.startsWith("G")), "a Greek-only search shouldn't leak Hebrew entries");
+});
