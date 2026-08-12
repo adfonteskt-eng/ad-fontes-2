@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Same candle motif as app.js's THINKING_ICON, redrawn bolder and with
+       hardcoded colors (no CSS custom properties — a favicon renders
+       outside style.css's context, in the browser chrome) so it stays
+       legible at 16-32px in a browser tab. -->
+  <circle cx="16" cy="16" r="15" fill="#f3ebd6"/>
+  <rect x="12.5" y="17" width="7" height="10" rx="1.3" fill="#5c4f3a"/>
+  <rect x="11" y="14.5" width="10" height="3" rx="1.3" fill="#6b4f2a"/>
+  <path d="M16 5C16 5 10.5 11.5 10.5 15.5C10.5 19.2 13 22 16 22C19 22 21.5 19.2 21.5 15.5C21.5 11.5 16 5 16 5Z" fill="#6b4f2a"/>
+</svg>
