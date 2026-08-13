@@ -1,0 +1,25 @@
+name: Test
+
+# Runs the real node --test suite on every push/PR to main. Fetches the
+# STEPBible data first (test/interlinear.test.mjs etc. run against the real
+# downloaded files, not fixtures — see README -> Tests) since data/ is
+# gitignored and never part of the repo itself.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.12"
+
+      - run: npm install
+      - run: npm run fetch-data
+      - run: npm test

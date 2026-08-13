@@ -1,5 +1,7 @@
 # ad-fontes
 
+[![Test](https://github.com/adfonteskt-eng/ad-fontes-2/actions/workflows/test.yml/badge.svg)](https://github.com/adfonteskt-eng/ad-fontes-2/actions/workflows/test.yml)
+
 A scripture-studying partner. Give it a Bible reference and it prints, in one go:
 
 - The passage in several English translations (via the [YouVersion Platform API](https://developers.youversion.com))
@@ -49,6 +51,10 @@ store — all against real downloaded STEPBible data (requires `npm run
 fetch-data` to have been run first) with external network calls stubbed.
 Doesn't cover live YouVersion/biblehub/Anthropic behavior, browser
 rendering, or the actual UI — those still need a live session to verify.
+
+Runs automatically on every push/PR to `main` via GitHub Actions
+(`.github/workflows/test.yml`) — same `npm run fetch-data && npm test` as
+local setup, just in CI.
 
 ## Usage
 
