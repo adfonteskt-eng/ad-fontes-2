@@ -163,6 +163,22 @@ const MAX_CHAT_BODY_BYTES = 32 * 1024;
 // confusing downstream error instead of a clear one here.
 const MAX_MESSAGE_LENGTH = 4000;
 
+// A real sessionId only ever comes from randomUUID() (lib/chat.js), so it
+// only ever looks like this. Anything else arriving in a request body is
+// either a client bug or someone poking at the API by hand — rather than
+// rejecting the whole request over it, silently treat it the same as no
+// sessionId at all (a fresh conversation starts). This is what actually
+// matters: without this check, an arbitrary string would flow straight
+// into a Redis/in-memory key (lib/session-store.js) as-is, so a client
+// could otherwise stuff arbitrarily large or malformed values in there —
+// bounding the shape here is cheap and closes that off entirely, not just
+// makes it less likely.
+const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function sanitizeSessionId(value) {
+  return typeof value === "string" && SESSION_ID_PATTERN.test(value) ? value : undefined;
+}
+
 // node:http gives you the request as a readable stream, not a parsed body —
 // no framework here, so read and parse it by hand. Empty body -> {}.
 async function readJsonBody(req, { maxBytes = MAX_CHAT_BODY_BYTES } = {}) {
@@ -212,7 +228,8 @@ async function handleChat(req, res) {
     return;
   }
 
-  const { sessionId, message } = body;
+  const sessionId = sanitizeSessionId(body.sessionId);
+  const { message } = body;
   if (!message || typeof message !== "string" || !message.trim()) {
     sendJson(res, 400, { error: "Missing required field: message." });
     return;

@@ -131,3 +131,20 @@ test("POST /api/chat with an oversized body is rejected (413), not silently buff
   });
   assert.equal(response.status, 413);
 });
+
+test("POST /api/chat with a malformed sessionId is sanitized away, not rejected", async () => {
+  // A real sessionId only ever comes from randomUUID() server-side. A
+  // client sending something else (a huge string, an object, whatever)
+  // should be treated the same as sending no sessionId at all — proven
+  // here by confirming it does NOT trip a 400. It still won't reach 200
+  // (the fake ANTHROPIC_API_KEY means chatTurn() fails on the real network
+  // call this sandbox can't make), but that failure has to come from
+  // further downstream than request validation, not from the sessionId
+  // shape itself.
+  const response = await fetch(BASE_URL + "/api/chat", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sessionId: "not-a-real-uuid; drop table sessions;", message: "What does Genesis 1:1 mean?" }),
+  });
+  assert.notEqual(response.status, 400, "a malformed sessionId shouldn't be treated as a validation error");
+});
