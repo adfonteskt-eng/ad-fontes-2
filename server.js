@@ -35,6 +35,13 @@
 //   the frontend can redraw it when resuming from the menu. Requires a
 //   valid Authorization header — 401 without one.
 //
+// GET /chat -> serves the same index.html as GET / -- the frontend is a
+//   single-page app with two client-side views (home and conversation, see
+//   public/app.js), and this route exists purely so a hard refresh or a
+//   direct/bookmarked link to /chat still loads the app instead of 404ing.
+//   Which view actually renders is decided client-side (from localStorage),
+//   not by this route.
+//
 //      POST /api/chat   { sessionId?: string, conversationId?: string, message: string }
 //   -> { sessionId, conversationId, reply }
 //   sessionId is omitted on the first message of a conversation; the server
@@ -442,6 +449,10 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "POST" && url.pathname === "/api/chat") {
       await handleChat(req, res);
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/chat") {
+      await serveStatic(res, "/"); // same file as the homepage -- see the GET /chat doc comment above
       return;
     }
     if (req.method === "GET") {

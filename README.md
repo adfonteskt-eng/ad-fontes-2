@@ -143,6 +143,17 @@ used shown alongside it in a collapsible block per passage. Ask a follow-up
 without repeating the reference, or ask something with no specific verse in
 mind — Claude can pull in a cross-reference itself if one genuinely helps.
 
+One page, two client-side views: home (title/tagline, the "Try:" examples,
+today's passage) and conversation (the chat log), toggled by
+`public/app.js`'s `renderView()` rather than a real page load — sending the
+first message, clicking an example or the daily passage, or resuming a
+conversation from the top-left menu all switch to the conversation view;
+the "Home" button (only shown there) or clicking the "ad fontes" logo goes
+back and starts fresh. The URL (`/` vs `/chat`) tracks whichever view is
+showing via `history.pushState`, so the browser's back/forward buttons work
+like real navigation, and `GET /chat` (`server.js`) serves the same
+`index.html` so a direct link or hard refresh still loads correctly.
+
 The empty state also shows a "Today's passage" pick (`GET /api/daily`,
 `lib/daily-passage.js`) — the same reference for every visitor on a given
 UTC day, deterministically rotating through a curated ~120-passage list
@@ -178,7 +189,7 @@ gathered a moment ago, without needing separate plumbing to link the two.
 
 Beyond answering questions, Claude can also produce a sermon outline,
 lesson, or small-group discussion guide on request — a prompt-level
-capability (`CHAT_SYSTEM_PROMPT` in `lib/chat.js`), not a separate tool or
+capability (`buildSystemPrompt()` in `lib/chat.js`), not a separate tool or
 endpoint. It's the one case where structured output (headers, numbered
 points, a discussion-questions list) is explicitly encouraged instead of
 the normal prose-only style, and it's grounded the same way every other

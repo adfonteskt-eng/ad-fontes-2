@@ -236,6 +236,17 @@ header h1 {
   letter-spacing: 0.02em;
 }
 
+.home-link {
+  display: inline-block;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.home-link:hover h1 {
+  color: var(--accent);
+}
+
 .tagline {
   margin: 0 auto;
   max-width: 34rem;
@@ -415,7 +426,7 @@ table.interlinear th {
   margin-top: 1.5rem;
 }
 
-#chat-clear {
+#nav-home-button {
   padding: 0.3rem 0.7rem;
   font-size: 0.8rem;
   border: 1px solid var(--line);
@@ -426,9 +437,13 @@ table.interlinear th {
   white-space: nowrap;
 }
 
-#chat-clear:hover {
+#nav-home-button:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+#nav-home-button[hidden] {
+  display: none;
 }
 
 #chat-empty-state {
@@ -547,6 +562,14 @@ table.interlinear th {
   flex-direction: column;
   gap: 0.9rem;
   margin: 1rem 0;
+}
+
+/* An unconditional `display` on an element also toggled via the `hidden`
+   attribute needs this override -- same reasoning as .examples[hidden]
+   above. Driven by app.js's renderView(): hidden while on the home view,
+   even if it already has messages in it from an in-progress conversation. */
+#chat-log[hidden] {
+  display: none;
 }
 
 .chat-message {

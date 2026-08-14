@@ -4,6 +4,11 @@
 // via tool use. Each reply can come with source material (translations,
 // original-language interlinear, commentary) for whatever passage Claude
 // looked up, which gets rendered inline with that turn.
+//
+// One document, two client-side views (home and conversation — see the
+// "Home / conversation views" section below) rather than two separate
+// pages — there's nothing here that needs a real server round-trip to
+// switch between them.
 
 function escapeHtml(text) {
   const div = document.createElement("div");
@@ -128,7 +133,8 @@ const chatLog = document.getElementById("chat-log");
 const chatForm = document.getElementById("chat-form");
 const chatInput = document.getElementById("chat-input");
 const chatSendButton = chatForm.querySelector('button[type="submit"]');
-const chatClearButton = document.getElementById("chat-clear");
+const homeButton = document.getElementById("nav-home-button");
+const homeLink = document.getElementById("home-link");
 
 // The "e.g. John 3:16, or..." hint is only useful before someone's typed
 // their first message — once a conversation is underway, the textarea
@@ -259,7 +265,7 @@ function appendSources(gatheredList) {
 }
 
 async function sendChatMessage(message) {
-  hideEmptyState();
+  goToConversationView();
   clearInputPlaceholder();
   appendChatMessage("user", message);
   chatLogData.push({ role: "user", text: message });
@@ -340,23 +346,55 @@ chatInput.addEventListener("keydown", (event) => {
   }
 });
 
-// --- Empty state & example prompts --------------------------------------
-// Shown until the first message of a conversation, then hidden — reset by
-// "New conversation". Examples are drawn fresh from a larger pool each time
-// so the same four don't show on every visit.
+// --- Home / conversation views -------------------------------------------
+// Two client-side "pages" sharing one document: home (the empty-state block
+// -- examples, daily passage + tag + callout -- see below) and conversation
+// (the chat log). The message input (#chat-form) is common to both; it's
+// the entry point either way, so it's never toggled by view. history.
+// pushState/replaceState keeps the URL (`/` vs `/chat`) in sync with
+// whichever is showing, so the browser's back/forward buttons work like
+// real page navigation -- server.js serves index.html for both paths (see
+// its GET /chat route), so a hard refresh or a direct link to /chat still
+// loads correctly. There's no per-conversation URL yet (resuming an old
+// conversation from the menu still just lands on the generic /chat) --
+// deep-linking a specific saved conversation is a reasonable future step,
+// just not this one.
 
 const emptyState = document.getElementById("chat-empty-state");
 const examplesContainer = document.querySelector(".examples");
+const HOME_PATH = "/";
+const CONVERSATION_PATH = "/chat";
 
-function hideEmptyState() {
-  emptyState.hidden = true;
-  examplesContainer.hidden = true;
+// Pure DOM update, no history/URL side effects -- the one function every
+// other navigation helper below funnels through, and also what the
+// popstate handler calls directly (browser back/forward should change what
+// you see without mutating the conversation itself or pushing more history).
+function renderView(view) {
+  const isHome = view === "home";
+  emptyState.hidden = !isHome;
+  examplesContainer.hidden = !isHome;
+  chatLog.hidden = isHome;
+  homeButton.hidden = isHome; // nothing to go "home" from while already there
 }
 
-function showEmptyState() {
-  emptyState.hidden = false;
-  examplesContainer.hidden = false;
+function goToConversationView({ push = true } = {}) {
+  renderView("conversation");
+  if (push && location.pathname !== CONVERSATION_PATH) {
+    history.pushState({ view: "conversation" }, "", CONVERSATION_PATH);
+  }
 }
+
+function goToHomeView({ push = true } = {}) {
+  renderView("home");
+  if (push && location.pathname !== HOME_PATH) {
+    history.pushState({ view: "home" }, "", HOME_PATH);
+  }
+}
+
+window.addEventListener("popstate", (event) => {
+  const view = event.state?.view ?? (location.pathname === CONVERSATION_PATH ? "conversation" : "home");
+  renderView(view);
+});
 
 const EXAMPLE_POOL = [
   { label: "John 3:16", question: "What does John 3:16 mean?" },
@@ -439,21 +477,40 @@ function renderChatLog(entries) {
   }
 }
 
+// Resets to a blank conversation AND navigates home -- this is what both
+// the "Home" button and clicking the logo do (see the listeners below).
+// Takes over "New conversation"'s old job: there's no separate way to
+// abandon an in-progress chat anymore, since going home now always starts
+// fresh (browser back/forward, by contrast, never resets state -- see the
+// popstate handler above -- so an accidental trip home is still recoverable).
 function startNewConversation() {
   chatSessionId = null;
   chatConversationId = null;
   chatLogData = [];
   clearChatState();
   chatLog.innerHTML = "";
-  showEmptyState();
   renderExamples();
   chatInput.placeholder = DEFAULT_INPUT_PLACEHOLDER;
+  goToHomeView();
   chatInput.focus();
 }
 
-chatClearButton.addEventListener("click", startNewConversation);
+homeButton.addEventListener("click", startNewConversation);
 
-// Restore a previous conversation from localStorage, if there is one.
+// The logo's default click behavior would be a real navigation to "/" --
+// intercepted here because a full page reload wouldn't clear localStorage/
+// in-memory state on its own (this is a single-page app under the hood),
+// so it wouldn't actually feel like "starting fresh," just a slower way to
+// land back on whatever conversation was already saved.
+homeLink.addEventListener("click", (event) => {
+  event.preventDefault();
+  startNewConversation();
+});
+
+// Restore a previous conversation from localStorage, if there is one. Does
+// NOT touch the URL itself -- the caller (the init sequence at the bottom
+// of this file) decides push vs. replace, since this also runs on plain
+// page load where neither is quite right on its own.
 function restoreChatState() {
   const saved = loadChatState();
   if (!saved || saved.log.length === 0) return false;
@@ -463,7 +520,7 @@ function restoreChatState() {
   chatLogData = saved.log;
   clearInputPlaceholder(); // restoring a conversation means this isn't a first visit
   renderChatLog(saved.log);
-  hideEmptyState();
+  renderView("conversation");
   return true;
 }
 
@@ -489,13 +546,12 @@ function loadConversation(conversation) {
   chatLogData = conversation.renderLog ?? [];
   chatLog.innerHTML = "";
   clearInputPlaceholder();
-
-  if (chatLogData.length === 0) {
-    showEmptyState();
-  } else {
-    hideEmptyState();
-    renderChatLog(chatLogData);
-  }
+  renderChatLog(chatLogData);
+  // Always the conversation view, even for the (unusual) case of an empty
+  // render_log -- the user explicitly picked this conversation from the
+  // menu, so bouncing them back to home instead would be more surprising
+  // than an empty chat log.
+  goToConversationView();
   saveChatState();
   chatInput.focus();
 }
@@ -503,5 +559,10 @@ function loadConversation(conversation) {
 window.adFontesChat = { loadConversation, startNewConversation };
 
 renderExamples();
-restoreChatState();
+if (restoreChatState()) {
+  history.replaceState({ view: "conversation" }, "", CONVERSATION_PATH);
+} else {
+  renderView("home");
+  history.replaceState({ view: "home" }, "", HOME_PATH);
+}
 loadDailyPassage();
