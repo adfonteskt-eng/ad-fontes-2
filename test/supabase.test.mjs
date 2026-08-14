@@ -7,7 +7,15 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
-import { verifyUser, logStudyEntry, searchStudyHistory, isSupabaseConfigured } from "../lib/supabase.js";
+import {
+  verifyUser,
+  logStudyEntry,
+  searchStudyHistory,
+  appendToConversation,
+  listConversations,
+  getConversation,
+  isSupabaseConfigured,
+} from "../lib/supabase.js";
 
 const URL_ROOT = "https://fake-project.supabase.co";
 const PUBLISHABLE_KEY = "sb_publishable_fake";
@@ -41,6 +49,7 @@ function stubSupabase({ validToken = "valid-token", user = { id: "user-1", email
   configure();
   const requests = [];
   const studyEntries = [];
+  const conversations = new Map(); // id -> row, mirrors an upsert-by-id table
 
   globalThis.fetch = async (requestUrl, opts = {}) => {
     const url = new URL(requestUrl);
@@ -59,7 +68,12 @@ function stubSupabase({ validToken = "valid-token", user = { id: "user-1", email
 
     if (url.pathname === "/rest/v1/study_entries") {
       assert.equal(headers.apikey, SECRET_KEY, "study_entries access should use the secret key");
-      assert.equal(headers.Authorization, `Bearer ${SECRET_KEY}`);
+      // No Authorization header should be sent for secret-key PostgREST
+      // calls — see postgrest()'s comment in lib/supabase.js. Sending the
+      // secret key there too (even matching apikey) is what caused the real
+      // "permissions error" in production: Supabase forwards it to Postgres
+      // and rejects it there for not being a JWT.
+      assert.equal(headers.Authorization, undefined, "should not send an Authorization header for secret-key requests");
 
       if (opts.method === "POST") {
         const rows = JSON.parse(opts.body);
@@ -84,10 +98,33 @@ function stubSupabase({ validToken = "valid-token", user = { id: "user-1", email
       return { ok: true, status: 200, text: async () => JSON.stringify(results) };
     }
 
+    if (url.pathname === "/rest/v1/conversations") {
+      assert.equal(headers.apikey, SECRET_KEY, "conversations access should use the secret key");
+      assert.equal(headers.Authorization, undefined, "should not send an Authorization header for secret-key requests");
+
+      if (opts.method === "POST") {
+        // A real upsert (on_conflict=id, Prefer: resolution=merge-duplicates)
+        // replaces the whole row -- this fake mirrors that rather than
+        // trying to merge fields, since appendToConversation always sends a
+        // complete row.
+        const rows = JSON.parse(opts.body);
+        for (const row of rows) conversations.set(row.id, row);
+        return { ok: true, status: 201, text: async () => "" };
+      }
+
+      // GET
+      const params = url.searchParams;
+      let results = [...conversations.values()].filter((c) => `eq.${c.user_id}` === params.get("user_id"));
+      const idFilter = params.get("id");
+      if (idFilter) results = results.filter((c) => `eq.${c.id}` === idFilter);
+      results = [...results].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+      return { ok: true, status: 200, text: async () => JSON.stringify(results) };
+    }
+
     return { ok: false, status: 404, statusText: "Not Found", text: async () => "unknown path" };
   };
 
-  return { requests, studyEntries };
+  return { requests, studyEntries, conversations };
 }
 
 // --- verifyUser --------------------------------------------------------
@@ -191,4 +228,147 @@ test("searchStudyHistory with a keyword filters by reference, topic, or summary"
 
   const results = await searchStudyHistory("user-1", { keyword: "love" });
   assert.equal(results.length, 2, "should match the entry with 'love' in the summary and the one with 'love' as topic");
+});
+
+// --- appendToConversation / listConversations / getConversation ----------
+
+test("appendToConversation no-ops when Supabase isn't configured", async () => {
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    return { ok: true, status: 201, text: async () => "" };
+  };
+  await appendToConversation("user-1", "11111111-1111-1111-1111-111111111111", {
+    title: "t",
+    primaryBook: "JHN",
+    entries: [{ role: "user", text: "hi" }],
+  });
+  assert.equal(called, false);
+});
+
+test("appendToConversation no-ops when there are no entries to append", async () => {
+  const { requests } = stubSupabase();
+  await appendToConversation("user-1", "11111111-1111-1111-1111-111111111111", { entries: [] });
+  assert.equal(requests.length, 0);
+});
+
+test("appendToConversation creates a row on first use with the given title/primaryBook", async () => {
+  const { conversations } = stubSupabase();
+  const id = "11111111-1111-1111-1111-111111111111";
+  await appendToConversation("user-1", id, {
+    title: "What does John 3:16 mean?",
+    primaryBook: "JHN",
+    entries: [
+      { role: "user", text: "What does John 3:16 mean?" },
+      { role: "assistant", text: "It's about God's love...", gathered: null },
+    ],
+  });
+
+  const row = conversations.get(id);
+  assert.ok(row, "expected a conversations row to be created");
+  assert.equal(row.user_id, "user-1");
+  assert.equal(row.title, "What does John 3:16 mean?");
+  assert.equal(row.primary_book, "JHN");
+  assert.equal(row.render_log.length, 2);
+});
+
+test("appendToConversation keeps the original title/primaryBook on later turns", async () => {
+  const { conversations } = stubSupabase();
+  const id = "11111111-1111-1111-1111-111111111111";
+  await appendToConversation("user-1", id, {
+    title: "First message",
+    primaryBook: "JHN",
+    entries: [{ role: "user", text: "First message" }],
+  });
+  await appendToConversation("user-1", id, {
+    title: "Second message", // a candidate, but should NOT overwrite the existing title
+    primaryBook: "ROM",
+    entries: [{ role: "user", text: "Second message" }],
+  });
+
+  const row = conversations.get(id);
+  assert.equal(row.title, "First message", "title should stick to the conversation's first message");
+  assert.equal(row.primary_book, "JHN", "primaryBook should stick to whatever was first gathered");
+  assert.equal(row.render_log.length, 2, "entries should accumulate across turns");
+});
+
+test("listConversations returns [] when Supabase isn't configured, without calling fetch", async () => {
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    return { ok: true, status: 200, text: async () => "[]" };
+  };
+  assert.deepEqual(await listConversations("user-1"), []);
+  assert.equal(called, false);
+});
+
+test("listConversations scopes to the given user and never returns render_log", async () => {
+  const { conversations } = stubSupabase();
+  conversations.set("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", {
+    id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    user_id: "user-1",
+    title: "Mine",
+    primary_book: "GEN",
+    render_log: [{ role: "user", text: "..." }],
+    updated_at: "2026-01-01T00:00:00Z",
+  });
+  conversations.set("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", {
+    id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    user_id: "user-2",
+    title: "Someone else's",
+    primary_book: null,
+    render_log: [],
+    updated_at: "2026-01-02T00:00:00Z",
+  });
+
+  const results = await listConversations("user-1");
+  assert.equal(results.length, 1);
+  assert.equal(results[0].title, "Mine");
+});
+
+test("getConversation returns null when Supabase isn't configured, without calling fetch", async () => {
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    return { ok: true, status: 200, text: async () => "[]" };
+  };
+  assert.equal(await getConversation("user-1", "11111111-1111-1111-1111-111111111111"), null);
+  assert.equal(called, false);
+});
+
+test("getConversation returns the full render_log for the owning user", async () => {
+  const { conversations } = stubSupabase();
+  const id = "11111111-1111-1111-1111-111111111111";
+  conversations.set(id, {
+    id,
+    user_id: "user-1",
+    title: "A study",
+    primary_book: "ROM",
+    render_log: [{ role: "user", text: "hi" }],
+    updated_at: "2026-01-01T00:00:00Z",
+  });
+
+  const row = await getConversation("user-1", id);
+  assert.equal(row.title, "A study");
+  assert.equal(row.render_log.length, 1);
+});
+
+test("getConversation returns null for another user's conversation (ownership scoping, not a separate check)", async () => {
+  const { conversations } = stubSupabase();
+  const id = "11111111-1111-1111-1111-111111111111";
+  conversations.set(id, {
+    id,
+    user_id: "user-2",
+    title: "Not yours",
+    primary_book: null,
+    render_log: [],
+    updated_at: "2026-01-01T00:00:00Z",
+  });
+
+  assert.equal(await getConversation("user-1", id), null);
+});
+
+test("getConversation returns null for a nonexistent id", async () => {
+  stubSupabase();
+  assert.equal(await getConversation("user-1", "99999999-9999-9999-9999-999999999999"), null);
 });
