@@ -28,6 +28,63 @@ body {
   line-height: 1.5;
 }
 
+.auth-widget {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem 0;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+
+.auth-widget[hidden] {
+  display: none;
+}
+
+.auth-signin {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.auth-signin input[type="email"] {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--panel);
+  color: var(--ink);
+  width: 11rem;
+}
+
+.auth-signin button,
+#auth-signout {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.4rem;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.auth-signin button:hover,
+#auth-signout:hover {
+  background: var(--accent);
+  color: white;
+}
+
+#auth-signed-in {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.auth-note {
+  margin: 0;
+  font-style: italic;
+}
+
 header {
   padding: 2.5rem 1.25rem 1rem;
   text-align: center;

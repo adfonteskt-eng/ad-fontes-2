@@ -13,6 +13,21 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
+  <!-- Hidden until auth.js confirms Supabase is actually configured
+       (GET /api/config) -- with no account backend set up yet, this stays
+       invisible rather than showing a sign-in form that can't work. -->
+  <div id="auth-widget" class="auth-widget" hidden>
+    <form id="auth-signin-form" class="auth-signin">
+      <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email" required />
+      <button type="submit">Sign in</button>
+    </form>
+    <p id="auth-signin-sent" class="auth-note" hidden>Check your email for a sign-in link.</p>
+    <div id="auth-signed-in" hidden>
+      <span id="auth-user-email"></span>
+      <button type="button" id="auth-signout">Sign out</button>
+    </div>
+  </div>
+
   <header>
     <h1>ad fontes</h1>
     <p class="tagline">Ask about any passage — translations, the original Greek or Hebrew, and commentary come along to help you understand it.</p>
@@ -73,6 +88,16 @@
     </p>
   </footer>
 
+  <!-- Official Supabase client, UMD build (exposes window.supabase) --
+       loaded via CDN rather than a bundled dependency, same "no build
+       step" approach as the rest of this project's frontend. Auth is one
+       of the few places worth using the officially maintained client
+       instead of hand-rolled fetch calls (see lib/supabase.js's header
+       comment) -- magic-link/PKCE token handling is genuinely easy to get
+       subtly wrong by hand. auth.js only initializes it if GET /api/config
+       reports Supabase as configured, so this is a no-op today. -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="/auth.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

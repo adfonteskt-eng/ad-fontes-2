@@ -264,9 +264,17 @@ async function sendChatMessage(message) {
   }, COLD_START_HINT_DELAY_MS);
 
   try {
+    // window.adFontesAuth is defined by auth.js unconditionally (even when
+    // accounts aren't configured at all — see that file), so this is
+    // always safe to call and resolves to null when there's no signed-in
+    // session to attach.
+    const accessToken = await window.adFontesAuth.getAccessToken();
+    const headers = { "content-type": "application/json" };
+    if (accessToken) headers.authorization = `Bearer ${accessToken}`;
+
     const response = await fetch("/api/chat", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify({ sessionId: chatSessionId, message }),
     });
     const data = await response.json();

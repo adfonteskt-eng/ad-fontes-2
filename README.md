@@ -9,7 +9,7 @@ A scripture-studying partner. Give it a Bible reference and it prints, in one go
 - A handful of public-domain commentaries on the passage
 - An AI-generated plain-language takeaway and study notes summarizing all of the above
 
-No dependencies.
+No npm dependencies — `package.json` has none, and every server-side integration (YouVersion, Anthropic, Upstash, Supabase) is plain `fetch` against documented REST APIs. The one exception is the browser: the optional sign-in flow loads the official Supabase client from a CDN (see Accounts & study memory) — the one place hand-rolling it wasn't the right call.
 
 ## Roadmap
 
@@ -23,9 +23,11 @@ No dependencies.
   chat interface (`lib/chat.js`): one box, ask about any passage, Claude
   gathers translations/original-language/commentary via tool use as needed
   and shows them alongside a conversational reply. Deployable to Render via
-  `render.yaml` — see Deployment below. Not yet done: accounts/billing (the
-  free beta has per-IP usage caps instead, see Configuration), and an app or
-  browser extension if that's still wanted after the website.
+  `render.yaml` — see Deployment below. Optional accounts (Supabase magic
+  link) unlock a compounding study memory, a sermon/lesson outline mode, and
+  a rotating daily passage on the homepage — see Accounts & study memory.
+  Not yet done: billing (the free beta has per-IP usage caps instead, see
+  Configuration) and an app or browser extension if still wanted later.
 
 ## Setup
 
@@ -250,6 +252,63 @@ commentary/summary for one reference, no chat) still exists in `server.js`
 and works, but the frontend no longer calls it — it's unused dead weight
 now except as a plain data API, kept in case that's useful later.
 
+## Accounts & study memory
+
+Optional, and additive everywhere: chat works identically with or without
+being signed in. Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and
+`SUPABASE_SECRET_KEY` (see `.env.example`) to enable it — without them, the
+sign-in widget never appears and nothing about the app changes.
+
+What signing in actually unlocks is a compounding study memory: every
+passage Claude gathers during a signed-in conversation gets logged (in the
+background — see below) as a `study_entries` row, and a signed-in user gets
+a fourth tool, `search_study_history`, that lets Claude search *that specific
+user's* past study — not just the current conversation's own history — for
+genuine callbacks ("you looked at this same passage back in your Ephesians
+study"). This is the actual product bet behind accounts: a tool that gets
+more valuable to a specific person the longer they use it, rather than one
+that resets to zero context every conversation.
+
+**Sign-in flow.** Magic link only for now (no password to manage, and no
+Google/OAuth setup required to get started) — `public/auth.js` loads the
+official `@supabase/supabase-js` client from a CDN (the one place in this
+project's frontend that isn't hand-rolled fetch: PKCE/magic-link token
+handling is genuinely easy to get subtly wrong by hand, which is exactly why
+a managed provider was chosen for auth in the first place — see the
+Deployment section's reasoning, one level up). The browser handles the
+entire flow itself — requesting the link, detecting the token when the user
+clicks back into the site, keeping the session current — and only ever
+hands `lib/chat.js` the resulting access token via an `Authorization: Bearer`
+header on `/api/chat`. `GET /api/config` hands the frontend the public URL
+and publishable key it needs to set this up, rather than hardcoding them
+into a static file that can't read the server's `.env`.
+
+**Server-side, no SDK.** `lib/supabase.js` talks to Supabase's REST APIs
+directly (Auth REST for `verifyUser()`, PostgREST for
+`logStudyEntry()`/`searchStudyHistory()`) with plain `fetch`, the same
+pattern as `lib/upstash.js` — so server-side code stays at zero npm
+dependencies even with accounts added. Two different Supabase API keys are
+involved and are **not** interchangeable: the publishable key (safe to
+expose to a browser) verifies a user's own token; the secret key (server-
+only, bypasses Row Level Security by design) is what every `study_entries`
+read/write actually uses, since the server already verified the user itself
+and scopes every query by their id manually.
+
+**What "compounding" means concretely, today.** Logging is fire-and-forget
+— a background write after a signed-in turn finishes, never awaited, so it
+can't add latency to the reply the user is waiting on or break the turn if
+it fails. Recall (`search_study_history`) is a plain keyword/reference
+match today (PostgREST `ilike` across reference/topic/summary), not
+semantic search — a deliberate, documented v1 scope decision (see
+`supabase/schema.sql`), not an oversight: embeddings/pgvector would improve
+recall quality but add real infrastructure and per-entry cost that isn't
+justified without real usage data yet to show it's worth it.
+
+**Setup** (run once): create a free Supabase project, open the SQL Editor,
+paste in and run `supabase/schema.sql` (creates `profiles`/`study_entries`
+and their RLS policies — idempotent, safe to re-run), then copy the three
+values from Settings -> API Keys into `.env`.
+
 ## Deployment
 
 Configured for [Render](https://render.com) via `render.yaml` (a
@@ -407,5 +466,5 @@ fetched live from biblehub.com per verse rather than bundled.
 | `lib/fetch-timeout.js` | `fetchWithTimeout()` — shared AbortController-based timeout wrapper used by every external call (YouVersion, biblehub, Anthropic, Upstash). |
 | `index.js` | CLI: calls `gatherPassage()`/`summarizePassage()` and prints the result. |
 | `server.js` | Web API: `/api/passage` and `/api/chat`, plus static file serving. |
-| `public/` | Website frontend — plain HTML/CSS/JS, no build step. |
+| `public/` | Website frontend — plain HTML/CSS/JS, no build step. `auth.js` is the one exception to "no dependencies": loads the official Supabase client from a CDN for the sign-in flow only (server-side stays dependency-free — see `lib/supabase.js`). |
 | `scripts/fetch-data.js` | Downloads the STEPBible data files into `data/`. |
