@@ -26,8 +26,10 @@ const signinSentNote = document.getElementById("auth-signin-sent");
 const userEmailLabel = document.getElementById("auth-user-email");
 const signoutButton = document.getElementById("auth-signout");
 
+const menuHomeButton = document.getElementById("menu-home-button");
+const menuNewChatButton = document.getElementById("menu-new-chat-button");
+const menuConversationsHeader = document.getElementById("menu-conversations-header");
 const conversationsList = document.getElementById("conversations-list");
-const conversationsEmpty = document.getElementById("conversations-empty");
 const sortRecentButton = document.getElementById("conversations-sort-recent");
 const sortBookButton = document.getElementById("conversations-sort-book");
 
@@ -65,6 +67,19 @@ document.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !menuPanel.hidden) closeMenu();
 });
+
+// "Home" (always visible, top of the menu) and "New chat" (shown instead
+// of the conversations list when it's empty — see renderConversations())
+// both just start fresh and go home, same as the in-page Home button/logo
+// click — see app.js's startNewConversation(). Defined here rather than in
+// app.js because the menu is what needs to close itself afterward.
+function goHomeFromMenu() {
+  window.adFontesChat?.startNewConversation();
+  closeMenu();
+}
+
+menuHomeButton.addEventListener("click", goHomeFromMenu);
+menuNewChatButton.addEventListener("click", goHomeFromMenu);
 
 // --- Sign-up nudge callout --------------------------------------------------
 
@@ -132,7 +147,13 @@ function formatRelativeDate(isoString) {
 
 function renderConversations(conversations) {
   conversationsList.innerHTML = "";
-  conversationsEmpty.hidden = conversations.length > 0;
+
+  // Nothing to show yet (signed out entirely, or signed in with no
+  // conversations logged) -- "New chat" takes the list's place instead of
+  // an empty header/sort-toggle with nothing under it.
+  const hasConversations = conversations.length > 0;
+  menuConversationsHeader.hidden = !hasConversations;
+  menuNewChatButton.hidden = hasConversations;
 
   for (const conversation of conversations) {
     const item = document.createElement("li");
@@ -263,7 +284,20 @@ async function initAuth() {
     const submitButton = signinForm.querySelector("button");
     submitButton.disabled = true;
     try {
-      const { error } = await client.auth.signInWithOtp({ email });
+      // emailRedirectTo pins the link to wherever this page is actually
+      // running (works the same on localhost and the deployed site)
+      // instead of falling back to the Supabase project's dashboard-
+      // configured Site URL, which defaults to http://localhost:3000 and
+      // is an easy thing to forget to change -- an unconfigured or
+      // stale Site URL is the most common reason a magic link looks like
+      // it "doesn't work" (it sends fine, but redirects somewhere dead).
+      // The target still has to be on the project's allow list --
+      // Authentication -> URL Configuration in the Supabase dashboard --
+      // see README -> Accounts & study memory.
+      const { error } = await client.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: window.location.origin },
+      });
       if (error) {
         console.error("Failed to send magic link:", error.message);
         alert(`Couldn't send a sign-in link: ${error.message}`);

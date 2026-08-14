@@ -296,10 +296,34 @@ hands `lib/chat.js` the resulting access token via an `Authorization: Bearer`
 header on `/api/chat` (and on the `/api/conversations` routes below).
 `GET /api/config` hands the frontend the public URL and publishable key it
 needs to set this up, rather than hardcoding them into a static file that
-can't read the server's `.env`. All of this — sign in/up, sign out, and
-(once signed in) the previous-conversations list — lives in a single
-top-left menu (`#site-menu` in `public/index.html`), not scattered across
-the page.
+can't read the server's `.env`. All of this lives in a single top-left menu
+(`#site-menu` in `public/index.html`), not scattered across the page: Home
+at the top; below it, either the previous-conversations list (with the
+recent/by-book sort toggle) or, when there's nothing to show yet, a New
+chat button; sign up (or, once signed in, the account row + sign out) at
+the bottom.
+
+**Magic link setup — don't skip this.** `signInWithOtp()` passes
+`emailRedirectTo: window.location.origin` so the emailed link points back
+at wherever the app is actually running, but that URL still has to be on
+the project's allow list or Supabase will reject the redirect. In the
+Supabase dashboard, go to **Authentication -> URL Configuration** and: set
+**Site URL** to your deployed URL (it defaults to `http://localhost:3000`,
+which is why a magic link can look "broken" — it's sending fine, just
+redirecting somewhere dead) and add that same URL under **Redirect URLs**.
+Do this for every environment you actually sign in from (e.g. both your
+Render URL and `http://localhost:3000` for local dev).
+
+By default, magic-link emails come from Supabase's own shared sending
+service, which is why they show up as sent by "Supabase Auth" rather than
+this app. Two separate things to change, both in the dashboard: the
+**subject line** is editable for free under **Authentication -> Email
+Templates -> Magic Link**; the **sender name/address** (what most email
+clients show before you even open the message) requires configuring
+**Custom SMTP** (**Authentication -> SMTP Settings**) with your own email
+provider (Resend, Postmark, SendGrid, etc.) — Supabase's built-in sender
+can't be renamed without one. Neither of these can be set from this
+codebase; they're project-level Supabase config.
 
 **Server-side, no SDK.** `lib/supabase.js` talks to Supabase's REST APIs
 directly (Auth REST for `verifyUser()`, PostgREST for everything else) with

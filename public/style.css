@@ -81,12 +81,40 @@ body {
   display: none;
 }
 
-.menu-heading {
-  margin: 0 0 0.5rem;
-  font-family: var(--serif);
-  font-size: 1rem;
-  font-style: italic;
+/* Shared style for the "Home" and "New chat" buttons -- full-width,
+   left-aligned, sitting apart from the conversation-item list below/above
+   them so they read as navigation rather than as another list entry. */
+.menu-nav-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  margin-bottom: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--paper);
   color: var(--ink);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.menu-nav-item:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.menu-nav-item[hidden] {
+  display: none;
+}
+
+.menu-conversations {
+  margin-bottom: 0.75rem;
+}
+
+.menu-footer {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
 }
 
 .menu-note {
@@ -160,6 +188,10 @@ body {
   color: var(--ink-soft);
 }
 
+.menu-conversations-header[hidden] {
+  display: none;
+}
+
 .menu-sort-toggle {
   display: flex;
   gap: 0.25rem;
@@ -190,6 +222,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
+}
+
+.conversations-list:not(:empty) {
+  margin-bottom: 0.5rem;
 }
 
 .conversation-item {

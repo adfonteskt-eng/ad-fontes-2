@@ -38,37 +38,45 @@
     </button>
 
     <div id="site-menu-panel" class="site-menu-panel" hidden>
-      <!-- Signed out: one email form does double duty as sign-in and sign-up
-           -- signInWithOtp() creates the account on first use, so there's no
-           separate password/sign-up step to build. -->
-      <div id="menu-signed-out">
-        <p class="menu-heading">Sign in / Sign up</p>
-        <form id="auth-signin-form" class="auth-signin">
-          <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email" required />
-          <button type="submit">Send link</button>
-        </form>
-        <p id="auth-signin-sent" class="auth-note" hidden>Check your email for a sign-in link.</p>
-        <p class="menu-note">We'll email a one-time link — no password to set. New here? The same link creates your account.</p>
+      <!-- Same "go home and start fresh" action as the in-page Home button/
+           logo click -- see app.js's startNewConversation(). -->
+      <button type="button" id="menu-home-button" class="menu-nav-item">Home</button>
+
+      <!-- The conversations list (signed-in users, via GET /api/conversations)
+           or, when there's nothing to show -- signed out, or signed in with
+           no conversations yet -- a "New chat" button instead. auth.js's
+           renderConversations() toggles between these two. -->
+      <div class="menu-conversations">
+        <div id="menu-conversations-header" class="menu-conversations-header" hidden>
+          <span>Conversations</span>
+          <div class="menu-sort-toggle" role="group" aria-label="Sort conversations">
+            <button type="button" id="conversations-sort-recent" class="menu-sort-button" aria-pressed="true">Recent</button>
+            <button type="button" id="conversations-sort-book" class="menu-sort-button" aria-pressed="false">By book</button>
+          </div>
+        </div>
+        <ul id="conversations-list" class="conversations-list"></ul>
+        <button type="button" id="menu-new-chat-button" class="menu-nav-item">New chat</button>
       </div>
 
-      <!-- Signed in: account row + the previous-conversations list, filled
-           in by auth.js from GET /api/conversations. -->
-      <div id="menu-signed-in" hidden>
-        <div class="menu-account-row">
-          <span id="auth-user-email"></span>
-          <button type="button" id="auth-signout">Sign out</button>
+      <div class="menu-footer">
+        <!-- Signed out: one email form does double duty as sign-in and
+             sign-up -- signInWithOtp() creates the account on first use, so
+             there's no separate password/sign-up step to build. -->
+        <div id="menu-signed-out">
+          <form id="auth-signin-form" class="auth-signin">
+            <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email" required />
+            <button type="submit">Sign up</button>
+          </form>
+          <p id="auth-signin-sent" class="auth-note" hidden>Check your email for a link.</p>
+          <p class="menu-note">One-time link, no password. Already signed up? Enter the same email to sign back in.</p>
         </div>
 
-        <div class="menu-conversations">
-          <div class="menu-conversations-header">
-            <span>Previous conversations</span>
-            <div class="menu-sort-toggle" role="group" aria-label="Sort previous conversations">
-              <button type="button" id="conversations-sort-recent" class="menu-sort-button" aria-pressed="true">Recent</button>
-              <button type="button" id="conversations-sort-book" class="menu-sort-button" aria-pressed="false">By book</button>
-            </div>
+        <!-- Signed in: account row, filled in by auth.js. -->
+        <div id="menu-signed-in" hidden>
+          <div class="menu-account-row">
+            <span id="auth-user-email"></span>
+            <button type="button" id="auth-signout">Sign out</button>
           </div>
-          <ul id="conversations-list" class="conversations-list"></ul>
-          <p id="conversations-empty" class="menu-note" hidden>Nothing yet — your conversations will show up here.</p>
         </div>
       </div>
     </div>
