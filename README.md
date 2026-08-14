@@ -360,6 +360,9 @@ with `SUMMARY_MODEL` in `.env`.
 | `UPSTASH_REDIS_REST_TOKEN` | Optional, paired with the URL above. |
 | `CHAT_DAILY_LIMIT` | Optional. Max chat messages per IP per day during the free beta. Defaults to 60. |
 | `SUMMARY_DAILY_LIMIT` | Optional. Max passage summaries per IP per day during the free beta. Defaults to 40. |
+| `SUPABASE_URL` | Optional. Enables accounts + compounding study memory — see Accounts & study memory below. |
+| `SUPABASE_PUBLISHABLE_KEY` | Optional, paired with the URL above. Safe to expose to the browser (that's what "publishable" means here). |
+| `SUPABASE_SECRET_KEY` | Optional, paired with the URL above. Server-only — never sent to the browser. |
 
 `.env` is gitignored. Keep all keys/tokens out of source control.
 
@@ -397,6 +400,8 @@ fetched live from biblehub.com per verse rather than bundled.
 | `lib/rate-limit.js` | Per-IP daily usage caps (`checkAndIncrement()`) protecting the Anthropic bill during the free beta. Same Redis/in-memory split as session storage. |
 | `lib/upstash.js` | Shared Upstash Redis REST client (`redisCommand()`, `isRedisConfigured()`) used by both `lib/session-store.js` and `lib/rate-limit.js`. |
 | `lib/daily-passage.js` | `getDailyPassage(date)` — the curated, date-rotating "today's passage" shown on the homepage. No external calls, no storage. |
+| `lib/supabase.js` | Server-side Supabase client for accounts: `verifyUser()` (Auth REST), `logStudyEntry()`/`searchStudyHistory()` (PostgREST). Plain fetch, no SDK — see Accounts & study memory below. |
+| `supabase/schema.sql` | The `profiles`/`study_entries` tables + RLS policies. Run once in the Supabase SQL Editor. |
 | `lib/interlinear.js` | Greek/Hebrew parsing against the STEPBible data files. Also exports `searchLexicon()` (keyword → Strong's numbers) and `findStrongsOccurrences()` (Strong's number → every tagged verse). |
 | `lib/commentary.js` | biblehub.com scraper. |
 | `lib/fetch-timeout.js` | `fetchWithTimeout()` — shared AbortController-based timeout wrapper used by every external call (YouVersion, biblehub, Anthropic, Upstash). |

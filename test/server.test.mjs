@@ -85,6 +85,28 @@ test("DELETE / is rejected with 405", async () => {
   assert.equal(response.status, 405);
 });
 
+test("GET /api/config reports Supabase as unconfigured when no env vars are set", async () => {
+  const response = await fetch(BASE_URL + "/api/config");
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.deepEqual(data, { supabaseUrl: null, supabasePublishableKey: null });
+});
+
+test("POST /api/chat with a garbage Authorization header still behaves like an anonymous request", async () => {
+  // Accounts are entirely optional: with Supabase unconfigured (this test
+  // server's env, same as the rest of this file), authenticateRequest()
+  // should short-circuit to null without erroring or changing any other
+  // behavior -- confirmed here by checking this doesn't produce a 400/401
+  // the way a required-auth endpoint would.
+  const response = await fetch(BASE_URL + "/api/chat", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: "Bearer not-a-real-token" },
+    body: JSON.stringify({ message: "What does Psalm 23:1 mean?" }),
+  });
+  assert.notEqual(response.status, 400);
+  assert.notEqual(response.status, 401);
+});
+
 test("GET /api/daily returns today's featured passage", async () => {
   const response = await fetch(BASE_URL + "/api/daily");
   assert.equal(response.status, 200);

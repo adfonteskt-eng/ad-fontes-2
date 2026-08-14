@@ -16,13 +16,23 @@
 //   everyone on a given UTC day — see lib/daily-passage.js). No auth, no
 //   rate limit, no external calls.
 //
+// GET /api/config -> { supabaseUrl, supabasePublishableKey } (both null if
+//   Supabase isn't configured on the server). The publishable key is safe
+//   to expose to the browser by design — see lib/supabase.js's header
+//   comment — so this just hands the frontend what it needs to construct
+//   its own Supabase client, without hardcoding those values into a static
+//   file that can't read the server's .env.
+//
 //      POST /api/chat   { sessionId?: string, message: string }
 //   -> { sessionId, reply }
 //   sessionId is omitted on the first message of a conversation; the server
 //   creates one and returns it for the client to send with every message
 //   after that. Session durability (survives a restart or not) and the
 //   per-IP daily usage caps protecting the Anthropic bill are both handled
-//   in lib/ — see lib/session-store.js and lib/rate-limit.js.
+//   in lib/ — see lib/session-store.js and lib/rate-limit.js. An optional
+//   `Authorization: Bearer <supabase-access-token>` header attributes the
+//   turn to a signed-in user (compounding study memory) — chat works the
+//   same without it, just without that feature.
 
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -34,6 +44,7 @@ import { getDailyPassage } from "./lib/daily-passage.js";
 import { gatherPassage } from "./lib/gather.js";
 import { CHAT_DAILY_LIMIT, SUMMARY_DAILY_LIMIT, checkAndIncrement } from "./lib/rate-limit.js";
 import { summarizePassage } from "./lib/summarize.js";
+import { verifyUser } from "./lib/supabase.js";
 
 try {
   process.loadEnvFile(new URL(".env", import.meta.url));
@@ -104,6 +115,26 @@ async function serveStatic(res, pathname) {
 // machinery the other endpoints do.
 function handleDaily(res) {
   sendJson(res, 200, getDailyPassage());
+}
+
+function handleConfig(res) {
+  sendJson(res, 200, {
+    supabaseUrl: process.env.SUPABASE_URL ?? null,
+    supabasePublishableKey: process.env.SUPABASE_PUBLISHABLE_KEY ?? null,
+  });
+}
+
+// Extracts and verifies an optional "Authorization: Bearer <token>" header,
+// returning { id, email } or null. Never throws for a missing/invalid
+// token — accounts are additive everywhere they touch chat, never
+// required — but a genuine Supabase-side failure (the service being down,
+// not "this token is bad") still propagates, same reasoning as
+// verifyUser() itself.
+async function authenticateRequest(req) {
+  const header = req.headers.authorization ?? "";
+  const match = header.match(/^Bearer (.+)$/);
+  if (!match) return null;
+  return verifyUser(match[1]);
 }
 
 async function handlePassage(req, res, searchParams) {
@@ -261,8 +292,22 @@ async function handleChat(req, res) {
     return;
   }
 
+  // Accounts are entirely optional here: a request with no Authorization
+  // header (or an invalid one) just proceeds anonymously, same as always.
+  // A genuine Supabase-side failure (not "this token is bad," but "Supabase
+  // itself errored") is caught rather than allowed to fail the whole chat
+  // turn — the compounding-memory feature this unlocks is additive, and
+  // shouldn't be able to take down core chat functionality if it's briefly
+  // unreachable.
+  let user = null;
   try {
-    const result = await chatTurn({ sessionId, message, appKey, apiKey: anthropicKey });
+    user = await authenticateRequest(req);
+  } catch (error) {
+    console.error("Supabase auth check failed, proceeding anonymously:", error.message);
+  }
+
+  try {
+    const result = await chatTurn({ sessionId, message, appKey, apiKey: anthropicKey, userId: user?.id ?? null });
     sendJson(res, 200, result);
   } catch (error) {
     sendJson(res, 500, { error: error.message });
@@ -279,6 +324,10 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/api/daily") {
       handleDaily(res);
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/config") {
+      handleConfig(res);
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/chat") {
