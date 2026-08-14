@@ -24,10 +24,13 @@ No npm dependencies — `package.json` has none, and every server-side integrati
   gathers translations/original-language/commentary via tool use as needed
   and shows them alongside a conversational reply. Deployable to Render via
   `render.yaml` — see Deployment below. Optional accounts (Supabase magic
-  link) unlock a compounding study memory, a sermon/lesson outline mode, and
-  a rotating daily passage on the homepage — see Accounts & study memory.
-  Not yet done: billing (the free beta has per-IP usage caps instead, see
-  Configuration) and an app or browser extension if still wanted later.
+  link, from a top-left menu) unlock a compounding study memory, a
+  sermon/lesson outline mode, a durable "previous conversations" list
+  (filterable by most-recent or by canonical book order), and a rotating
+  daily passage — with a one-line teaser — on the homepage. See Accounts &
+  study memory. Not yet done: billing (the free beta has per-IP usage caps
+  instead, see Configuration) and an app or browser extension if still
+  wanted later.
 
 ## Setup
 
@@ -257,7 +260,7 @@ now except as a plain data API, kept in case that's useful later.
 Optional, and additive everywhere: chat works identically with or without
 being signed in. Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and
 `SUPABASE_SECRET_KEY` (see `.env.example`) to enable it — without them, the
-sign-in widget never appears and nothing about the app changes.
+top-left menu button never appears and nothing about the app changes.
 
 What signing in actually unlocks is a compounding study memory: every
 passage Claude gathers during a signed-in conversation gets logged (in the
@@ -279,20 +282,31 @@ Deployment section's reasoning, one level up). The browser handles the
 entire flow itself — requesting the link, detecting the token when the user
 clicks back into the site, keeping the session current — and only ever
 hands `lib/chat.js` the resulting access token via an `Authorization: Bearer`
-header on `/api/chat`. `GET /api/config` hands the frontend the public URL
-and publishable key it needs to set this up, rather than hardcoding them
-into a static file that can't read the server's `.env`.
+header on `/api/chat` (and on the `/api/conversations` routes below).
+`GET /api/config` hands the frontend the public URL and publishable key it
+needs to set this up, rather than hardcoding them into a static file that
+can't read the server's `.env`. All of this — sign in/up, sign out, and
+(once signed in) the previous-conversations list — lives in a single
+top-left menu (`#site-menu` in `public/index.html`), not scattered across
+the page.
 
 **Server-side, no SDK.** `lib/supabase.js` talks to Supabase's REST APIs
-directly (Auth REST for `verifyUser()`, PostgREST for
-`logStudyEntry()`/`searchStudyHistory()`) with plain `fetch`, the same
-pattern as `lib/upstash.js` — so server-side code stays at zero npm
-dependencies even with accounts added. Two different Supabase API keys are
-involved and are **not** interchangeable: the publishable key (safe to
-expose to a browser) verifies a user's own token; the secret key (server-
-only, bypasses Row Level Security by design) is what every `study_entries`
-read/write actually uses, since the server already verified the user itself
-and scopes every query by their id manually.
+directly (Auth REST for `verifyUser()`, PostgREST for everything else) with
+plain `fetch`, the same pattern as `lib/upstash.js` — so server-side code
+stays at zero npm dependencies even with accounts added. Two different
+Supabase API keys are involved and are **not** interchangeable: the
+publishable key (safe to expose to a browser) verifies a user's own token;
+the secret key (server-only, bypasses Row Level Security by design) is what
+every `study_entries`/`conversations` read/write actually uses, since the
+server already verified the user itself and scopes every query by their id
+manually. One real gotcha worth documenting: the secret key must be sent
+*only* as the `apikey` header, never also as `Authorization: Bearer
+<secret key>` — even though Supabase's docs describe that combination as
+technically allowed (`Authorization` matching `apikey` exactly), they also
+note it gets forwarded to Postgres and rejected there for not being a JWT,
+which is exactly what caused a real "permissions error" in production
+before this was caught and fixed. See the comment on `postgrest()` in
+`lib/supabase.js`.
 
 **What "compounding" means concretely, today.** Logging is fire-and-forget
 — a background write after a signed-in turn finishes, never awaited, so it
@@ -304,10 +318,30 @@ semantic search — a deliberate, documented v1 scope decision (see
 recall quality but add real infrastructure and per-entry cost that isn't
 justified without real usage data yet to show it's worth it.
 
+**Previous conversations.** Every signed-in turn also appends to a durable
+`conversations` row (`lib/supabase.js`'s `appendToConversation()`) — a
+title (from the conversation's first message), the canonical book of the
+first passage gathered (`lib/bible-books.js`), and a lightweight render log
+the frontend can redraw directly. `GET /api/conversations` lists a user's
+own conversations (most-recent first, or grouped in actual Bible book
+order via `?sort=book` — Genesis-to-Revelation, not alphabetical);
+`GET /api/conversations/:id` fetches one to resume. Resuming keeps the same
+*conversation* id (so it keeps appending to the same row) even though the
+live chat *session* (`lib/session-store.js`, a 2-hour idle TTL) may have
+long since expired — see `lib/chat.js`'s `chatTurn()` docstring for the
+`sessionId`-vs-`conversationId` distinction. One known limitation: if the
+live session did expire, continuing a resumed conversation starts Claude's
+actual model context fresh — the old messages are shown, but Claude isn't
+re-fed them as conversation history, only whatever `search_study_history`
+happens to surface. Persisting the full model-format history too (not just
+the render log) would close that gap; not done yet since it's meaningfully
+more storage/complexity for a benefit that's easy to defer until it's
+clearly wanted.
+
 **Setup** (run once): create a free Supabase project, open the SQL Editor,
-paste in and run `supabase/schema.sql` (creates `profiles`/`study_entries`
-and their RLS policies — idempotent, safe to re-run), then copy the three
-values from Settings -> API Keys into `.env`.
+paste in and run `supabase/schema.sql` (creates `profiles`/`study_entries`/
+`conversations` and their RLS policies — idempotent, safe to re-run), then
+copy the three values from Settings -> API Keys into `.env`.
 
 ## Deployment
 
@@ -419,7 +453,7 @@ with `SUMMARY_MODEL` in `.env`.
 | `UPSTASH_REDIS_REST_TOKEN` | Optional, paired with the URL above. |
 | `CHAT_DAILY_LIMIT` | Optional. Max chat messages per IP per day during the free beta. Defaults to 60. |
 | `SUMMARY_DAILY_LIMIT` | Optional. Max passage summaries per IP per day during the free beta. Defaults to 40. |
-| `SUPABASE_URL` | Optional. Enables accounts + compounding study memory — see Accounts & study memory below. |
+| `SUPABASE_URL` | Optional. Enables accounts, compounding study memory, and the previous-conversations menu — see Accounts & study memory below. |
 | `SUPABASE_PUBLISHABLE_KEY` | Optional, paired with the URL above. Safe to expose to the browser (that's what "publishable" means here). |
 | `SUPABASE_SECRET_KEY` | Optional, paired with the URL above. Server-only — never sent to the browser. |
 
@@ -454,17 +488,18 @@ fetched live from biblehub.com per verse rather than bundled.
 | ---- | ---- |
 | `lib/gather.js` | Phase 1. `gatherPassage(usfm, opts)` → structured object, no printing. Results cached in-memory for 15 min (`clearGatherCache()` to force-clear). |
 | `lib/summarize.js` | Phase 2. `summarizePassage(gathered, opts)` → `{ shortSummary, studyNotes }`. Also exports `formatGatheredPassage()`, the plain-text formatter shared with `lib/chat.js`. |
-| `lib/chat.js` | Phase 3 chat. `chatTurn(opts)` → `{ sessionId, reply, gathered }`, looping Claude tool calls (`gather_passage`, `search_lexicon`, `find_occurrences`) as needed. Session storage delegated to `lib/session-store.js`. |
+| `lib/chat.js` | Phase 3 chat. `chatTurn(opts)` → `{ sessionId, conversationId, reply, gathered }`, looping Claude tool calls (`gather_passage`, `search_lexicon`, `find_occurrences`, and for a signed-in user `search_study_history`) as needed. Live session storage delegated to `lib/session-store.js`; durable per-conversation persistence (signed-in only) delegated to `lib/supabase.js`. |
 | `lib/session-store.js` | Pluggable session storage: Upstash Redis when configured, in-memory Map fallback otherwise. |
 | `lib/rate-limit.js` | Per-IP daily usage caps (`checkAndIncrement()`) protecting the Anthropic bill during the free beta. Same Redis/in-memory split as session storage. |
 | `lib/upstash.js` | Shared Upstash Redis REST client (`redisCommand()`, `isRedisConfigured()`) used by both `lib/session-store.js` and `lib/rate-limit.js`. |
-| `lib/daily-passage.js` | `getDailyPassage(date)` — the curated, date-rotating "today's passage" shown on the homepage. No external calls, no storage. |
-| `lib/supabase.js` | Server-side Supabase client for accounts: `verifyUser()` (Auth REST), `logStudyEntry()`/`searchStudyHistory()` (PostgREST). Plain fetch, no SDK — see Accounts & study memory below. |
-| `supabase/schema.sql` | The `profiles`/`study_entries` tables + RLS policies. Run once in the Supabase SQL Editor. |
+| `lib/daily-passage.js` | `getDailyPassage(date)` — the curated, date-rotating "today's passage" (with a short teaser tag) shown on the homepage. No external calls, no storage. |
+| `lib/bible-books.js` | Canonical 66-book Bible order (Genesis→Revelation, not alphabetical) + lookup helpers, used to sort the previous-conversations menu by book. |
+| `lib/supabase.js` | Server-side Supabase client for accounts: `verifyUser()` (Auth REST); `logStudyEntry()`/`searchStudyHistory()` and `appendToConversation()`/`listConversations()`/`getConversation()` (PostgREST). Plain fetch, no SDK — see Accounts & study memory below. |
+| `supabase/schema.sql` | The `profiles`/`study_entries`/`conversations` tables + RLS policies. Run once in the Supabase SQL Editor. |
 | `lib/interlinear.js` | Greek/Hebrew parsing against the STEPBible data files. Also exports `searchLexicon()` (keyword → Strong's numbers) and `findStrongsOccurrences()` (Strong's number → every tagged verse). |
 | `lib/commentary.js` | biblehub.com scraper. |
 | `lib/fetch-timeout.js` | `fetchWithTimeout()` — shared AbortController-based timeout wrapper used by every external call (YouVersion, biblehub, Anthropic, Upstash). |
 | `index.js` | CLI: calls `gatherPassage()`/`summarizePassage()` and prints the result. |
-| `server.js` | Web API: `/api/passage` and `/api/chat`, plus static file serving. |
-| `public/` | Website frontend — plain HTML/CSS/JS, no build step. `auth.js` is the one exception to "no dependencies": loads the official Supabase client from a CDN for the sign-in flow only (server-side stays dependency-free — see `lib/supabase.js`). |
+| `server.js` | Web API: `/api/passage`, `/api/chat`, `/api/daily`, `/api/config`, `/api/conversations[/:id]`, plus static file serving. |
+| `public/` | Website frontend — plain HTML/CSS/JS, no build step. `auth.js` is the one exception to "no dependencies": loads the official Supabase client from a CDN for the sign-in flow (server-side stays dependency-free — see `lib/supabase.js`), and also owns the top-left menu's previous-conversations list. |
 | `scripts/fetch-data.js` | Downloads the STEPBible data files into `data/`. |

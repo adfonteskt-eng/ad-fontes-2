@@ -64,3 +64,28 @@ test("GET /api/config never leaks the secret key", async () => {
   const raw = JSON.stringify(data);
   assert.ok(!raw.includes("sb_secret_fake"), "the secret key must never appear in a client-facing response");
 });
+
+// --- /api/conversations: both routes require a real signed-in user -------
+// (unlike /api/chat, where accounts are optional) -- see server.js's
+// requireUser(). No Authorization header is the cheap, network-free case to
+// test here; a garbage token would hit the (unreachable, fake) Supabase
+// host and is exercised instead at the unit level in test/supabase.test.mjs.
+
+test("GET /api/conversations without a token requires sign-in", async () => {
+  const response = await fetch(BASE_URL + "/api/conversations");
+  assert.equal(response.status, 401);
+  const data = await response.json();
+  assert.match(data.error, /sign in/i);
+});
+
+test("GET /api/conversations/:id without a token requires sign-in", async () => {
+  const response = await fetch(BASE_URL + "/api/conversations/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+  assert.equal(response.status, 401);
+  const data = await response.json();
+  assert.match(data.error, /sign in/i);
+});
+
+test("GET /api/conversations/:id with a malformed id doesn't match the route (falls through to a 404)", async () => {
+  const response = await fetch(BASE_URL + "/api/conversations/not-a-real-uuid");
+  assert.equal(response.status, 404);
+});

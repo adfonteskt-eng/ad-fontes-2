@@ -13,18 +13,64 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <!-- Hidden until auth.js confirms Supabase is actually configured
-       (GET /api/config) -- with no account backend set up yet, this stays
-       invisible rather than showing a sign-in form that can't work. -->
-  <div id="auth-widget" class="auth-widget" hidden>
-    <form id="auth-signin-form" class="auth-signin">
-      <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email" required />
-      <button type="submit">Sign in</button>
-    </form>
-    <p id="auth-signin-sent" class="auth-note" hidden>Check your email for a sign-in link.</p>
-    <div id="auth-signed-in" hidden>
-      <span id="auth-user-email"></span>
-      <button type="button" id="auth-signout">Sign out</button>
+  <!-- Top-left menu: accounts (sign in/up, sign out) and, once signed in,
+       the "previous conversations" list. The button itself stays hidden
+       until auth.js confirms Supabase is actually configured (GET
+       /api/config) -- with no account backend set up, there's nothing this
+       menu could do, so it doesn't appear at all rather than opening onto a
+       form that can't work. -->
+  <div id="site-menu" class="site-menu">
+    <button
+      type="button"
+      id="site-menu-button"
+      class="site-menu-button"
+      aria-haspopup="true"
+      aria-expanded="false"
+      aria-controls="site-menu-panel"
+      title="Account & conversations"
+      hidden
+    >
+      <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+        <rect x="2" y="4.5" width="16" height="1.6" rx="0.8" fill="currentColor"></rect>
+        <rect x="2" y="9.2" width="16" height="1.6" rx="0.8" fill="currentColor"></rect>
+        <rect x="2" y="13.9" width="16" height="1.6" rx="0.8" fill="currentColor"></rect>
+      </svg>
+    </button>
+
+    <div id="site-menu-panel" class="site-menu-panel" hidden>
+      <!-- Signed out: one email form does double duty as sign-in and sign-up
+           -- signInWithOtp() creates the account on first use, so there's no
+           separate password/sign-up step to build. -->
+      <div id="menu-signed-out">
+        <p class="menu-heading">Sign in / Sign up</p>
+        <form id="auth-signin-form" class="auth-signin">
+          <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email" required />
+          <button type="submit">Send link</button>
+        </form>
+        <p id="auth-signin-sent" class="auth-note" hidden>Check your email for a sign-in link.</p>
+        <p class="menu-note">We'll email a one-time link — no password to set. New here? The same link creates your account.</p>
+      </div>
+
+      <!-- Signed in: account row + the previous-conversations list, filled
+           in by auth.js from GET /api/conversations. -->
+      <div id="menu-signed-in" hidden>
+        <div class="menu-account-row">
+          <span id="auth-user-email"></span>
+          <button type="button" id="auth-signout">Sign out</button>
+        </div>
+
+        <div class="menu-conversations">
+          <div class="menu-conversations-header">
+            <span>Previous conversations</span>
+            <div class="menu-sort-toggle" role="group" aria-label="Sort previous conversations">
+              <button type="button" id="conversations-sort-recent" class="menu-sort-button" aria-pressed="true">Recent</button>
+              <button type="button" id="conversations-sort-book" class="menu-sort-button" aria-pressed="false">By book</button>
+            </div>
+          </div>
+          <ul id="conversations-list" class="conversations-list"></ul>
+          <p id="conversations-empty" class="menu-note" hidden>Nothing yet — your conversations will show up here.</p>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -62,8 +108,21 @@
            request resolves, so there's no empty/broken-looking placeholder
            if it's ever slow or fails. -->
       <div id="daily-passage" hidden>
-        <span>Today's passage:</span>
-        <button type="button" id="daily-passage-button"></button>
+        <div class="daily-passage-row">
+          <span>Today's passage:</span>
+          <button type="button" id="daily-passage-button"></button>
+        </div>
+        <p id="daily-passage-tag" class="daily-passage-tag"></p>
+      </div>
+
+      <!-- A one-time nudge toward creating an account, shown under the daily
+           passage on a signed-out visitor's first look at the page (auth.js
+           hides it permanently once dismissed, or immediately for anyone
+           already signed in). Only ever shown if accounts are actually
+           configured (GET /api/config) -- see auth.js's maybeShowCallout(). -->
+      <div id="site-callout" class="site-callout" hidden>
+        <p>New here? Create a free account to keep a running record of what you study — Claude will remember it in future conversations, and you'll unlock sermon and lesson outlines too.</p>
+        <button type="button" id="site-callout-dismiss" aria-label="Dismiss">&times;</button>
       </div>
     </div>
 

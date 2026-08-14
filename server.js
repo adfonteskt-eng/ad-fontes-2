@@ -12,9 +12,9 @@
 //   commentary "false" to skip the biblehub fetch entirely. Default true.
 //   summary    "false" to skip the Anthropic call entirely. Default true.
 //
-// GET /api/daily -> { usfm, label } for today's featured passage (same for
-//   everyone on a given UTC day — see lib/daily-passage.js). No auth, no
-//   rate limit, no external calls.
+// GET /api/daily -> { usfm, label, tag } for today's featured passage (same
+//   for everyone on a given UTC day — see lib/daily-passage.js). No auth,
+//   no rate limit, no external calls.
 //
 // GET /api/config -> { supabaseUrl, supabasePublishableKey } (both null if
 //   Supabase isn't configured on the server). The publishable key is safe
@@ -23,28 +23,48 @@
 //   its own Supabase client, without hardcoding those values into a static
 //   file that can't read the server's .env.
 //
-//      POST /api/chat   { sessionId?: string, message: string }
-//   -> { sessionId, reply }
+// GET /api/conversations?sort=recent|book -> { conversations: [{ id, title,
+//   primaryBook, updatedAt }] } for the signed-in user, most-recently-
+//   updated first (default) or grouped in canonical Bible book order
+//   (lib/bible-books.js). Requires a valid Authorization header — 401
+//   without one.
+//
+// GET /api/conversations/:id -> { id, title, primaryBook, renderLog,
+//   updatedAt } — the full stored transcript for one of the signed-in
+//   user's own conversations (404 if it isn't theirs or doesn't exist), so
+//   the frontend can redraw it when resuming from the menu. Requires a
+//   valid Authorization header — 401 without one.
+//
+//      POST /api/chat   { sessionId?: string, conversationId?: string, message: string }
+//   -> { sessionId, conversationId, reply }
 //   sessionId is omitted on the first message of a conversation; the server
 //   creates one and returns it for the client to send with every message
 //   after that. Session durability (survives a restart or not) and the
 //   per-IP daily usage caps protecting the Anthropic bill are both handled
 //   in lib/ — see lib/session-store.js and lib/rate-limit.js. An optional
 //   `Authorization: Bearer <supabase-access-token>` header attributes the
-//   turn to a signed-in user (compounding study memory) — chat works the
-//   same without it, just without that feature.
+//   turn to a signed-in user (compounding study memory, and the durable
+//   "previous conversations" history) — chat works the same without it,
+//   just without those features. conversationId is only meaningful for a
+//   signed-in user resuming an old conversation from GET
+//   /api/conversations/:id after its live session has idled out — send the
+//   resumed conversation's id here (sessionId can be omitted/stale) to keep
+//   appending to that same durable conversation instead of starting a new
+//   one. Omit it for a normal new-or-continuing conversation; the response's
+//   conversationId is null for an anonymous request.
 
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { bookOrder } from "./lib/bible-books.js";
 import { chatTurn } from "./lib/chat.js";
 import { getDailyPassage } from "./lib/daily-passage.js";
 import { gatherPassage } from "./lib/gather.js";
 import { CHAT_DAILY_LIMIT, SUMMARY_DAILY_LIMIT, checkAndIncrement } from "./lib/rate-limit.js";
 import { summarizePassage } from "./lib/summarize.js";
-import { verifyUser } from "./lib/supabase.js";
+import { getConversation, listConversations, verifyUser } from "./lib/supabase.js";
 
 try {
   process.loadEnvFile(new URL(".env", import.meta.url));
@@ -119,8 +139,13 @@ function handleDaily(res) {
 
 function handleConfig(res) {
   sendJson(res, 200, {
-    supabaseUrl: process.env.SUPABASE_URL ?? null,
-    supabasePublishableKey: process.env.SUPABASE_PUBLISHABLE_KEY ?? null,
+    // `||`, not `??`: an empty-string env var (e.g. explicitly blanked out
+    // to disable the feature without deleting the line) should read as
+    // "not configured" the same as it being unset entirely — consistent
+    // with lib/supabase.js's isSupabaseConfigured(), which already treats
+    // an empty string as falsy via Boolean(...).
+    supabaseUrl: process.env.SUPABASE_URL || null,
+    supabasePublishableKey: process.env.SUPABASE_PUBLISHABLE_KEY || null,
   });
 }
 
@@ -135,6 +160,71 @@ async function authenticateRequest(req) {
   const match = header.match(/^Bearer (.+)$/);
   if (!match) return null;
   return verifyUser(match[1]);
+}
+
+const CONVERSATION_ID_PATTERN = /^\/api\/conversations\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+// Both /api/conversations routes require a real signed-in user — unlike
+// /api/chat, where accounts are optional and a missing/invalid token just
+// falls back to anonymous behavior, there's no meaningful anonymous version
+// of "list my past conversations." A genuine Supabase-side failure (not "no
+// token" or "bad token," but Supabase itself erroring) is reported as a 500
+// rather than silently treated the same as "not signed in."
+async function requireUser(req, res) {
+  let user;
+  try {
+    user = await authenticateRequest(req);
+  } catch (error) {
+    sendJson(res, 500, { error: `Could not verify sign-in: ${error.message}` });
+    return null;
+  }
+  if (!user) {
+    sendJson(res, 401, { error: "Sign in required." });
+    return null;
+  }
+  return user;
+}
+
+async function handleListConversations(req, res, searchParams) {
+  const user = await requireUser(req, res);
+  if (!user) return;
+
+  const rows = await listConversations(user.id);
+  const conversations = rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    primaryBook: row.primary_book,
+    updatedAt: row.updated_at,
+  }));
+
+  if (searchParams.get("sort") === "book") {
+    // Undated/topical conversations (no primaryBook yet) sort after
+    // Revelation, per bookOrder()'s own fallback — see lib/bible-books.js.
+    conversations.sort((a, b) => bookOrder(a.primaryBook) - bookOrder(b.primaryBook));
+  } else {
+    conversations.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  }
+
+  sendJson(res, 200, { conversations });
+}
+
+async function handleGetConversation(req, res, conversationId) {
+  const user = await requireUser(req, res);
+  if (!user) return;
+
+  const row = await getConversation(user.id, conversationId);
+  if (!row) {
+    sendJson(res, 404, { error: "Conversation not found." });
+    return;
+  }
+
+  sendJson(res, 200, {
+    id: row.id,
+    title: row.title,
+    primaryBook: row.primary_book,
+    renderLog: row.render_log ?? [],
+    updatedAt: row.updated_at,
+  });
 }
 
 async function handlePassage(req, res, searchParams) {
@@ -206,20 +296,23 @@ const MAX_CHAT_BODY_BYTES = 32 * 1024;
 // confusing downstream error instead of a clear one here.
 const MAX_MESSAGE_LENGTH = 4000;
 
-// A real sessionId only ever comes from randomUUID() (lib/chat.js), so it
-// only ever looks like this. Anything else arriving in a request body is
-// either a client bug or someone poking at the API by hand — rather than
-// rejecting the whole request over it, silently treat it the same as no
-// sessionId at all (a fresh conversation starts). This is what actually
-// matters: without this check, an arbitrary string would flow straight
-// into a Redis/in-memory key (lib/session-store.js) as-is, so a client
-// could otherwise stuff arbitrarily large or malformed values in there —
-// bounding the shape here is cheap and closes that off entirely, not just
-// makes it less likely.
-const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// A real sessionId or conversationId only ever comes from randomUUID()
+// (lib/chat.js), so either only ever looks like this. Anything else
+// arriving in a request body is either a client bug or someone poking at
+// the API by hand — rather than rejecting the whole request over it,
+// silently treat it the same as absent (sessionId: a fresh conversation
+// starts; conversationId: this turn's durable row falls back to the
+// session id, same as if none had been given at all — see lib/chat.js's
+// chatTurn). This is what actually matters: without this check, an
+// arbitrary string would flow straight into a Redis/in-memory key
+// (lib/session-store.js) or a PostgREST filter (lib/supabase.js) as-is, so
+// a client could otherwise stuff arbitrarily large or malformed values in
+// there — bounding the shape here is cheap and closes that off entirely,
+// not just makes it less likely.
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function sanitizeSessionId(value) {
-  return typeof value === "string" && SESSION_ID_PATTERN.test(value) ? value : undefined;
+function sanitizeUuid(value) {
+  return typeof value === "string" && UUID_PATTERN.test(value) ? value : undefined;
 }
 
 // node:http gives you the request as a readable stream, not a parsed body —
@@ -271,7 +364,8 @@ async function handleChat(req, res) {
     return;
   }
 
-  const sessionId = sanitizeSessionId(body.sessionId);
+  const sessionId = sanitizeUuid(body.sessionId);
+  const conversationId = sanitizeUuid(body.conversationId);
   const { message } = body;
   if (!message || typeof message !== "string" || !message.trim()) {
     sendJson(res, 400, { error: "Missing required field: message." });
@@ -307,7 +401,14 @@ async function handleChat(req, res) {
   }
 
   try {
-    const result = await chatTurn({ sessionId, message, appKey, apiKey: anthropicKey, userId: user?.id ?? null });
+    const result = await chatTurn({
+      sessionId,
+      conversationId,
+      message,
+      appKey,
+      apiKey: anthropicKey,
+      userId: user?.id ?? null,
+    });
     sendJson(res, 200, result);
   } catch (error) {
     sendJson(res, 500, { error: error.message });
@@ -328,6 +429,15 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/api/config") {
       handleConfig(res);
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/conversations") {
+      await handleListConversations(req, res, url.searchParams);
+      return;
+    }
+    const conversationMatch = req.method === "GET" ? url.pathname.match(CONVERSATION_ID_PATTERN) : null;
+    if (conversationMatch) {
+      await handleGetConversation(req, res, conversationMatch[1]);
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/chat") {

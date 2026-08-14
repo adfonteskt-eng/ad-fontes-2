@@ -28,6 +28,18 @@ before(async () => {
       PORT: String(PORT),
       YVP_APP_KEY: "test-fake-app-key",
       ANTHROPIC_API_KEY: "test-fake-anthropic-key",
+      // Explicitly blanked, not just omitted: server.js's own
+      // process.loadEnvFile() call would otherwise pick up a real
+      // developer .env (if one exists, e.g. with live Supabase
+      // credentials) and make this suite's "Supabase unconfigured"
+      // assumptions fail depending on the machine it runs on.
+      // loadEnvFile doesn't override an already-set env var, so setting
+      // these to "" here keeps them unset in spirit ("" reads as
+      // not-configured — see handleConfig/isSupabaseConfigured) regardless
+      // of what's in that file.
+      SUPABASE_URL: "",
+      SUPABASE_PUBLISHABLE_KEY: "",
+      SUPABASE_SECRET_KEY: "",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

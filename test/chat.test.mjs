@@ -231,6 +231,86 @@ test("gathering a passage for a signed-in user logs a study_entries row in the b
   }
 });
 
+// --- Conversation persistence (conversationId) --------------------------
+
+test("a signed-in user's first turn gets a conversationId equal to its sessionId", async () => {
+  stubSupabaseEnv();
+  try {
+    let conversationsPost = null;
+    globalThis.fetch = async (url, opts) => {
+      const href = url.toString();
+      if (href === "https://api.anthropic.com/v1/messages") {
+        return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+      }
+      const parsed = new URL(href);
+      if (parsed.pathname === "/rest/v1/conversations" && opts.method === "GET") {
+        return { ok: true, status: 200, text: async () => "[]" };
+      }
+      if (parsed.pathname === "/rest/v1/conversations" && opts.method === "POST") {
+        conversationsPost = JSON.parse(opts.body)[0];
+        return { ok: true, status: 201, text: async () => "" };
+      }
+      throw new Error(`unexpected fetch to ${href}`);
+    };
+
+    const result = await chatTurn({ message: "What does Romans 8:28 mean?", appKey: "k", apiKey: "fake", userId: "user-42" });
+    assert.equal(result.conversationId, result.sessionId, "a brand-new conversation's id should match its session id");
+
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(conversationsPost, "expected a conversations row to be upserted");
+    assert.equal(conversationsPost.id, result.sessionId);
+    assert.equal(conversationsPost.title, "What does Romans 8:28 mean?");
+  } finally {
+    clearSupabaseEnv();
+  }
+});
+
+test("an explicit conversationId keeps appending to that row even under a different sessionId", async () => {
+  stubSupabaseEnv();
+  try {
+    let conversationsPost = null;
+    globalThis.fetch = async (url, opts) => {
+      const href = url.toString();
+      if (href === "https://api.anthropic.com/v1/messages") {
+        return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+      }
+      const parsed = new URL(href);
+      if (parsed.pathname === "/rest/v1/conversations" && opts.method === "GET") {
+        return { ok: true, status: 200, text: async () => "[]" };
+      }
+      if (parsed.pathname === "/rest/v1/conversations" && opts.method === "POST") {
+        conversationsPost = JSON.parse(opts.body)[0];
+        return { ok: true, status: 201, text: async () => "" };
+      }
+      throw new Error(`unexpected fetch to ${href}`);
+    };
+
+    const oldConversationId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    const result = await chatTurn({
+      message: "picking this back up",
+      appKey: "k",
+      apiKey: "fake",
+      userId: "user-42",
+      conversationId: oldConversationId,
+      // no sessionId -- resuming after the live session idled out
+    });
+
+    assert.equal(result.conversationId, oldConversationId, "should keep the resumed conversation's id, not the fresh session id");
+    assert.notEqual(result.sessionId, oldConversationId, "a fresh session id should still be minted for the live turn");
+
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(conversationsPost.id, oldConversationId, "should append to the old conversation's row");
+  } finally {
+    clearSupabaseEnv();
+  }
+});
+
+test("an anonymous turn's conversationId is always null", async () => {
+  stubEndTurn();
+  const result = await chatTurn({ message: "What does Romans 8:28 mean?", appKey: "k", apiKey: "fake" });
+  assert.equal(result.conversationId, null);
+});
+
 function jsonResponse(body) {
   return { ok: true, status: 200, json: async () => body };
 }

@@ -16,6 +16,18 @@ test("every curated passage is a well-formed, supported reference", () => {
   }
 });
 
+test("every curated passage has a short, non-empty tag", () => {
+  // The homepage shows this right under the reference (see server.js's
+  // GET /api/daily and public/app.js's loadDailyPassage) -- an entry
+  // missing one would render as a blank line, so this is worth catching in
+  // the same pass as the other hand-typed-list checks above.
+  for (const { usfm, label, tag } of DAILY_PASSAGES) {
+    assert.equal(typeof tag, "string", `${usfm} (${label}) is missing a tag`);
+    assert.ok(tag.trim().length > 0, `${usfm} (${label}) has an empty tag`);
+    assert.ok(tag.length <= 120, `${usfm} (${label})'s tag is too long for a homepage teaser (${tag.length} chars)`);
+  }
+});
+
 test("no duplicate references in the curated list", () => {
   const seen = new Set();
   for (const { usfm } of DAILY_PASSAGES) {

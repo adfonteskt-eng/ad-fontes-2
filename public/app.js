@@ -142,6 +142,12 @@ function clearInputPlaceholder() {
 }
 
 let chatSessionId = null;
+// The durable Supabase conversation this session's turns append to, for a
+// signed-in user — see lib/chat.js's chatTurn() docstring on why this is a
+// separate id from chatSessionId. null for an anonymous chat (the server
+// always echoes conversationId: null in that case), or before the first
+// reply of a signed-in one arrives.
+let chatConversationId = null;
 
 // --- Client-side persistence ---------------------------------------------
 // This mirrors the rendered log into localStorage so a page refresh
@@ -170,7 +176,10 @@ function saveChatState() {
     if (chatLogData.length > CLIENT_HISTORY_CAP) {
       chatLogData = chatLogData.slice(chatLogData.length - CLIENT_HISTORY_CAP);
     }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ sessionId: chatSessionId, log: chatLogData }));
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ sessionId: chatSessionId, conversationId: chatConversationId, log: chatLogData }),
+    );
   } catch {
     // localStorage can fail (private browsing, quota, disabled entirely) —
     // persistence is a convenience, never something a chat message should
@@ -275,7 +284,7 @@ async function sendChatMessage(message) {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers,
-      body: JSON.stringify({ sessionId: chatSessionId, message }),
+      body: JSON.stringify({ sessionId: chatSessionId, conversationId: chatConversationId, message }),
     });
     const data = await response.json();
 
@@ -290,6 +299,7 @@ async function sendChatMessage(message) {
     }
 
     chatSessionId = data.sessionId;
+    chatConversationId = data.conversationId ?? null;
     appendChatMessage("assistant", data.reply);
     appendSources(data.gathered);
     chatLogData.push({ role: "assistant", text: data.reply, gathered: data.gathered ?? null });
@@ -392,15 +402,17 @@ function renderExamples() {
 // clicking an example prompt, so this adds no new rendering logic at all.
 const dailyPassageContainer = document.getElementById("daily-passage");
 const dailyPassageButton = document.getElementById("daily-passage-button");
+const dailyPassageTag = document.getElementById("daily-passage-tag");
 
 async function loadDailyPassage() {
   try {
     const response = await fetch("/api/daily");
     if (!response.ok) return; // fails silently -- this is a nice-to-have, not core functionality
-    const { usfm, label } = await response.json();
+    const { usfm, label, tag } = await response.json();
     if (!label) return;
     dailyPassageButton.textContent = label;
     dailyPassageButton.addEventListener("click", () => sendChatMessage(`What does ${label} (${usfm}) mean?`));
+    if (tag) dailyPassageTag.textContent = tag;
     dailyPassageContainer.hidden = false;
   } catch {
     // Network hiccup or the endpoint being briefly unavailable shouldn't
@@ -409,29 +421,13 @@ async function loadDailyPassage() {
   }
 }
 
-chatClearButton.addEventListener("click", () => {
-  chatSessionId = null;
-  chatLogData = [];
-  clearChatState();
-  chatLog.innerHTML = "";
-  showEmptyState();
-  renderExamples();
-  chatInput.placeholder = DEFAULT_INPUT_PLACEHOLDER;
-  chatInput.focus();
-});
-
-// Restore a previous conversation from localStorage, if there is one, by
-// replaying it through the same render functions a live turn uses — so a
-// restored log looks pixel-identical to one that just arrived.
-function restoreChatState() {
-  const saved = loadChatState();
-  if (!saved || saved.log.length === 0) return false;
-
-  chatSessionId = saved.sessionId ?? null;
-  chatLogData = saved.log;
-  clearInputPlaceholder(); // restoring a conversation means this isn't a first visit
-
-  for (const entry of saved.log) {
+// Replays a { role, text, gathered? } log through the same render functions
+// a live turn uses — shared by restoreChatState() (from localStorage) and
+// loadConversation() (from the server, via the top-left menu's "previous
+// conversations" list) so a restored/resumed log looks pixel-identical to
+// one that just arrived, in either case.
+function renderChatLog(entries) {
+  for (const entry of entries) {
     if (entry.role === "user") {
       appendChatMessage("user", entry.text);
     } else if (entry.role === "assistant") {
@@ -441,9 +437,70 @@ function restoreChatState() {
       appendChatMessage("error", entry.text);
     }
   }
+}
+
+function startNewConversation() {
+  chatSessionId = null;
+  chatConversationId = null;
+  chatLogData = [];
+  clearChatState();
+  chatLog.innerHTML = "";
+  showEmptyState();
+  renderExamples();
+  chatInput.placeholder = DEFAULT_INPUT_PLACEHOLDER;
+  chatInput.focus();
+}
+
+chatClearButton.addEventListener("click", startNewConversation);
+
+// Restore a previous conversation from localStorage, if there is one.
+function restoreChatState() {
+  const saved = loadChatState();
+  if (!saved || saved.log.length === 0) return false;
+
+  chatSessionId = saved.sessionId ?? null;
+  chatConversationId = saved.conversationId ?? null;
+  chatLogData = saved.log;
+  clearInputPlaceholder(); // restoring a conversation means this isn't a first visit
+  renderChatLog(saved.log);
   hideEmptyState();
   return true;
 }
+
+// Loads a conversation fetched from GET /api/conversations/:id (see
+// auth.js's loadConversation(), which calls this after the network
+// request resolves) — swaps the whole chat log over to it, the same way
+// "New conversation" swaps to an empty one. Note: continuing to chat from
+// here keeps the same conversation id (so it stays the same row in
+// Supabase), but if the id's live server-side session already idled out,
+// Claude starts that next reply without the old back-and-forth as context
+// — see lib/chat.js's chatTurn() docstring.
+function loadConversation(conversation) {
+  // Optimistically reuse the conversation's id as the live sessionId too —
+  // harmless either way: if that Redis/in-memory session is still alive
+  // (a recently-active conversation), Claude keeps its real context; if
+  // not, lib/chat.js's chatTurn() just treats it as unrecognized and starts
+  // a fresh one, same as any other expired sessionId. conversationId is set
+  // explicitly and unconditionally, since that's what actually keeps the
+  // next message appending to this same durable row regardless of what
+  // happens with the live session.
+  chatSessionId = conversation.id;
+  chatConversationId = conversation.id;
+  chatLogData = conversation.renderLog ?? [];
+  chatLog.innerHTML = "";
+  clearInputPlaceholder();
+
+  if (chatLogData.length === 0) {
+    showEmptyState();
+  } else {
+    hideEmptyState();
+    renderChatLog(chatLogData);
+  }
+  saveChatState();
+  chatInput.focus();
+}
+
+window.adFontesChat = { loadConversation, startNewConversation };
 
 renderExamples();
 restoreChatState();

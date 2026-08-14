@@ -89,3 +89,50 @@ drop policy if exists "study_entries: users can insert their own rows" on public
 create policy "study_entries: users can insert their own rows"
   on public.study_entries for insert
   with check (auth.uid() = user_id);
+
+-- One row per conversation for a signed-in user, so the "previous
+-- conversations" menu has something durable to list even after the
+-- session's live back-and-forth (lib/session-store.js, a 2-hour idle TTL in
+-- Redis) has expired. `id` is the app's own session id (a client-generated
+-- UUID -- see lib/chat.js's chatTurn), not a separately generated one, so a
+-- resumed conversation keeps writing to the same row instead of forking a
+-- new one. `render_log` mirrors the frontend's own lightweight message
+-- shape (public/app.js's chatLogData: { role, text, gathered? }) rather
+-- than the raw Anthropic message format (which includes tool_use/
+-- tool_result blocks) -- simple to append to, and exactly what the UI needs
+-- to redraw a past conversation. Note this means resuming an old
+-- conversation whose Redis session already expired shows the full past
+-- transcript, but the *next* message starts a fresh model context under the
+-- same conversation id -- Claude won't have the old back-and-forth as live
+-- context, only what search_study_history can surface. A known v2 upgrade
+-- would be persisting the raw Anthropic-format history here too.
+create table if not exists public.conversations (
+  id uuid primary key,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  title text,
+  primary_book text,          -- USFM book code (e.g. "JHN") of the first passage gathered, if any -- lib/bible-books.js
+  render_log jsonb not null default '[]'::jsonb,
+  updated_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists conversations_user_id_updated_at_idx
+  on public.conversations (user_id, updated_at desc);
+
+alter table public.conversations enable row level security;
+
+drop policy if exists "conversations: users can read their own rows" on public.conversations;
+create policy "conversations: users can read their own rows"
+  on public.conversations for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "conversations: users can insert their own rows" on public.conversations;
+create policy "conversations: users can insert their own rows"
+  on public.conversations for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "conversations: users can update their own rows" on public.conversations;
+create policy "conversations: users can update their own rows"
+  on public.conversations for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);

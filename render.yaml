@@ -46,6 +46,19 @@ services:
       - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
 
+      # Optional — enables accounts (magic-link sign-in/up), the
+      # compounding study memory, sermon/lesson outline mode, and the
+      # top-left "previous conversations" menu. Without these, the site
+      # runs exactly as it does today: no sign-in widget appears at all
+      # (see GET /api/config). See README -> Accounts & study memory and
+      # supabase/schema.sql for setup.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+
       # Optional tuning — safe to leave unset and use the code defaults.
       # Uncomment (and remove sync: false) to pin a value here instead of
       # setting it in the dashboard.
