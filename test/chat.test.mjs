@@ -109,6 +109,128 @@ test("callAnthropic requests automatic prompt caching with a 1h TTL", async () =
   assert.ok(Array.isArray(capturedBody.tools) && capturedBody.tools.length === 3);
 });
 
+// --- Compounding study memory (userId) --------------------------------
+// A stub covering both endpoints a signed-in turn can hit: Anthropic
+// (as above) and Supabase's PostgREST (study_entries reads/writes) --
+// distinguished by URL, same approach as every other multi-endpoint stub
+// in this project's tests (see test/supabase.test.mjs for the same
+// contract tested in isolation).
+function stubSupabaseEnv() {
+  process.env.SUPABASE_URL = "https://fake-project.supabase.co";
+  process.env.SUPABASE_PUBLISHABLE_KEY = "sb_publishable_fake";
+  process.env.SUPABASE_SECRET_KEY = "sb_secret_fake";
+}
+
+function clearSupabaseEnv() {
+  delete process.env.SUPABASE_URL;
+  delete process.env.SUPABASE_PUBLISHABLE_KEY;
+  delete process.env.SUPABASE_SECRET_KEY;
+}
+
+test("anonymous chat (no userId) never touches Supabase, even if it's configured", async () => {
+  stubSupabaseEnv();
+  try {
+    globalThis.fetch = async (url, opts) => {
+      const href = url.toString();
+      if (href !== "https://api.anthropic.com/v1/messages") {
+        throw new Error(`unexpected fetch to ${href} for an anonymous request`);
+      }
+      const body = JSON.parse(opts.body);
+      assert.equal(body.tools.length, 3, "no userId means no search_study_history tool");
+      return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+    };
+    await chatTurn({ message: "What does Psalm 23:1 mean?", appKey: "k", apiKey: "fake" });
+  } finally {
+    clearSupabaseEnv();
+  }
+});
+
+test("a signed-in user gets a 4th tool (search_study_history), and calling it hits PostgREST", async () => {
+  stubSupabaseEnv();
+  try {
+    let step = 0;
+    let sawStudyHistoryRequest = false;
+
+    globalThis.fetch = async (url, opts) => {
+      const href = url.toString();
+      if (href === "https://api.anthropic.com/v1/messages") {
+        const body = JSON.parse(opts.body);
+        assert.equal(body.tools.length, 4, "a signed-in user should see all four tools");
+        assert.ok(
+          body.tools.some((t) => t.name === "search_study_history"),
+          "search_study_history should be in the tools list",
+        );
+        step++;
+        if (step === 1) {
+          return jsonResponse({
+            stop_reason: "tool_use",
+            content: [{ type: "tool_use", id: "t1", name: "search_study_history", input: { keyword: "love" } }],
+          });
+        }
+        return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "Based on your past study..." }] });
+      }
+
+      const parsed = new URL(href);
+      if (parsed.pathname === "/rest/v1/study_entries") {
+        sawStudyHistoryRequest = true;
+        assert.equal(parsed.searchParams.get("user_id"), "eq.user-42");
+        assert.match(parsed.searchParams.get("or") ?? "", /love/);
+        return { ok: true, status: 200, text: async () => "[]" };
+      }
+      throw new Error(`unexpected fetch to ${href}`);
+    };
+
+    const result = await chatTurn({ message: "What does the Bible say about love?", appKey: "k", apiKey: "fake", userId: "user-42" });
+    assert.ok(sawStudyHistoryRequest, "expected search_study_history to actually query PostgREST");
+    assert.ok(result.reply.length > 0);
+  } finally {
+    clearSupabaseEnv();
+  }
+});
+
+test("gathering a passage for a signed-in user logs a study_entries row in the background", async () => {
+  stubSupabaseEnv();
+  try {
+    let step = 0;
+    let loggedRow = null;
+
+    globalThis.fetch = async (url, opts) => {
+      const href = url.toString();
+      if (href === "https://api.anthropic.com/v1/messages") {
+        step++;
+        if (step === 1) {
+          return jsonResponse({
+            stop_reason: "tool_use",
+            content: [{ type: "tool_use", id: "t1", name: "gather_passage", input: { reference: "JHN.3.16" } }],
+          });
+        }
+        return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "God's love for the world." }] });
+      }
+
+      const parsed = new URL(href);
+      if (parsed.pathname === "/rest/v1/study_entries" && opts.method === "POST") {
+        loggedRow = JSON.parse(opts.body)[0];
+        return { ok: true, status: 201, text: async () => "" };
+      }
+      throw new Error(`unexpected fetch to ${href}`);
+    };
+
+    await chatTurn({ message: "What does John 3:16 mean?", appKey: "k", apiKey: "fake", userId: "user-42" });
+
+    // The log call is deliberately fire-and-forget (not awaited by
+    // chatTurn), so give the microtask queue a turn to let it land before
+    // asserting on it.
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.ok(loggedRow, "expected a study_entries row to have been logged");
+    assert.equal(loggedRow.user_id, "user-42");
+    assert.equal(loggedRow.reference, "JHN.3.16");
+    assert.match(loggedRow.summary, /God's love/);
+  } finally {
+    clearSupabaseEnv();
+  }
+});
+
 function jsonResponse(body) {
   return { ok: true, status: 200, json: async () => body };
 }
