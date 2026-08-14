@@ -171,6 +171,15 @@ the passage data and the conversation — lives in the same message history,
 "what does that mean in the Greek" naturally resolves to whatever was
 gathered a moment ago, without needing separate plumbing to link the two.
 
+Beyond answering questions, Claude can also produce a sermon outline,
+lesson, or small-group discussion guide on request — a prompt-level
+capability (`CHAT_SYSTEM_PROMPT` in `lib/chat.js`), not a separate tool or
+endpoint. It's the one case where structured output (headers, numbered
+points, a discussion-questions list) is explicitly encouraged instead of
+the normal prose-only style, and it's grounded the same way every other
+answer is: gathered material first, then an outline built from what's
+actually there rather than a generic template.
+
 A few things make repeated use faster, cheaper, and more resilient without
 changing behavior: `gatherPassage()` results are cached in-memory for 15
 minutes (`lib/gather.js`), every external call (YouVersion, biblehub,

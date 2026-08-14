@@ -351,6 +351,7 @@ const EXAMPLE_POOL = [
   { label: "Philippians 4:6", question: "What is Paul saying about anxiety in Philippians 4:6?" },
   { label: "Isaiah 53:5", question: "Who is Isaiah 53:5 describing, and what does it mean?" },
   { label: "1 John 4:8", question: "What does it mean that 'God is love' in 1 John 4:8?" },
+  { label: "Sermon on Romans 8", question: "Can you put together a sermon outline on Romans 8:28-30?" },
 ];
 
 function shuffled(array) {
