@@ -42,6 +42,14 @@
         <line x1="60" y1="40" x2="60" y2="76" stroke="var(--accent)" stroke-width="2"></line>
       </svg>
       <p>Type a reference, or just ask what's on your mind — no need to look anything up first.</p>
+
+      <!-- Filled in by app.js from GET /api/daily. Hidden until that
+           request resolves, so there's no empty/broken-looking placeholder
+           if it's ever slow or fails. -->
+      <div id="daily-passage" hidden>
+        <span>Today's passage:</span>
+        <button type="button" id="daily-passage-button"></button>
+      </div>
     </div>
 
     <div id="chat-log" aria-live="polite"></div>

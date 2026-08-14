@@ -138,6 +138,15 @@ used shown alongside it in a collapsible block per passage. Ask a follow-up
 without repeating the reference, or ask something with no specific verse in
 mind — Claude can pull in a cross-reference itself if one genuinely helps.
 
+The empty state also shows a "Today's passage" pick (`GET /api/daily`,
+`lib/daily-passage.js`) — the same reference for every visitor on a given
+UTC day, deterministically rotating through a curated ~120-passage list
+rather than picked randomly, so it's reproducible and spread across both
+testaments instead of clustering on a handful of famous verses. Clicking it
+just sends a normal chat message ("What does John 3:16 (JHN.3.16) mean?"),
+so it reuses the exact same flow as typing a reference by hand — no
+separate rendering path to keep in sync.
+
 This works because the chat box isn't a second, separate question-answering
 path bolted onto search — there is no separate search anymore. Every
 message goes through `lib/chat.js`, which gives Claude three tools, all
@@ -378,6 +387,7 @@ fetched live from biblehub.com per verse rather than bundled.
 | `lib/session-store.js` | Pluggable session storage: Upstash Redis when configured, in-memory Map fallback otherwise. |
 | `lib/rate-limit.js` | Per-IP daily usage caps (`checkAndIncrement()`) protecting the Anthropic bill during the free beta. Same Redis/in-memory split as session storage. |
 | `lib/upstash.js` | Shared Upstash Redis REST client (`redisCommand()`, `isRedisConfigured()`) used by both `lib/session-store.js` and `lib/rate-limit.js`. |
+| `lib/daily-passage.js` | `getDailyPassage(date)` — the curated, date-rotating "today's passage" shown on the homepage. No external calls, no storage. |
 | `lib/interlinear.js` | Greek/Hebrew parsing against the STEPBible data files. Also exports `searchLexicon()` (keyword → Strong's numbers) and `findStrongsOccurrences()` (Strong's number → every tagged verse). |
 | `lib/commentary.js` | biblehub.com scraper. |
 | `lib/fetch-timeout.js` | `fetchWithTimeout()` — shared AbortController-based timeout wrapper used by every external call (YouVersion, biblehub, Anthropic, Upstash). |

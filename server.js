@@ -12,6 +12,10 @@
 //   commentary "false" to skip the biblehub fetch entirely. Default true.
 //   summary    "false" to skip the Anthropic call entirely. Default true.
 //
+// GET /api/daily -> { usfm, label } for today's featured passage (same for
+//   everyone on a given UTC day — see lib/daily-passage.js). No auth, no
+//   rate limit, no external calls.
+//
 //      POST /api/chat   { sessionId?: string, message: string }
 //   -> { sessionId, reply }
 //   sessionId is omitted on the first message of a conversation; the server
@@ -26,6 +30,7 @@ import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { chatTurn } from "./lib/chat.js";
+import { getDailyPassage } from "./lib/daily-passage.js";
 import { gatherPassage } from "./lib/gather.js";
 import { CHAT_DAILY_LIMIT, SUMMARY_DAILY_LIMIT, checkAndIncrement } from "./lib/rate-limit.js";
 import { summarizePassage } from "./lib/summarize.js";
@@ -92,6 +97,13 @@ async function serveStatic(res, pathname) {
     res.writeHead(404, { "content-type": "text/plain" });
     res.end("Not found");
   }
+}
+
+// No auth, no rate limiting, no external calls — just an in-process lookup,
+// so this is as cheap as a static file and doesn't need any of the
+// machinery the other endpoints do.
+function handleDaily(res) {
+  sendJson(res, 200, getDailyPassage());
 }
 
 async function handlePassage(req, res, searchParams) {
@@ -263,6 +275,10 @@ const server = createServer(async (req, res) => {
   try {
     if (req.method === "GET" && url.pathname === "/api/passage") {
       await handlePassage(req, res, url.searchParams);
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/daily") {
+      handleDaily(res);
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/chat") {

@@ -374,6 +374,32 @@ function renderExamples() {
   }
 }
 
+// --- Today's passage -----------------------------------------------------
+// A lightweight habit hook: the same reference for everyone on a given day
+// (lib/daily-passage.js), shown only as part of the empty state — once a
+// conversation is underway it's already hidden along with the rest of that
+// block, no extra wiring needed. Clicking it just sends a normal chat
+// message, reusing the exact same flow as typing a reference by hand or
+// clicking an example prompt, so this adds no new rendering logic at all.
+const dailyPassageContainer = document.getElementById("daily-passage");
+const dailyPassageButton = document.getElementById("daily-passage-button");
+
+async function loadDailyPassage() {
+  try {
+    const response = await fetch("/api/daily");
+    if (!response.ok) return; // fails silently -- this is a nice-to-have, not core functionality
+    const { usfm, label } = await response.json();
+    if (!label) return;
+    dailyPassageButton.textContent = label;
+    dailyPassageButton.addEventListener("click", () => sendChatMessage(`What does ${label} (${usfm}) mean?`));
+    dailyPassageContainer.hidden = false;
+  } catch {
+    // Network hiccup or the endpoint being briefly unavailable shouldn't
+    // block or clutter the rest of the page -- same reasoning as
+    // saveChatState()'s localStorage failures being silently ignored.
+  }
+}
+
 chatClearButton.addEventListener("click", () => {
   chatSessionId = null;
   chatLogData = [];
@@ -412,3 +438,4 @@ function restoreChatState() {
 
 renderExamples();
 restoreChatState();
+loadDailyPassage();

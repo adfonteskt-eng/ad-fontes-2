@@ -85,6 +85,15 @@ test("DELETE / is rejected with 405", async () => {
   assert.equal(response.status, 405);
 });
 
+test("GET /api/daily returns today's featured passage", async () => {
+  const response = await fetch(BASE_URL + "/api/daily");
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.match(data.usfm, /^[A-Z0-9]+\.\d+\.\d+$/, "usfm should look like BOOK.chapter.verse");
+  assert.equal(typeof data.label, "string");
+  assert.ok(data.label.length > 0);
+});
+
 test("GET /api/passage with no ref returns 400", async () => {
   const response = await fetch(BASE_URL + "/api/passage");
   assert.equal(response.status, 400);
