@@ -488,16 +488,21 @@ which this app doesn't (its only disk writes are the re-fetched, disposable
 `data/` files). Redis (for sessions/caps) and Render's compute are the only
 two moving pieces, and Upstash's free tier covers the former.
 
-**The daily digest email is the one piece that does need a paid Render
-add-on**, and is deliberately not wired into the free web service above:
-`render.yaml` also defines an `ad-fontes-daily-digest` cron service (`npm
-run digest`, see Accounts & study memory), but Render Cron Job services
-aren't available on the free plan the way the web service is — Render will
-reject that service on Blueprint sync unless the plan on that service (or
-the whole workspace) is upgraded first. Everything the digest depends on
-(`RESEND_API_KEY`, `DIGEST_FROM_EMAIL`, Supabase config) is harmless to
-leave unset in the meantime; the toggle in the UI just won't result in any
-email actually going out until the cron service is enabled.
+**The daily digest email is the one piece with its own real, small cost**,
+and is deliberately not wired into the free web service above: `render.yaml`
+also defines an `ad-fontes-daily-digest` cron service (`npm run digest`, see
+Accounts & study memory). This does *not* require upgrading the Render
+*workspace* off the free Hobby plan — Cron Job services are available there
+too — but Cron Jobs have no free *compute* tier the way web services do
+(see [render.com/pricing](https://render.com/pricing) -> Cron Jobs: from
+$0.00016/minute on the cheapest instance type, billed only while the job is
+actually running, prorated to the second). A script that runs for a few
+seconds once a day costs a small fraction of a cent per run — Render's own
+marketing rounds this up to "from $1/month," which is the realistic
+ballpark, nowhere close to a paid-plan-sized cost. Everything the digest
+depends on (`RESEND_API_KEY`, `DIGEST_FROM_EMAIL`, Supabase config) is
+harmless to leave unset if you'd rather skip it; the toggle in the UI just
+won't result in any email actually going out until the cron service exists.
 
 ## Translations
 

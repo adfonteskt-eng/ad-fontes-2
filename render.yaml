@@ -74,14 +74,18 @@ services:
   # scripts/send-daily-digest.js. Runs independently of the web service
   # above: same repo/build, different entry point, on its own schedule.
   #
-  # NOTE: Render Cron Job services require a paid plan — they aren't
-  # available on "plan: free" the way the web service above is (Render will
-  # reject this service on Blueprint sync otherwise). This is an explicit
-  # cost/plan decision, not something to sync blindly — either upgrade the
-  # plan on Render before syncing this Blueprint, or delete this service
-  # block if the digest email isn't worth that cost yet. Everything it
+  # NOTE: this does NOT require upgrading the Render *workspace* off the
+  # free Hobby plan — Cron Job services are available there too. What it
+  # does require: Cron Jobs have no free *compute* tier the way web
+  # services do (see render.com/pricing -> Cron Jobs — pricing starts at
+  # $0.00016/minute on the cheapest "Starter" instance type, billed only
+  # while the job is actually running, prorated to the second). A script
+  # that runs for a few seconds once a day costs a small fraction of a
+  # cent per run in compute — Render's own marketing floor rounds this up
+  # to "from $1/month," which is the realistic ballpark to expect, not
+  # anything close to a paid-plan-sized cost. Everything this service
   # depends on (RESEND_API_KEY, DIGEST_FROM_EMAIL, Supabase config) is
-  # additive and harmless to leave unset in the meantime.
+  # additive and harmless to leave unset if you'd rather skip it entirely.
   - type: cron
     name: ad-fontes-daily-digest
     runtime: node

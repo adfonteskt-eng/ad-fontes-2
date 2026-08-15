@@ -4,8 +4,38 @@
 // — nothing here needs a real API key or network access.
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { access, rename } from "node:fs/promises";
 
 import { chatTurn, getSessionCount, clearSession, trimHistory } from "../lib/chat.js";
+import { dataFile } from "../scripts/fetch-data.js";
+import { BSB_FILE, clearBibleSearchCache } from "../lib/bible-search.js";
+
+// Whether data/bsb.txt actually exists depends on whether `npm run
+// fetch-data` has run somewhere with network access to bereanbible.com --
+// true in CI, not necessarily true in every sandbox (see test/bible-
+// search.test.mjs's header comment for the same issue there). The
+// search_bible_text "missing data" test below uses this to force that
+// state deterministically rather than assuming it.
+const REAL_BSB_PATH = dataFile(BSB_FILE);
+const MOVED_ASIDE_PATH = dataFile(`${BSB_FILE}.test-backup`);
+
+async function withBsbFileMissing(fn) {
+  let movedAside = false;
+  try {
+    await access(REAL_BSB_PATH);
+    await rename(REAL_BSB_PATH, MOVED_ASIDE_PATH);
+    movedAside = true;
+  } catch {
+    // Already missing in this environment -- nothing to move.
+  }
+  clearBibleSearchCache();
+  try {
+    await fn();
+  } finally {
+    if (movedAside) await rename(MOVED_ASIDE_PATH, REAL_BSB_PATH);
+    clearBibleSearchCache();
+  }
+}
 
 let realFetch;
 
@@ -78,37 +108,39 @@ test("chains search_lexicon -> find_occurrences -> gather_passage against real d
 });
 
 test("search_bible_text tool call reports a friendly error, not a crash, when data/bsb.txt hasn't been downloaded", async () => {
-  // This sandbox has no network path to fetch data/bsb.txt (see
-  // scripts/fetch-data.js's downloadBsb()), so this exercises the real
-  // "not yet fetched" path lib/bible-search.js's searchBibleText() defines
-  // for exactly this case — the turn should still complete normally
-  // (Claude sees the error as a tool_result and can react to it), not
-  // throw all the way out of chatTurn().
-  let step = 0;
-  let sawToolResult = null;
+  // Whether data/bsb.txt actually exists depends on the environment (see
+  // the withBsbFileMissing() setup above), so this forces the "not yet
+  // fetched" state deterministically rather than assuming it — the turn
+  // should still complete normally either way (Claude sees the error as a
+  // tool_result and can react to it), not throw all the way out of
+  // chatTurn().
+  await withBsbFileMissing(async () => {
+    let step = 0;
+    let sawToolResult = null;
 
-  globalThis.fetch = async (url, opts) => {
-    const body = JSON.parse(opts.body);
-    step++;
-    if (step === 1) {
+    globalThis.fetch = async (url, opts) => {
+      const body = JSON.parse(opts.body);
+      step++;
+      if (step === 1) {
+        return jsonResponse({
+          stop_reason: "tool_use",
+          content: [{ type: "tool_use", id: "t1", name: "search_bible_text", input: { query: "still small voice" } }],
+        });
+      }
+      const last = body.messages[body.messages.length - 1];
+      sawToolResult = last.content[0].content;
       return jsonResponse({
-        stop_reason: "tool_use",
-        content: [{ type: "tool_use", id: "t1", name: "search_bible_text", input: { query: "still small voice" } }],
+        stop_reason: "end_turn",
+        content: [{ type: "text", text: "I wasn't able to search the full Bible text." }],
       });
-    }
-    const last = body.messages[body.messages.length - 1];
-    sawToolResult = last.content[0].content;
-    return jsonResponse({
-      stop_reason: "end_turn",
-      content: [{ type: "text", text: "I wasn't able to search the full Bible text." }],
-    });
-  };
+    };
 
-  const result = await chatTurn({ message: "What's the verse about the still small voice?", appKey: "k", apiKey: "fake" });
+    const result = await chatTurn({ message: "What's the verse about the still small voice?", appKey: "k", apiKey: "fake" });
 
-  assert.equal(step, 2);
-  assert.match(sawToolResult, /fetch-data/, "the tool_result should surface the friendly BSB_NOT_DOWNLOADED message");
-  assert.ok(result.reply.length > 0, "the turn should still complete with a reply, not throw");
+    assert.equal(step, 2);
+    assert.match(sawToolResult, /fetch-data/, "the tool_result should surface the friendly BSB_NOT_DOWNLOADED message");
+    assert.ok(result.reply.length > 0, "the turn should still complete with a reply, not throw");
+  });
 });
 
 // --- Prompt caching --------------------------------------------------------

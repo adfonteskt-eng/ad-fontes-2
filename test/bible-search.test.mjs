@@ -2,15 +2,22 @@
 // keyword search, and searchBibleText()'s handling of a not-yet-downloaded
 // data file. parseBsbText()/buildInvertedIndex()/searchVerses() are tested
 // directly against small hand-built fixtures (no filesystem, no real
-// multi-megabyte download needed) — only the "file missing" path of
-// searchBibleText()/isBibleTextAvailable() touches the filesystem, and does
-// so against whatever's actually on disk (this sandbox has no network path
-// to bereanbible.com, so data/bsb.txt is genuinely absent here — see
-// scripts/fetch-data.js's downloadBsb() and this file's own test for that
-// exact case below).
+// multi-megabyte download needed).
+//
+// The "file missing" tests below can't just assume data/bsb.txt is absent —
+// whether it actually is depends on whether `npm run fetch-data` has been
+// run in *this* environment (it has network access to bereanbible.com in
+// CI/most local setups, but not in every sandbox), so a naive test would
+// pass in one environment and fail in another for reasons that have nothing
+// to do with the code under test. Instead, withBsbFileMissing() below
+// temporarily renames the real file out of the way (if present), runs the
+// assertion, and renames it back — deterministic either way, and it leaves
+// the file exactly as it found it.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { access, rename } from "node:fs/promises";
 
+import { dataFile } from "../scripts/fetch-data.js";
 import {
   parseBsbText,
   buildInvertedIndex,
@@ -18,6 +25,7 @@ import {
   searchBibleText,
   isBibleTextAvailable,
   clearBibleSearchCache,
+  BSB_FILE,
 } from "../lib/bible-search.js";
 
 // --- parseBsbText ------------------------------------------------------
@@ -123,24 +131,51 @@ test("searchVerses respects and caps the limit option", () => {
   assert.ok(uncapped.length <= 50, "limit should be capped at MAX_LIMIT even if a caller asks for more");
 });
 
-// --- searchBibleText / isBibleTextAvailable (real filesystem, no data/bsb.txt here) --
+// --- searchBibleText / isBibleTextAvailable: the "not yet downloaded" path --
+// Whether data/bsb.txt actually exists on disk depends on whether
+// `npm run fetch-data` has run somewhere with network access to
+// bereanbible.com -- true in CI, not necessarily true in every local/
+// sandboxed environment. These tests can't assume either way; see this
+// file's header comment for why withBsbFileMissing() temporarily moves the
+// real file aside instead.
+
+const REAL_BSB_PATH = dataFile(BSB_FILE);
+const MOVED_ASIDE_PATH = dataFile(`${BSB_FILE}.test-backup`);
+
+async function withBsbFileMissing(fn) {
+  let movedAside = false;
+  try {
+    await access(REAL_BSB_PATH);
+    await rename(REAL_BSB_PATH, MOVED_ASIDE_PATH);
+    movedAside = true;
+  } catch {
+    // Already missing in this environment -- nothing to move, the "missing"
+    // state already holds.
+  }
+  clearBibleSearchCache();
+  try {
+    await fn();
+  } finally {
+    if (movedAside) await rename(MOVED_ASIDE_PATH, REAL_BSB_PATH);
+    clearBibleSearchCache();
+  }
+}
 
 test("isBibleTextAvailable is false when data/bsb.txt hasn't been downloaded", async () => {
-  // This sandbox has no network path to bereanbible.com (see
-  // scripts/fetch-data.js's downloadBsb()), so data/bsb.txt is genuinely
-  // absent here -- this exercises the real "not yet fetched" path rather
-  // than a mocked one.
-  assert.equal(await isBibleTextAvailable(), false);
+  await withBsbFileMissing(async () => {
+    assert.equal(await isBibleTextAvailable(), false);
+  });
 });
 
 test("searchBibleText throws a clear, catchable error when data/bsb.txt is missing", async () => {
-  clearBibleSearchCache();
-  await assert.rejects(
-    () => searchBibleText("love"),
-    (error) => {
-      assert.equal(error.code, "BSB_NOT_DOWNLOADED");
-      assert.match(error.message, /fetch-data/);
-      return true;
-    },
-  );
+  await withBsbFileMissing(async () => {
+    await assert.rejects(
+      () => searchBibleText("love"),
+      (error) => {
+        assert.equal(error.code, "BSB_NOT_DOWNLOADED");
+        assert.match(error.message, /fetch-data/);
+        return true;
+      },
+    );
+  });
 });
