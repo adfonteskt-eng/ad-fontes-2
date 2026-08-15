@@ -9,6 +9,7 @@
     "start": "node index.js",
     "web": "node server.js",
     "fetch-data": "node scripts/fetch-data.js",
+    "digest": "node scripts/send-daily-digest.js",
     "test": "node --test"
   },
   "engines": {

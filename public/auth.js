@@ -25,6 +25,7 @@ const emailInput = document.getElementById("auth-email");
 const signinSentNote = document.getElementById("auth-signin-sent");
 const userEmailLabel = document.getElementById("auth-user-email");
 const signoutButton = document.getElementById("auth-signout");
+const digestToggle = document.getElementById("auth-digest-optin");
 
 const menuHomeButton = document.getElementById("menu-home-button");
 const menuNewChatButton = document.getElementById("menu-new-chat-button");
@@ -214,6 +215,59 @@ async function loadConversation(id) {
   }
 }
 
+// --- Daily digest preference -------------------------------------------------
+
+// Guards against the change listener firing (and PUTting) while
+// loadDigestPreference() itself sets digestToggle.checked from the server's
+// answer -- otherwise loading the current "off" preference would look
+// indistinguishable from the user unchecking it, and re-save the same
+// value right back (harmless, but a needless request every page load).
+let settingDigestToggleFromServer = false;
+
+async function loadDigestPreference() {
+  if (!digestToggle) return;
+  const token = await window.adFontesAuth.getAccessToken();
+  if (!token) return;
+
+  try {
+    const response = await fetch("/api/preferences", {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) return;
+    const { dailyDigestOptIn } = await response.json();
+    settingDigestToggleFromServer = true;
+    digestToggle.checked = Boolean(dailyDigestOptIn);
+    settingDigestToggleFromServer = false;
+  } catch {
+    // Leave the toggle at whatever it last showed -- same "fail silently,
+    // don't disrupt the rest of the menu" spirit as loadConversations().
+  }
+}
+
+if (digestToggle) {
+  digestToggle.addEventListener("change", async () => {
+    if (settingDigestToggleFromServer) return;
+    const token = await window.adFontesAuth.getAccessToken();
+    if (!token) return;
+
+    const desired = digestToggle.checked;
+    try {
+      const response = await fetch("/api/preferences", {
+        method: "PUT",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ dailyDigestOptIn: desired }),
+      });
+      if (!response.ok) {
+        // Couldn't save -- put the checkbox back to reflect reality rather
+        // than showing a state the server never actually stored.
+        digestToggle.checked = !desired;
+      }
+    } catch {
+      digestToggle.checked = !desired;
+    }
+  });
+}
+
 function setConversationsSort(sort) {
   conversationsSort = sort;
   sortRecentButton.setAttribute("aria-pressed", String(sort === "recent"));
@@ -259,6 +313,7 @@ async function initAuth() {
   if (initialSession) {
     showSignedIn(initialSession.user?.email);
     loadConversations();
+    loadDigestPreference();
   } else {
     showSignedOut();
   }
@@ -271,6 +326,7 @@ async function initAuth() {
     if (session) {
       showSignedIn(session.user?.email);
       loadConversations();
+      loadDigestPreference();
     } else {
       showSignedOut();
     }

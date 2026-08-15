@@ -30,6 +30,15 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now()
 );
 
+-- Added after profiles first shipped -- `alter ... add column if not
+-- exists` rather than folding into the create table above, so this file
+-- stays safe to re-run against a project that already has the original
+-- profiles table (see this file's own header comment on idempotency).
+-- Defaults to false: the daily digest email (see lib/daily-digest.js) is
+-- opt-in, not opt-out -- nobody gets emailed just for signing up.
+alter table public.profiles
+  add column if not exists daily_digest_opt_in boolean not null default false;
+
 alter table public.profiles enable row level security;
 
 drop policy if exists "profiles: users can read their own row" on public.profiles;

@@ -390,10 +390,31 @@ one; `DELETE /api/notes/:id` removes one — all three require a valid
 fire-and-forget: it's content the user explicitly asked to save, so a write
 failure surfaces as a real error in the UI rather than being swallowed.
 
+**Daily digest email.** A signed-in user can opt into a once-a-day email
+with the same "today's featured passage" the homepage already shows (see
+the daily-passage section above) — a toggle ("Email me today's passage") in
+the account menu, right below sign-out. `GET /api/preferences` and
+`PUT /api/preferences { dailyDigestOptIn }` read/write the preference
+(`profiles.daily_digest_opt_in`, defaulting to `false` — opt-in, not
+opt-out); both require a valid `Authorization` header. Sending itself is
+*not* part of the request/response cycle at all — it's a separate scheduled
+job (`lib/daily-digest.js`, invoked by `scripts/send-daily-digest.js` /
+`npm run digest`) that Resend's HTTP API delivers, meant to be triggered
+once a day by a scheduler (Render Cron Job, see `render.yaml`) rather than
+by any user action. The email itself just links back to the site root — the
+homepage already shows the same day's passage deterministically (same
+`getDailyPassage()` logic, same UTC calendar day), so there's no deep-
+linking machinery to keep in sync. This needs its own `RESEND_API_KEY` +
+`DIGEST_FROM_EMAIL` (see `.env.example`) — a separate key from the one
+already configured inside Supabase's Custom SMTP settings for magic-link
+emails, since Supabase never hands that key back out to this app's own
+code.
+
 **Setup** (run once): create a free Supabase project, open the SQL Editor,
 paste in and run `supabase/schema.sql` (creates `profiles`/`study_entries`/
-`conversations`/`notes` and their RLS policies — idempotent, safe to
-re-run), then copy the three values from Settings -> API Keys into `.env`.
+`conversations`/`notes`, the `profiles.daily_digest_opt_in` column, and
+their RLS policies — idempotent, safe to re-run), then copy the three
+values from Settings -> API Keys into `.env`.
 
 ## Deployment
 
@@ -438,6 +459,17 @@ Render offers is for services that need to *write* durable data to disk,
 which this app doesn't (its only disk writes are the re-fetched, disposable
 `data/` files). Redis (for sessions/caps) and Render's compute are the only
 two moving pieces, and Upstash's free tier covers the former.
+
+**The daily digest email is the one piece that does need a paid Render
+add-on**, and is deliberately not wired into the free web service above:
+`render.yaml` also defines an `ad-fontes-daily-digest` cron service (`npm
+run digest`, see Accounts & study memory), but Render Cron Job services
+aren't available on the free plan the way the web service is — Render will
+reject that service on Blueprint sync unless the plan on that service (or
+the whole workspace) is upgraded first. Everything the digest depends on
+(`RESEND_API_KEY`, `DIGEST_FROM_EMAIL`, Supabase config) is harmless to
+leave unset in the meantime; the toggle in the UI just won't result in any
+email actually going out until the cron service is enabled.
 
 ## Translations
 
@@ -508,6 +540,9 @@ with `SUMMARY_MODEL` in `.env`.
 | `SUPABASE_URL` | Optional. Enables accounts, compounding study memory, and the previous-conversations menu — see Accounts & study memory below. |
 | `SUPABASE_PUBLISHABLE_KEY` | Optional, paired with the URL above. Safe to expose to the browser (that's what "publishable" means here). |
 | `SUPABASE_SECRET_KEY` | Optional, paired with the URL above. Server-only — never sent to the browser. |
+| `RESEND_API_KEY` | Optional. Enables the daily digest email (`npm run digest`) — see Accounts & study memory. Separate from the Resend key already configured inside Supabase's Custom SMTP settings. |
+| `DIGEST_FROM_EMAIL` | Optional, paired with the key above. Must be an address at a domain verified with Resend. |
+| `PUBLIC_SITE_URL` | Optional. What the digest email links back to. Defaults to `https://adfontes.site`. |
 
 `.env` is gitignored. Keep all keys/tokens out of source control.
 
@@ -546,12 +581,14 @@ fetched live from biblehub.com per verse rather than bundled.
 | `lib/upstash.js` | Shared Upstash Redis REST client (`redisCommand()`, `isRedisConfigured()`) used by both `lib/session-store.js` and `lib/rate-limit.js`. |
 | `lib/daily-passage.js` | `getDailyPassage(date)` — the curated, date-rotating "today's passage" (with a short teaser tag) shown on the homepage. No external calls, no storage. |
 | `lib/bible-books.js` | Canonical 66-book Bible order (Genesis→Revelation, not alphabetical) + lookup helpers, used to sort the previous-conversations menu by book. |
-| `lib/supabase.js` | Server-side Supabase client for accounts: `verifyUser()` (Auth REST); `logStudyEntry()`/`searchStudyHistory()`, `appendToConversation()`/`listConversations()`/`getConversation()`, and `createNote()`/`listNotes()`/`deleteNote()` (PostgREST). Plain fetch, no SDK — see Accounts & study memory below. |
-| `supabase/schema.sql` | The `profiles`/`study_entries`/`conversations`/`notes` tables + RLS policies. Run once in the Supabase SQL Editor. |
+| `lib/supabase.js` | Server-side Supabase client for accounts: `verifyUser()` (Auth REST); `logStudyEntry()`/`searchStudyHistory()`, `appendToConversation()`/`listConversations()`/`getConversation()`, `createNote()`/`listNotes()`/`deleteNote()`, and `getDigestOptIn()`/`setDigestOptIn()`/`listDigestOptedInUsers()` (PostgREST). Plain fetch, no SDK — see Accounts & study memory below. |
+| `lib/daily-digest.js` | `sendDailyDigest(opts)` — emails today's featured passage to every opted-in user via Resend's HTTP API. Invoked by `scripts/send-daily-digest.js`, not by any request handler. |
+| `scripts/send-daily-digest.js` | CLI entry point (`npm run digest`) for the daily digest cron job — see `render.yaml`. |
+| `supabase/schema.sql` | The `profiles` (incl. `daily_digest_opt_in`)/`study_entries`/`conversations`/`notes` tables + RLS policies. Run once in the Supabase SQL Editor. |
 | `lib/interlinear.js` | Greek/Hebrew parsing against the STEPBible data files. Also exports `searchLexicon()` (keyword → Strong's numbers) and `findStrongsOccurrences()` (Strong's number → every tagged verse). |
 | `lib/commentary.js` | biblehub.com scraper. |
 | `lib/fetch-timeout.js` | `fetchWithTimeout()` — shared AbortController-based timeout wrapper used by every external call (YouVersion, biblehub, Anthropic, Upstash). |
 | `index.js` | CLI: calls `gatherPassage()`/`summarizePassage()` and prints the result. |
-| `server.js` | Web API: `/api/passage`, `/api/chat`, `/api/daily`, `/api/config`, `/api/conversations[/:id]`, `/api/notes[/:id]`, plus static file serving. |
+| `server.js` | Web API: `/api/passage`, `/api/chat`, `/api/daily`, `/api/config`, `/api/conversations[/:id]`, `/api/notes[/:id]`, `/api/preferences`, plus static file serving. |
 | `public/` | Website frontend — plain HTML/CSS/JS, no build step. `auth.js` is the one exception to "no dependencies": loads the official Supabase client from a CDN for the sign-in flow (server-side stays dependency-free — see `lib/supabase.js`), and also owns the top-left menu's previous-conversations list. |
 | `scripts/fetch-data.js` | Downloads the STEPBible data files into `data/`. |

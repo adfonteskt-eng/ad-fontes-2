@@ -176,6 +176,19 @@ body {
   word-break: break-all;
 }
 
+.menu-digest-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.menu-digest-toggle input {
+  cursor: pointer;
+}
+
 .menu-conversations-header {
   display: flex;
   align-items: center;

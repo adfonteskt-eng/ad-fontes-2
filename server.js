@@ -48,6 +48,15 @@
 //   isn't the signed-in user's own. Requires a valid Authorization header —
 //   401 without one.
 //
+// GET /api/preferences -> { dailyDigestOptIn: boolean } for the signed-in
+//   user. Requires a valid Authorization header — 401 without one.
+//
+// PUT /api/preferences { dailyDigestOptIn: boolean } -> the preference as
+//   saved, same shape as GET. Requires a valid Authorization header — 401
+//   without one. (Only one preference exists today; PUT replaces the whole
+//   object rather than PATCHing a single field, so this doesn't need to
+//   change shape when a second preference is added later.)
+//
 // GET /chat -> serves the same index.html as GET / -- the frontend is a
 //   single-page app with two client-side views (home and conversation, see
 //   public/app.js), and this route exists purely so a hard refresh or a
@@ -88,8 +97,10 @@ import {
   createNote,
   deleteNote,
   getConversation,
+  getDigestOptIn,
   listConversations,
   listNotes,
+  setDigestOptIn,
   verifyUser,
 } from "./lib/supabase.js";
 
@@ -335,6 +346,35 @@ async function handleDeleteNote(req, res, noteId) {
   res.end();
 }
 
+async function handleGetPreferences(req, res) {
+  const user = await requireUser(req, res);
+  if (!user) return;
+
+  const dailyDigestOptIn = await getDigestOptIn(user.id);
+  sendJson(res, 200, { dailyDigestOptIn });
+}
+
+async function handleSetPreferences(req, res) {
+  const user = await requireUser(req, res);
+  if (!user) return;
+
+  let body;
+  try {
+    body = await readJsonBody(req, { maxBytes: MAX_CHAT_BODY_BYTES });
+  } catch (error) {
+    sendJson(res, error.status ?? 400, { error: error.message });
+    return;
+  }
+
+  if (typeof body.dailyDigestOptIn !== "boolean") {
+    sendJson(res, 400, { error: "Missing or invalid field: dailyDigestOptIn (must be true or false)." });
+    return;
+  }
+
+  await setDigestOptIn(user.id, body.dailyDigestOptIn);
+  sendJson(res, 200, { dailyDigestOptIn: body.dailyDigestOptIn });
+}
+
 async function handlePassage(req, res, searchParams) {
   const appKey = process.env.YVP_APP_KEY;
   if (!appKey) {
@@ -559,6 +599,14 @@ const server = createServer(async (req, res) => {
     const noteMatch = req.method === "DELETE" ? url.pathname.match(NOTE_ID_PATTERN) : null;
     if (noteMatch) {
       await handleDeleteNote(req, res, noteMatch[1]);
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/preferences") {
+      await handleGetPreferences(req, res);
+      return;
+    }
+    if (req.method === "PUT" && url.pathname === "/api/preferences") {
+      await handleSetPreferences(req, res);
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/chat") {

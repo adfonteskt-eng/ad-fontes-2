@@ -17,6 +17,9 @@ import {
   createNote,
   listNotes,
   deleteNote,
+  getDigestOptIn,
+  setDigestOptIn,
+  listDigestOptedInUsers,
   isSupabaseConfigured,
 } from "../lib/supabase.js";
 
@@ -55,6 +58,7 @@ function stubSupabase({ validToken = "valid-token", user = { id: "user-1", email
   const conversations = new Map(); // id -> row, mirrors an upsert-by-id table
   const notes = [];
   let nextNoteId = 1;
+  const profiles = new Map(); // id -> row, same "mirrors a real table" spirit as conversations
 
   globalThis.fetch = async (requestUrl, opts = {}) => {
     const url = new URL(requestUrl);
@@ -159,10 +163,34 @@ function stubSupabase({ validToken = "valid-token", user = { id: "user-1", email
       return { ok: true, status: 200, text: async () => JSON.stringify(results) };
     }
 
+    if (url.pathname === "/rest/v1/profiles") {
+      assert.equal(headers.apikey, SECRET_KEY, "profiles access should use the secret key");
+      assert.equal(headers.Authorization, undefined, "should not send an Authorization header for secret-key requests");
+
+      const params = url.searchParams;
+
+      if (opts.method === "PATCH") {
+        const idFilter = params.get("id"); // "eq.<id>"
+        const updates = JSON.parse(opts.body);
+        for (const [id, row] of profiles) {
+          if (`eq.${id}` === idFilter) Object.assign(row, updates);
+        }
+        return { ok: true, status: 204, text: async () => "" };
+      }
+
+      // GET
+      let results = [...profiles.values()];
+      const idFilter = params.get("id");
+      if (idFilter) results = results.filter((p) => `eq.${p.id}` === idFilter);
+      const optInFilter = params.get("daily_digest_opt_in");
+      if (optInFilter) results = results.filter((p) => `eq.${String(Boolean(p.daily_digest_opt_in))}` === optInFilter);
+      return { ok: true, status: 200, text: async () => JSON.stringify(results) };
+    }
+
     return { ok: false, status: 404, statusText: "Not Found", text: async () => "unknown path" };
   };
 
-  return { requests, studyEntries, conversations, notes };
+  return { requests, studyEntries, conversations, notes, profiles };
 }
 
 // --- verifyUser --------------------------------------------------------
@@ -473,4 +501,61 @@ test("deleteNote returns false and deletes nothing for another user's note (owne
 test("deleteNote returns false for a nonexistent id", async () => {
   stubSupabase();
   assert.equal(await deleteNote("user-1", 999), false);
+});
+
+// --- getDigestOptIn / setDigestOptIn / listDigestOptedInUsers --------------
+
+test("getDigestOptIn returns false when Supabase isn't configured, without calling fetch", async () => {
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    return { ok: true, status: 200, text: async () => "[]" };
+  };
+  assert.equal(await getDigestOptIn("user-1"), false);
+  assert.equal(called, false);
+});
+
+test("getDigestOptIn defaults to false when there's no profiles row for the user", async () => {
+  stubSupabase();
+  assert.equal(await getDigestOptIn("user-1"), false);
+});
+
+test("getDigestOptIn returns the stored preference", async () => {
+  const { profiles } = stubSupabase();
+  profiles.set("user-1", { id: "user-1", email: "kaleb@example.com", daily_digest_opt_in: true });
+  assert.equal(await getDigestOptIn("user-1"), true);
+});
+
+test("setDigestOptIn PATCHes the user's profiles row with the secret key", async () => {
+  const { requests, profiles } = stubSupabase();
+  profiles.set("user-1", { id: "user-1", email: "kaleb@example.com", daily_digest_opt_in: false });
+
+  await setDigestOptIn("user-1", true);
+
+  const patchRequest = requests.find((r) => r.url.pathname === "/rest/v1/profiles" && r.opts.method === "PATCH");
+  assert.ok(patchRequest, "should have PATCHed profiles");
+  assert.equal(patchRequest.url.searchParams.get("id"), "eq.user-1");
+  assert.deepEqual(JSON.parse(patchRequest.opts.body), { daily_digest_opt_in: true });
+  assert.equal(profiles.get("user-1").daily_digest_opt_in, true);
+});
+
+test("listDigestOptedInUsers returns [] when Supabase isn't configured, without calling fetch", async () => {
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    return { ok: true, status: 200, text: async () => "[]" };
+  };
+  assert.deepEqual(await listDigestOptedInUsers(), []);
+  assert.equal(called, false);
+});
+
+test("listDigestOptedInUsers returns only opted-in users as { id, email }", async () => {
+  const { profiles } = stubSupabase();
+  profiles.set("user-1", { id: "user-1", email: "opted-in@example.com", daily_digest_opt_in: true });
+  profiles.set("user-2", { id: "user-2", email: "opted-out@example.com", daily_digest_opt_in: false });
+
+  const results = await listDigestOptedInUsers();
+  assert.equal(results.length, 1);
+  assert.equal(results[0].id, "user-1");
+  assert.equal(results[0].email, "opted-in@example.com");
 });

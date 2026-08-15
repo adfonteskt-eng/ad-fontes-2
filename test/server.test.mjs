@@ -210,6 +210,20 @@ test("DELETE /api/notes/not-a-number doesn't match the notes route (falls throug
   assert.equal(response.status, 405);
 });
 
+test("GET /api/preferences with no Authorization header returns 401", async () => {
+  const response = await fetch(BASE_URL + "/api/preferences");
+  assert.equal(response.status, 401);
+});
+
+test("PUT /api/preferences with no Authorization header returns 401", async () => {
+  const response = await fetch(BASE_URL + "/api/preferences", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ dailyDigestOptIn: true }),
+  });
+  assert.equal(response.status, 401);
+});
+
 test("POST /api/chat with a malformed sessionId is sanitized away, not rejected", async () => {
   // A real sessionId only ever comes from randomUUID() server-side. A
   // client sending something else (a huge string, an object, whatever)

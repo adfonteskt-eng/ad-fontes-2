@@ -68,3 +68,55 @@ services:
       #   value: "60"
       # - key: SUMMARY_DAILY_LIMIT
       #   value: "40"
+
+  # Sends the daily digest email (today's featured passage) to every
+  # opted-in signed-in user — see lib/daily-digest.js and
+  # scripts/send-daily-digest.js. Runs independently of the web service
+  # above: same repo/build, different entry point, on its own schedule.
+  #
+  # NOTE: Render Cron Job services require a paid plan — they aren't
+  # available on "plan: free" the way the web service above is (Render will
+  # reject this service on Blueprint sync otherwise). This is an explicit
+  # cost/plan decision, not something to sync blindly — either upgrade the
+  # plan on Render before syncing this Blueprint, or delete this service
+  # block if the digest email isn't worth that cost yet. Everything it
+  # depends on (RESEND_API_KEY, DIGEST_FROM_EMAIL, Supabase config) is
+  # additive and harmless to leave unset in the meantime.
+  - type: cron
+    name: ad-fontes-daily-digest
+    runtime: node
+    plan: starter
+    region: oregon
+    branch: main
+    buildCommand: npm install
+    startCommand: npm run digest
+    # Once a day at 12:00 UTC (8am US Eastern / 5am US Pacific) — arbitrary
+    # reasonable default; adjust to when your users are actually awake.
+    schedule: "0 12 * * *"
+    envVars:
+      - key: NODE_VERSION
+        value: 20.12.0
+
+      # Required for this service specifically — see .env.example. Without
+      # these, `npm run digest` exits nonzero (Render will report the cron
+      # run as failed) rather than silently doing nothing.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: DIGEST_FROM_EMAIL
+        sync: false
+
+      # Required — this job needs Supabase to know who's opted in, same
+      # values as the web service above (Render doesn't share env vars
+      # between services, so these have to be entered twice).
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+
+      # Optional — defaults to https://adfontes.site if unset (see
+      # lib/daily-digest.js). Only needed if this ever runs against a
+      # different deployment.
+      # - key: PUBLIC_SITE_URL
+      #   value: https://adfontes.site
