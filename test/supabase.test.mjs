@@ -14,6 +14,9 @@ import {
   appendToConversation,
   listConversations,
   getConversation,
+  createNote,
+  listNotes,
+  deleteNote,
   isSupabaseConfigured,
 } from "../lib/supabase.js";
 
@@ -50,6 +53,8 @@ function stubSupabase({ validToken = "valid-token", user = { id: "user-1", email
   const requests = [];
   const studyEntries = [];
   const conversations = new Map(); // id -> row, mirrors an upsert-by-id table
+  const notes = [];
+  let nextNoteId = 1;
 
   globalThis.fetch = async (requestUrl, opts = {}) => {
     const url = new URL(requestUrl);
@@ -121,10 +126,43 @@ function stubSupabase({ validToken = "valid-token", user = { id: "user-1", email
       return { ok: true, status: 200, text: async () => JSON.stringify(results) };
     }
 
+    if (url.pathname === "/rest/v1/notes") {
+      assert.equal(headers.apikey, SECRET_KEY, "notes access should use the secret key");
+      assert.equal(headers.Authorization, undefined, "should not send an Authorization header for secret-key requests");
+
+      if (opts.method === "POST") {
+        const rows = JSON.parse(opts.body);
+        const now = new Date().toISOString();
+        const created = rows.map((row) => {
+          const full = { id: nextNoteId++, ...row, created_at: now, updated_at: now };
+          notes.push(full);
+          return full;
+        });
+        return { ok: true, status: 201, text: async () => JSON.stringify(created) };
+      }
+
+      const params = url.searchParams;
+
+      if (opts.method === "DELETE") {
+        const idFilter = params.get("id");
+        const userFilter = params.get("user_id");
+        const toDelete = notes.filter((n) => `eq.${n.id}` === idFilter && `eq.${n.user_id}` === userFilter);
+        for (const row of toDelete) notes.splice(notes.indexOf(row), 1);
+        return { ok: true, status: 200, text: async () => JSON.stringify(toDelete) };
+      }
+
+      // GET
+      let results = notes.filter((n) => `eq.${n.user_id}` === params.get("user_id"));
+      const refFilter = params.get("reference");
+      if (refFilter) results = results.filter((n) => `eq.${n.reference}` === refFilter);
+      results = [...results].sort((a, b) => b.created_at.localeCompare(a.created_at));
+      return { ok: true, status: 200, text: async () => JSON.stringify(results) };
+    }
+
     return { ok: false, status: 404, statusText: "Not Found", text: async () => "unknown path" };
   };
 
-  return { requests, studyEntries, conversations };
+  return { requests, studyEntries, conversations, notes };
 }
 
 // --- verifyUser --------------------------------------------------------
@@ -371,4 +409,68 @@ test("getConversation returns null for another user's conversation (ownership sc
 test("getConversation returns null for a nonexistent id", async () => {
   stubSupabase();
   assert.equal(await getConversation("user-1", "99999999-9999-9999-9999-999999999999"), null);
+});
+
+// --- createNote / listNotes / deleteNote ----------------------------------
+
+test("createNote posts with the secret key and returns the created row", async () => {
+  const { requests } = stubSupabase();
+  const note = await createNote("user-1", { reference: "JHN.3.16", body: "God's love for the world." });
+
+  const postRequest = requests.find((r) => r.url.pathname === "/rest/v1/notes" && r.opts.method === "POST");
+  assert.ok(postRequest, "should have POSTed to notes");
+  assert.deepEqual(JSON.parse(postRequest.opts.body), [
+    { user_id: "user-1", reference: "JHN.3.16", body: "God's love for the world." },
+  ]);
+  assert.equal(note.reference, "JHN.3.16");
+  assert.equal(note.body, "God's love for the world.");
+  assert.ok(note.id, "should return the created row's id");
+});
+
+test("listNotes returns [] when Supabase isn't configured, without calling fetch", async () => {
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    return { ok: true, status: 200, text: async () => "[]" };
+  };
+  assert.deepEqual(await listNotes("user-1", "JHN.3.16"), []);
+  assert.equal(called, false);
+});
+
+test("listNotes scopes to the given user and exact reference, newest first", async () => {
+  const { notes } = stubSupabase();
+  notes.push(
+    { id: 1, user_id: "user-1", reference: "JHN.3.16", body: "older", created_at: "2026-01-01T00:00:00Z" },
+    { id: 2, user_id: "user-1", reference: "JHN.3.16", body: "newer", created_at: "2026-02-01T00:00:00Z" },
+    { id: 3, user_id: "user-1", reference: "JHN.3.17", body: "different verse", created_at: "2026-02-02T00:00:00Z" },
+    { id: 4, user_id: "user-2", reference: "JHN.3.16", body: "someone else's", created_at: "2026-02-03T00:00:00Z" },
+  );
+
+  const results = await listNotes("user-1", "JHN.3.16");
+  assert.equal(results.length, 2);
+  assert.equal(results[0].body, "newer", "should be newest-first");
+  assert.ok(results.every((n) => n.body !== "different verse" && n.body !== "someone else's"));
+});
+
+test("deleteNote removes the row and returns true when it belongs to the given user", async () => {
+  const { notes } = stubSupabase();
+  notes.push({ id: 1, user_id: "user-1", reference: "JHN.3.16", body: "mine", created_at: "2026-01-01T00:00:00Z" });
+
+  const deleted = await deleteNote("user-1", 1);
+  assert.equal(deleted, true);
+  assert.equal(notes.length, 0);
+});
+
+test("deleteNote returns false and deletes nothing for another user's note (ownership scoping, not a separate check)", async () => {
+  const { notes } = stubSupabase();
+  notes.push({ id: 1, user_id: "user-2", reference: "JHN.3.16", body: "not yours", created_at: "2026-01-01T00:00:00Z" });
+
+  const deleted = await deleteNote("user-1", 1);
+  assert.equal(deleted, false);
+  assert.equal(notes.length, 1, "the other user's row should be untouched");
+});
+
+test("deleteNote returns false for a nonexistent id", async () => {
+  stubSupabase();
+  assert.equal(await deleteNote("user-1", 999), false);
 });

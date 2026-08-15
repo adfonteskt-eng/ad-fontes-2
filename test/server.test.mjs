@@ -182,6 +182,34 @@ test("POST /api/chat with an oversized body is rejected (413), not silently buff
   assert.equal(response.status, 413);
 });
 
+test("GET /api/notes with no Authorization header returns 401", async () => {
+  const response = await fetch(BASE_URL + "/api/notes?ref=JHN.3.16");
+  assert.equal(response.status, 401);
+});
+
+test("POST /api/notes with no Authorization header returns 401", async () => {
+  const response = await fetch(BASE_URL + "/api/notes", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ reference: "JHN.3.16", body: "a note" }),
+  });
+  assert.equal(response.status, 401);
+});
+
+test("DELETE /api/notes/:id with no Authorization header returns 401", async () => {
+  const response = await fetch(BASE_URL + "/api/notes/1", { method: "DELETE" });
+  assert.equal(response.status, 401);
+});
+
+test("DELETE /api/notes/not-a-number doesn't match the notes route (falls through to 405)", async () => {
+  // NOTE_ID_PATTERN only matches a plain integer id (see server.js) — a
+  // non-numeric id doesn't match any route at all for DELETE, so this falls
+  // all the way through to the generic "method not allowed" rather than
+  // being treated as a malformed note id.
+  const response = await fetch(BASE_URL + "/api/notes/not-a-number", { method: "DELETE" });
+  assert.equal(response.status, 405);
+});
+
 test("POST /api/chat with a malformed sessionId is sanitized away, not rejected", async () => {
   // A real sessionId only ever comes from randomUUID() server-side. A
   // client sending something else (a huge string, an object, whatever)

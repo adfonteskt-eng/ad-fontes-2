@@ -107,6 +107,21 @@ function renderCommentary(commentary) {
     <p class="section-note">Public domain, via <a href="${escapeHtml(commentary.url)}" target="_blank" rel="noopener">biblehub.com</a>.</p>`;
 }
 
+// A signed-in user's own notes on this exact reference — see the "Notes"
+// section below for how this gets populated (skeleton here, filled in by
+// loadNotesForSection() once the block is actually in the DOM, since
+// fetching needs an access token check that doesn't belong in a synchronous
+// string-building function like this one).
+function renderNotesSection(reference) {
+  return `<div class="notes-section" data-reference="${escapeHtml(reference)}">
+    <div class="notes-header">
+      <h3 class="notes-title">My notes</h3>
+      <button type="button" class="note-add-button">+ Add note</button>
+    </div>
+    <ul class="notes-list"></ul>
+  </div>`;
+}
+
 // One gathered passage (translations + original language + commentary) as a
 // collapsible block, so it sits alongside Claude's reply without competing
 // with it for attention. Open by default — closing it is the deliberate
@@ -118,6 +133,7 @@ function renderSourcePassage(gathered) {
       ${renderTranslations(gathered.translations)}
       ${renderOriginalLanguage(gathered.originalLanguage)}
       ${renderCommentary(gathered.commentary)}
+      ${renderNotesSection(gathered.reference.usfm)}
     </div>
   </details>`;
 }
@@ -260,9 +276,191 @@ function appendSources(gatheredList) {
   if (!html) return;
   const el = document.createElement("div");
   el.innerHTML = html;
-  chatLog.appendChild(el.firstElementChild);
+  const inserted = el.firstElementChild;
+  chatLog.appendChild(inserted);
   chatLog.scrollTop = chatLog.scrollHeight;
+  initNotesSections(inserted);
 }
+
+// --- Notes (signed-in users can save their own notes on a passage) --------
+// One .notes-section per gathered passage (see renderNotesSection above),
+// populated here rather than server-side or inline in renderSourcePassage
+// because loading/saving notes needs an access-token check (async) that a
+// synchronous HTML-building function shouldn't be doing. Handled via event
+// delegation on #chat-log (rather than addEventListener per button) since
+// these blocks are inserted via innerHTML after the fact, both for a live
+// reply and for a restored/resumed conversation — see renderChatLog.
+
+function renderNoteItem(note) {
+  const date = new Date(note.createdAt).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  return `<li class="note-item" data-note-id="${note.id}">
+    <p class="note-body">${escapeHtml(note.body)}</p>
+    <div class="note-meta">
+      <span>${date}</span>
+      <button type="button" class="note-delete-button" aria-label="Delete note">&times;</button>
+    </div>
+  </li>`;
+}
+
+function noteAddButtonHtml() {
+  return `<button type="button" class="note-add-button">+ Add note</button>`;
+}
+
+// Loads and renders existing notes for one passage block. Silently does
+// nothing when signed out (nothing to load yet — the add button prompts
+// sign-in itself when clicked) or on a network hiccup, same "fail
+// silently, this is a nice-to-have" reasoning as loadDailyPassage.
+async function loadNotesForSection(section) {
+  const accessToken = await window.adFontesAuth.getAccessToken();
+  if (!accessToken) return;
+
+  try {
+    const response = await fetch(`/api/notes?ref=${encodeURIComponent(section.dataset.reference)}`, {
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) return;
+    const { notes } = await response.json();
+    section.querySelector(".notes-list").innerHTML = notes.map(renderNoteItem).join("");
+  } catch {
+    // Network hiccup — the section just stays empty, same as no notes yet.
+  }
+}
+
+// Finds every .notes-section inside a just-inserted block (there's exactly
+// one per gathered passage, but a turn can gather more than one) and kicks
+// off loading its notes.
+function initNotesSections(container) {
+  container.querySelectorAll(".notes-section").forEach(loadNotesForSection);
+}
+
+function showNoteForm(section) {
+  const header = section.querySelector(".notes-header");
+  header.querySelector(".note-add-button")?.remove();
+  const form = document.createElement("div");
+  form.className = "note-form";
+  form.innerHTML = `<textarea class="note-textarea" rows="2" placeholder="Write a note on this passage…"></textarea>
+    <div class="note-form-actions">
+      <button type="button" class="note-cancel-button">Cancel</button>
+      <button type="button" class="note-save-button">Save</button>
+    </div>`;
+  section.appendChild(form);
+  form.querySelector(".note-textarea").focus();
+}
+
+function closeNoteForm(section) {
+  section.querySelector(".note-form")?.remove();
+  const header = section.querySelector(".notes-header");
+  if (!header.querySelector(".note-add-button")) {
+    header.insertAdjacentHTML("beforeend", noteAddButtonHtml());
+  }
+}
+
+async function handleNoteAddClick(section) {
+  const accessToken = await window.adFontesAuth.getAccessToken();
+  if (!accessToken) {
+    const header = section.querySelector(".notes-header");
+    header.querySelector(".note-add-button")?.remove();
+    header.insertAdjacentHTML(
+      "beforeend",
+      `<span class="note-signin-hint">Sign in (top-left menu) to save notes.</span>`,
+    );
+    // Restore the add button after a moment, rather than leaving the
+    // section permanently missing it — the user might sign in and come
+    // back to this same block instead of a fresh one.
+    setTimeout(() => {
+      const hint = header.querySelector(".note-signin-hint");
+      if (hint) hint.outerHTML = noteAddButtonHtml();
+    }, 4000);
+    return;
+  }
+  showNoteForm(section);
+}
+
+async function handleNoteSaveClick(section) {
+  const form = section.querySelector(".note-form");
+  const textarea = form.querySelector(".note-textarea");
+  const saveButton = form.querySelector(".note-save-button");
+  const body = textarea.value.trim();
+  if (!body) {
+    textarea.focus();
+    return;
+  }
+
+  const accessToken = await window.adFontesAuth.getAccessToken();
+  if (!accessToken) {
+    closeNoteForm(section);
+    return;
+  }
+
+  saveButton.disabled = true;
+  try {
+    const response = await fetch("/api/notes", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ reference: section.dataset.reference, body }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      alert(data.error ?? "Could not save note.");
+      return;
+    }
+    const note = await response.json();
+    section.querySelector(".notes-list").insertAdjacentHTML("afterbegin", renderNoteItem(note));
+    closeNoteForm(section);
+  } catch (error) {
+    alert(`Network error: ${error.message}`);
+  } finally {
+    saveButton.disabled = false;
+  }
+}
+
+async function handleNoteDeleteClick(item) {
+  const noteId = item.dataset.noteId;
+  const accessToken = await window.adFontesAuth.getAccessToken();
+  if (!noteId || !accessToken) return;
+
+  const deleteButton = item.querySelector(".note-delete-button");
+  deleteButton.disabled = true;
+  try {
+    const response = await fetch(`/api/notes/${noteId}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    // A 404 here means the note is already gone (deleted from another tab,
+    // say) — still fine to remove it from view, same end state either way.
+    if (response.ok || response.status === 404) item.remove();
+  } catch {
+    // Leave the note in place on a network error — better than showing it
+    // as deleted when the server never actually got the request.
+    deleteButton.disabled = false;
+  }
+}
+
+chatLog.addEventListener("click", (event) => {
+  const addButton = event.target.closest(".note-add-button");
+  if (addButton) {
+    handleNoteAddClick(addButton.closest(".notes-section"));
+    return;
+  }
+  const cancelButton = event.target.closest(".note-cancel-button");
+  if (cancelButton) {
+    closeNoteForm(cancelButton.closest(".notes-section"));
+    return;
+  }
+  const saveButton = event.target.closest(".note-save-button");
+  if (saveButton) {
+    handleNoteSaveClick(saveButton.closest(".notes-section"));
+    return;
+  }
+  const deleteButton = event.target.closest(".note-delete-button");
+  if (deleteButton) {
+    handleNoteDeleteClick(deleteButton.closest(".note-item"));
+  }
+});
 
 async function sendChatMessage(message) {
   goToConversationView();

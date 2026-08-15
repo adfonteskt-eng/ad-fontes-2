@@ -35,6 +35,19 @@
 //   the frontend can redraw it when resuming from the menu. Requires a
 //   valid Authorization header — 401 without one.
 //
+// GET /api/notes?ref=JHN.3.16 -> { notes: [{ id, reference, body,
+//   createdAt }] }, newest first, for the signed-in user's own notes on
+//   that exact reference. Requires a valid Authorization header — 401
+//   without one.
+//
+// POST /api/notes { reference, body } -> the created note ({ id, reference,
+//   body, createdAt }). Requires a valid Authorization header — 401 without
+//   one.
+//
+// DELETE /api/notes/:id -> 204 on success, 404 if the note doesn't exist or
+//   isn't the signed-in user's own. Requires a valid Authorization header —
+//   401 without one.
+//
 // GET /chat -> serves the same index.html as GET / -- the frontend is a
 //   single-page app with two client-side views (home and conversation, see
 //   public/app.js), and this route exists purely so a hard refresh or a
@@ -71,7 +84,14 @@ import { getDailyPassage } from "./lib/daily-passage.js";
 import { gatherPassage } from "./lib/gather.js";
 import { CHAT_DAILY_LIMIT, SUMMARY_DAILY_LIMIT, checkAndIncrement } from "./lib/rate-limit.js";
 import { summarizePassage } from "./lib/summarize.js";
-import { getConversation, listConversations, verifyUser } from "./lib/supabase.js";
+import {
+  createNote,
+  deleteNote,
+  getConversation,
+  listConversations,
+  listNotes,
+  verifyUser,
+} from "./lib/supabase.js";
 
 try {
   process.loadEnvFile(new URL(".env", import.meta.url));
@@ -171,6 +191,11 @@ async function authenticateRequest(req) {
 
 const CONVERSATION_ID_PATTERN = /^\/api\/conversations\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
+// A note's id is a plain bigint identity column (see supabase/schema.sql),
+// not a uuid like conversations — so this pattern (and NOTE_ID_PATTERN's
+// use below) is deliberately simpler than CONVERSATION_ID_PATTERN.
+const NOTE_ID_PATTERN = /^\/api\/notes\/(\d+)$/;
+
 // Both /api/conversations routes require a real signed-in user — unlike
 // /api/chat, where accounts are optional and a missing/invalid token just
 // falls back to anonymous behavior, there's no meaningful anonymous version
@@ -232,6 +257,82 @@ async function handleGetConversation(req, res, conversationId) {
     renderLog: row.render_log ?? [],
     updatedAt: row.updated_at,
   });
+}
+
+// A reference is a short USFM-ish code (e.g. "JHN.3.16" or "JHN.3.16-18") —
+// this cap is generous headroom above anything gatherPassage actually
+// produces, just a real ceiling rather than unbounded.
+const MAX_NOTE_REFERENCE_LENGTH = 100;
+// Same limit as a chat message (MAX_MESSAGE_LENGTH) — a note is
+// user-authored prose, same rough shape as a chat message, so there's no
+// reason for a different ceiling here.
+const MAX_NOTE_BODY_LENGTH = 4000;
+
+function toNoteJson(row) {
+  return { id: row.id, reference: row.reference, body: row.body, createdAt: row.created_at };
+}
+
+async function handleListNotes(req, res, searchParams) {
+  const user = await requireUser(req, res);
+  if (!user) return;
+
+  const reference = searchParams.get("ref");
+  if (!reference) {
+    sendJson(res, 400, { error: "Missing required query param: ref (e.g. ?ref=JHN.3.16)" });
+    return;
+  }
+
+  const rows = await listNotes(user.id, reference);
+  sendJson(res, 200, { notes: rows.map(toNoteJson) });
+}
+
+async function handleCreateNote(req, res) {
+  const user = await requireUser(req, res);
+  if (!user) return;
+
+  let body;
+  try {
+    body = await readJsonBody(req, { maxBytes: MAX_CHAT_BODY_BYTES });
+  } catch (error) {
+    sendJson(res, error.status ?? 400, { error: error.message });
+    return;
+  }
+
+  const reference = typeof body.reference === "string" ? body.reference.trim() : "";
+  const noteBody = typeof body.body === "string" ? body.body.trim() : "";
+
+  if (!reference) {
+    sendJson(res, 400, { error: "Missing required field: reference." });
+    return;
+  }
+  if (reference.length > MAX_NOTE_REFERENCE_LENGTH) {
+    sendJson(res, 400, { error: `reference is too long (max ${MAX_NOTE_REFERENCE_LENGTH} characters).` });
+    return;
+  }
+  if (!noteBody) {
+    sendJson(res, 400, { error: "Missing required field: body." });
+    return;
+  }
+  if (noteBody.length > MAX_NOTE_BODY_LENGTH) {
+    sendJson(res, 400, { error: `body is too long (max ${MAX_NOTE_BODY_LENGTH} characters).` });
+    return;
+  }
+
+  const row = await createNote(user.id, { reference, body: noteBody });
+  sendJson(res, 201, toNoteJson(row));
+}
+
+async function handleDeleteNote(req, res, noteId) {
+  const user = await requireUser(req, res);
+  if (!user) return;
+
+  const deleted = await deleteNote(user.id, noteId);
+  if (!deleted) {
+    sendJson(res, 404, { error: "Note not found." });
+    return;
+  }
+  res.writeHead(204);
+  res.end();
 }
 
 async function handlePassage(req, res, searchParams) {
@@ -445,6 +546,19 @@ const server = createServer(async (req, res) => {
     const conversationMatch = req.method === "GET" ? url.pathname.match(CONVERSATION_ID_PATTERN) : null;
     if (conversationMatch) {
       await handleGetConversation(req, res, conversationMatch[1]);
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/notes") {
+      await handleListNotes(req, res, url.searchParams);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/notes") {
+      await handleCreateNote(req, res);
+      return;
+    }
+    const noteMatch = req.method === "DELETE" ? url.pathname.match(NOTE_ID_PATTERN) : null;
+    if (noteMatch) {
+      await handleDeleteNote(req, res, noteMatch[1]);
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/chat") {

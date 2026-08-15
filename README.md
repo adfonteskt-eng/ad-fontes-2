@@ -373,10 +373,27 @@ the render log) would close that gap; not done yet since it's meaningfully
 more storage/complexity for a benefit that's easy to defer until it's
 clearly wanted.
 
+**Notes.** Distinct from `study_entries`: a note is something the *user*
+wrote themselves, verbatim, on a specific passage — not Claude's own log of
+what it looked up. Every gathered passage block in the chat log
+(`renderSourcePassage()` in `public/app.js`) has a "My notes" section at the
+bottom, scoped to that exact reference (e.g. notes on `JHN.3.16` and
+`JHN.3.16-18` are separate, matching how the app treats them as separate
+gathered passages). Signed-out users see a "sign in to save notes" prompt
+instead of the add-note button; existing notes load automatically (for a
+signed-in user) whenever a passage block renders, whether that's a live
+reply or a restored/resumed conversation. `GET /api/notes?ref=...` lists a
+user's own notes on a reference (newest first); `POST /api/notes` creates
+one; `DELETE /api/notes/:id` removes one — all three require a valid
+`Authorization` header, same as the `/api/conversations` routes. Unlike
+`logStudyEntry`/`appendToConversation`, saving a note is *not*
+fire-and-forget: it's content the user explicitly asked to save, so a write
+failure surfaces as a real error in the UI rather than being swallowed.
+
 **Setup** (run once): create a free Supabase project, open the SQL Editor,
 paste in and run `supabase/schema.sql` (creates `profiles`/`study_entries`/
-`conversations` and their RLS policies — idempotent, safe to re-run), then
-copy the three values from Settings -> API Keys into `.env`.
+`conversations`/`notes` and their RLS policies — idempotent, safe to
+re-run), then copy the three values from Settings -> API Keys into `.env`.
 
 ## Deployment
 
@@ -529,12 +546,12 @@ fetched live from biblehub.com per verse rather than bundled.
 | `lib/upstash.js` | Shared Upstash Redis REST client (`redisCommand()`, `isRedisConfigured()`) used by both `lib/session-store.js` and `lib/rate-limit.js`. |
 | `lib/daily-passage.js` | `getDailyPassage(date)` — the curated, date-rotating "today's passage" (with a short teaser tag) shown on the homepage. No external calls, no storage. |
 | `lib/bible-books.js` | Canonical 66-book Bible order (Genesis→Revelation, not alphabetical) + lookup helpers, used to sort the previous-conversations menu by book. |
-| `lib/supabase.js` | Server-side Supabase client for accounts: `verifyUser()` (Auth REST); `logStudyEntry()`/`searchStudyHistory()` and `appendToConversation()`/`listConversations()`/`getConversation()` (PostgREST). Plain fetch, no SDK — see Accounts & study memory below. |
-| `supabase/schema.sql` | The `profiles`/`study_entries`/`conversations` tables + RLS policies. Run once in the Supabase SQL Editor. |
+| `lib/supabase.js` | Server-side Supabase client for accounts: `verifyUser()` (Auth REST); `logStudyEntry()`/`searchStudyHistory()`, `appendToConversation()`/`listConversations()`/`getConversation()`, and `createNote()`/`listNotes()`/`deleteNote()` (PostgREST). Plain fetch, no SDK — see Accounts & study memory below. |
+| `supabase/schema.sql` | The `profiles`/`study_entries`/`conversations`/`notes` tables + RLS policies. Run once in the Supabase SQL Editor. |
 | `lib/interlinear.js` | Greek/Hebrew parsing against the STEPBible data files. Also exports `searchLexicon()` (keyword → Strong's numbers) and `findStrongsOccurrences()` (Strong's number → every tagged verse). |
 | `lib/commentary.js` | biblehub.com scraper. |
 | `lib/fetch-timeout.js` | `fetchWithTimeout()` — shared AbortController-based timeout wrapper used by every external call (YouVersion, biblehub, Anthropic, Upstash). |
 | `index.js` | CLI: calls `gatherPassage()`/`summarizePassage()` and prints the result. |
-| `server.js` | Web API: `/api/passage`, `/api/chat`, `/api/daily`, `/api/config`, `/api/conversations[/:id]`, plus static file serving. |
+| `server.js` | Web API: `/api/passage`, `/api/chat`, `/api/daily`, `/api/config`, `/api/conversations[/:id]`, `/api/notes[/:id]`, plus static file serving. |
 | `public/` | Website frontend — plain HTML/CSS/JS, no build step. `auth.js` is the one exception to "no dependencies": loads the official Supabase client from a CDN for the sign-in flow (server-side stays dependency-free — see `lib/supabase.js`), and also owns the top-left menu's previous-conversations list. |
 | `scripts/fetch-data.js` | Downloads the STEPBible data files into `data/`. |

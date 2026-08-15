@@ -734,6 +734,169 @@ table.interlinear th {
   border-top: 1px solid var(--line);
 }
 
+/* --- Notes (signed-in users' own notes on a passage) --------------------- */
+
+.notes-section {
+  margin-top: 1.25rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--line);
+}
+
+.notes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.notes-title {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  font-style: italic;
+  color: var(--ink);
+}
+
+.note-add-button {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.78rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.note-add-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.note-signin-hint {
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.notes-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.notes-list:empty {
+  display: none;
+}
+
+.note-item {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--paper);
+}
+
+.note-body {
+  margin: 0 0 0.3rem;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+}
+
+.note-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+
+.note-delete-button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ink-soft);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.note-delete-button:hover {
+  color: var(--error);
+}
+
+.note-delete-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.note-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.note-textarea {
+  padding: 0.55rem 0.7rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--paper);
+  color: var(--ink);
+  resize: vertical;
+}
+
+.note-textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.note-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.note-cancel-button,
+.note-save-button {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+
+.note-cancel-button {
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--ink-soft);
+}
+
+.note-cancel-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.note-save-button {
+  border: none;
+  background: var(--accent);
+  color: white;
+}
+
+.note-save-button:hover {
+  opacity: 0.9;
+}
+
+.note-save-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 #chat-form {
   display: flex;
   gap: 0.5rem;
