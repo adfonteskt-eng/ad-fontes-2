@@ -1,9 +1,21 @@
-// Downloads the STEPBible data files this project needs.
+// Downloads the STEPBible data files this project needs, plus the Berean
+// Standard Bible's full text for full-text search.
 //
-// Data: github.com/STEPBible/STEPBible-Data — created by STEPBible.org based on
-// work at Tyndale House Cambridge, CC BY 4.0. The licence asks that the data be
-// distributed from a single source rather than redistributed, so we fetch it
-// here at setup time instead of committing it. `data/` is gitignored.
+// STEPBible data: github.com/STEPBible/STEPBible-Data — created by
+// STEPBible.org based on work at Tyndale House Cambridge, CC BY 4.0. The
+// licence asks that the data be distributed from a single source rather
+// than redistributed, so we fetch it here at setup time instead of
+// committing it. `data/` is gitignored.
+//
+// BSB full text: bereanbible.com/bsb.txt — dedicated to the public domain
+// (CC0) by the Berean Bible Translation Committee. Fetched from its own
+// distributor, deliberately not sourced from the YouVersion Platform API
+// even though BSB is also one of the translations lib/gather.js fetches
+// live from YouVersion for on-screen display — see lib/bible-search.js's
+// header comment for the full licensing reasoning (short version: a bulk
+// local search index built from cached YouVersion API output risks
+// reading as "replicating" YouVersion's own Bible App under their Platform
+// Terms of Use; an independently-sourced public-domain copy doesn't).
 
 import { mkdir, stat } from "node:fs/promises";
 import { writeFile } from "node:fs/promises";
@@ -94,6 +106,35 @@ async function download({ name, path, description }) {
   console.log(`  ${name} — ${mb} MB (${description})`);
 }
 
+// Full Bible text (~31,000 verses) used only by lib/bible-search.js's
+// full-text search index — see this file's header comment and
+// lib/bible-search.js's own for why this is fetched separately from, and
+// deliberately not derived from, the YouVersion API translations.
+const BSB_URL = "https://bereanbible.com/bsb.txt";
+const BSB_FILE = "bsb.txt";
+
+async function downloadBsb() {
+  const target = dataFile(BSB_FILE);
+
+  if (await exists(target)) {
+    console.log(`  ${BSB_FILE} — already present, skipping`);
+    return;
+  }
+
+  const response = await fetch(BSB_URL);
+  if (!response.ok) {
+    throw new Error(
+      `Failed to download ${BSB_FILE}: ${response.status} ${response.statusText}\n  ${BSB_URL}`,
+    );
+  }
+
+  const body = Buffer.from(await response.arrayBuffer());
+  await writeFile(target, body);
+
+  const mb = (body.byteLength / 1024 / 1024).toFixed(1);
+  console.log(`  ${BSB_FILE} — ${mb} MB (Berean Standard Bible, full text, public domain / CC0)`);
+}
+
 async function main() {
   await mkdir(DATA_DIR, { recursive: true });
   console.log("Fetching STEPBible data (CC BY 4.0, Tyndale House Cambridge):");
@@ -102,7 +143,10 @@ async function main() {
     await download(file);
   }
 
-  console.log("Done. Source: https://github.com/STEPBible/STEPBible-Data");
+  console.log("Fetching Berean Standard Bible full text (public domain / CC0):");
+  await downloadBsb();
+
+  console.log("Done. Sources: https://github.com/STEPBible/STEPBible-Data, https://berean.bible");
 }
 
 // Only run when invoked directly, so index.js can import FILES/dataFile.

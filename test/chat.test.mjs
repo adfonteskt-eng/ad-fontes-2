@@ -1,5 +1,5 @@
-// lib/chat.js: the tool-dispatch loop (all three tools, chained, against
-// real local STEPBible data) and the bounded session store (idle TTL +
+// lib/chat.js: the tool-dispatch loop (chained across the base tools,
+// against real local STEPBible data) and the bounded session store (idle TTL +
 // max-count LRU eviction). The Anthropic call itself is stubbed throughout
 // — nothing here needs a real API key or network access.
 import { test, before, after, beforeEach } from "node:test";
@@ -77,6 +77,40 @@ test("chains search_lexicon -> find_occurrences -> gather_passage against real d
   assert.ok(result.reply.length > 0);
 });
 
+test("search_bible_text tool call reports a friendly error, not a crash, when data/bsb.txt hasn't been downloaded", async () => {
+  // This sandbox has no network path to fetch data/bsb.txt (see
+  // scripts/fetch-data.js's downloadBsb()), so this exercises the real
+  // "not yet fetched" path lib/bible-search.js's searchBibleText() defines
+  // for exactly this case — the turn should still complete normally
+  // (Claude sees the error as a tool_result and can react to it), not
+  // throw all the way out of chatTurn().
+  let step = 0;
+  let sawToolResult = null;
+
+  globalThis.fetch = async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    step++;
+    if (step === 1) {
+      return jsonResponse({
+        stop_reason: "tool_use",
+        content: [{ type: "tool_use", id: "t1", name: "search_bible_text", input: { query: "still small voice" } }],
+      });
+    }
+    const last = body.messages[body.messages.length - 1];
+    sawToolResult = last.content[0].content;
+    return jsonResponse({
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: "I wasn't able to search the full Bible text." }],
+    });
+  };
+
+  const result = await chatTurn({ message: "What's the verse about the still small voice?", appKey: "k", apiKey: "fake" });
+
+  assert.equal(step, 2);
+  assert.match(sawToolResult, /fetch-data/, "the tool_result should surface the friendly BSB_NOT_DOWNLOADED message");
+  assert.ok(result.reply.length > 0, "the turn should still complete with a reply, not throw");
+});
+
 // --- Prompt caching --------------------------------------------------------
 // Verifies the actual request shape sent to Anthropic, per their documented
 // "automatic caching" contract: a single top-level cache_control field with
@@ -106,7 +140,7 @@ test("callAnthropic requests automatic prompt caching with a 1h TTL", async () =
   // cache_control") — system and tools must both be present for there to be
   // anything worth caching.
   assert.ok(capturedBody.system, "system prompt must be present for caching to have any effect");
-  assert.ok(Array.isArray(capturedBody.tools) && capturedBody.tools.length === 3);
+  assert.ok(Array.isArray(capturedBody.tools) && capturedBody.tools.length === 4);
 });
 
 // --- Compounding study memory (userId) --------------------------------
@@ -136,7 +170,7 @@ test("anonymous chat (no userId) never touches Supabase, even if it's configured
         throw new Error(`unexpected fetch to ${href} for an anonymous request`);
       }
       const body = JSON.parse(opts.body);
-      assert.equal(body.tools.length, 3, "no userId means no search_study_history tool");
+      assert.equal(body.tools.length, 4, "no userId means no search_study_history tool, but the 4 base tools are always present");
       return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
     };
     await chatTurn({ message: "What does Psalm 23:1 mean?", appKey: "k", apiKey: "fake" });
@@ -145,7 +179,7 @@ test("anonymous chat (no userId) never touches Supabase, even if it's configured
   }
 });
 
-test("a signed-in user gets a 4th tool (search_study_history), and calling it hits PostgREST", async () => {
+test("a signed-in user gets a 5th tool (search_study_history), and calling it hits PostgREST", async () => {
   stubSupabaseEnv();
   try {
     let step = 0;
@@ -155,7 +189,7 @@ test("a signed-in user gets a 4th tool (search_study_history), and calling it hi
       const href = url.toString();
       if (href === "https://api.anthropic.com/v1/messages") {
         const body = JSON.parse(opts.body);
-        assert.equal(body.tools.length, 4, "a signed-in user should see all four tools");
+        assert.equal(body.tools.length, 5, "a signed-in user should see all five tools");
         assert.ok(
           body.tools.some((t) => t.name === "search_study_history"),
           "search_study_history should be in the tools list",

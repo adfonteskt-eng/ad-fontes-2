@@ -38,7 +38,7 @@ Requires Node 20.12 or newer (`process.loadEnvFile` and global `fetch`).
 
 ```bash
 cp .env.example .env   # then add your app key
-npm run fetch-data     # ~104 MB of STEPBible text files (~34 MB Greek + ~70 MB Hebrew)
+npm run fetch-data     # ~104 MB of STEPBible text files (~34 MB Greek + ~70 MB Hebrew), plus the BSB full text (a few MB) for full-text search
 ```
 
 ## Tests
@@ -178,6 +178,11 @@ backed by real local STEPBible data (no guessing from memory):
 - `find_occurrences` — every verse actually tagged with a given Strong's
   number, for genuine word studies and cross-references grounded in the
   data instead of a plausible-sounding guess.
+- `search_bible_text` — a full-text keyword search across the whole Bible's
+  English text, for the "what's that verse that says..." case (locating a
+  passage from a remembered phrase or wording) rather than a concept/word
+  study. See Full-text search below for how this is indexed and why it's
+  built the way it is.
 
 Claude decides what to call and when, mid-conversation, chaining tools for
 topical questions ("what does Scripture say about love?" → search_lexicon →
@@ -532,6 +537,48 @@ downloaded data file (there's no clean, keyless bulk commentary API), so it's th
 piece most likely to need a fix if biblehub ever changes its page markup — if the
 section comes back empty, that's the first place to check (`lib/commentary.js`).
 
+## Full-text search
+
+`search_bible_text` (one of `lib/chat.js`'s chat tools — see Website above)
+lets Claude find a verse from a remembered phrase or wording, rather than
+requiring a specific reference or a Strong's-number word study. Keyword
+search, not stemmed or phrase-order-aware: it finds every verse containing
+all of the given words, in canonical Bible order — a deliberately simple
+v1 (see `lib/bible-search.js`'s own comment on why), not relevance-ranked
+or fuzzy.
+
+**Why this indexes an independently-sourced copy of the text, not the
+YouVersion API.** BSB is already one of the translations `lib/gather.js`
+fetches live from YouVersion for on-screen display, so reusing that same
+data for the search index might look like the obvious move. It isn't:
+[YouVersion's Platform Terms of Use](https://platform.youversion.com/terms)
+license "YV IP" — the API and Developer Tools themselves — for use *within
+this app*, and separately prohibit using YV IP to "create or provide
+services that replicate or compete with... the YouVersion Bible App."
+YouVersion's own Bible App has full-text search as a core feature; building
+and persisting a complete, independently-searchable local copy of the whole
+Bible from cached API output is a plausible reading of exactly that
+restriction — a world away from fetching and displaying one verse a user
+already asked for. Rather than resolve that ambiguity by asking YouVersion
+or by narrowing the feature significantly, ad-fontes sidesteps the question
+entirely: the search index is built from the [Berean Standard
+Bible](https://berean.bible)'s own full text (`bereanbible.com/bsb.txt`),
+which its translation committee dedicated to the public domain (CC0) and
+distributes directly. That text was never YV IP in the first place, so none
+of the Platform Terms' restrictions apply to it — this is the same
+reasoning (fetch public-domain/openly-licensed source data directly rather
+than through a third party's gated API) already behind how the Greek/Hebrew
+interlinear data is sourced from STEPBible instead of scraped from
+somewhere else.
+
+**Setup**: `npm run fetch-data` downloads `data/bsb.txt` (~30,000 verses,
+a few MB) alongside the existing STEPBible files — same command, same
+`data/` directory, same "re-fetch fresh, don't commit or redistribute it"
+approach. Without it, `search_bible_text` returns a clear, catchable error
+(`BSB_NOT_DOWNLOADED`) that Claude can explain to the user rather than the
+turn crashing — same "friendly message instead of a raw error" pattern as
+a missing Greek/Hebrew data file in `gatherPassage()`.
+
 ## Summary (Phase 2)
 
 If `ANTHROPIC_API_KEY` is set, ad-fontes sends everything gathered above —
@@ -592,13 +639,22 @@ than redistributed, so this repo points at the source instead of vendoring it.
 Commentary text (Matthew Henry, JFB, Barnes, Gill, Geneva) is public domain and
 fetched live from biblehub.com per verse rather than bundled.
 
+Full-text search (`lib/bible-search.js`) is indexed from the [Berean
+Standard Bible](https://berean.bible)'s full text
+(`bereanbible.com/bsb.txt`), dedicated to the public domain (CC0) by its
+translation committee — downloaded by the same `npm run fetch-data` into
+`data/bsb.txt`, gitignored the same way. See Full-text search above for why
+this is sourced independently rather than from the YouVersion API, even
+though BSB is also fetched live from YouVersion for on-screen translation
+display elsewhere in the app.
+
 ## Project layout
 
 | File | Role |
 | ---- | ---- |
 | `lib/gather.js` | Phase 1. `gatherPassage(usfm, opts)` → structured object, no printing. Results cached in-memory for 15 min (`clearGatherCache()` to force-clear). |
 | `lib/summarize.js` | Phase 2. `summarizePassage(gathered, opts)` → `{ shortSummary, studyNotes }`. Also exports `formatGatheredPassage()`, the plain-text formatter shared with `lib/chat.js`. |
-| `lib/chat.js` | Phase 3 chat. `chatTurn(opts)` → `{ sessionId, conversationId, reply, gathered }`, looping Claude tool calls (`gather_passage`, `search_lexicon`, `find_occurrences`, and for a signed-in user `search_study_history`) as needed. Live session storage delegated to `lib/session-store.js`; durable per-conversation persistence (signed-in only) delegated to `lib/supabase.js`. |
+| `lib/chat.js` | Phase 3 chat. `chatTurn(opts)` → `{ sessionId, conversationId, reply, gathered }`, looping Claude tool calls (`gather_passage`, `search_lexicon`, `find_occurrences`, `search_bible_text`, and for a signed-in user `search_study_history`) as needed. Live session storage delegated to `lib/session-store.js`; durable per-conversation persistence (signed-in only) delegated to `lib/supabase.js`. |
 | `lib/session-store.js` | Pluggable session storage: Upstash Redis when configured, in-memory Map fallback otherwise. |
 | `lib/rate-limit.js` | Per-IP daily usage caps (`checkAndIncrement()`) protecting the Anthropic bill during the free beta. Same Redis/in-memory split as session storage. |
 | `lib/upstash.js` | Shared Upstash Redis REST client (`redisCommand()`, `isRedisConfigured()`) used by both `lib/session-store.js` and `lib/rate-limit.js`. |
@@ -608,6 +664,7 @@ fetched live from biblehub.com per verse rather than bundled.
 | `lib/daily-digest.js` | `sendDailyDigest(opts)` — emails today's featured passage to every opted-in user via Resend's HTTP API. Invoked by `scripts/send-daily-digest.js`, not by any request handler. |
 | `scripts/send-daily-digest.js` | CLI entry point (`npm run digest`) for the daily digest cron job — see `render.yaml`. |
 | `lib/reading-plans.js` | `READING_PLANS` — curated, named, multi-day single-verse reading sequences (with a per-user completion checklist, backed by `reading_plan_progress`), plus `getReadingPlan()`/`isValidPlanDay()` lookup helpers. No external calls, no storage — same pattern as `lib/daily-passage.js`. |
+| `lib/bible-search.js` | `searchBibleText()`/`isBibleTextAvailable()` — full-text keyword search across the whole Bible, indexed from `data/bsb.txt`. See Full-text search below for the licensing reasoning behind sourcing that file independently rather than through the YouVersion API. |
 | `supabase/schema.sql` | The `profiles` (incl. `daily_digest_opt_in`)/`study_entries`/`conversations`/`notes`/`reading_plan_progress` tables + RLS policies. Run once in the Supabase SQL Editor. |
 | `lib/interlinear.js` | Greek/Hebrew parsing against the STEPBible data files. Also exports `searchLexicon()` (keyword → Strong's numbers) and `findStrongsOccurrences()` (Strong's number → every tagged verse). |
 | `lib/commentary.js` | biblehub.com scraper. |
@@ -615,4 +672,4 @@ fetched live from biblehub.com per verse rather than bundled.
 | `index.js` | CLI: calls `gatherPassage()`/`summarizePassage()` and prints the result. |
 | `server.js` | Web API: `/api/passage`, `/api/chat`, `/api/daily`, `/api/config`, `/api/conversations[/:id]`, `/api/notes[/:id]`, `/api/preferences`, `/api/reading-plans[/:id/days/:day]`, plus static file serving. |
 | `public/` | Website frontend — plain HTML/CSS/JS, no build step. `auth.js` is the one exception to "no dependencies": loads the official Supabase client from a CDN for the sign-in flow (server-side stays dependency-free — see `lib/supabase.js`), and also owns the top-left menu's previous-conversations list. |
-| `scripts/fetch-data.js` | Downloads the STEPBible data files into `data/`. |
+| `scripts/fetch-data.js` | Downloads the STEPBible data files and the Berean Standard Bible full text (`bsb.txt`, for `lib/bible-search.js`) into `data/`. |
