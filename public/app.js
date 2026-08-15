@@ -657,6 +657,174 @@ async function loadDailyPassage() {
   }
 }
 
+// --- Reading plans ---------------------------------------------------------
+// Curated multi-day plans (lib/reading-plans.js), shown as part of the home
+// empty state below the daily passage. Content is public -- no sign-in
+// needed to browse a plan or read a day's passage (clicking a day's
+// reference reuses sendChatMessage(), same flow as the daily-passage
+// button above) -- only checking a day off needs somewhere to store
+// progress, so that part alone is gated on being signed in.
+
+const readingPlansContainer = document.getElementById("reading-plans");
+const readingPlansHeading = document.querySelector(".reading-plans-heading");
+const readingPlansList = document.getElementById("reading-plans-list");
+const readingPlanDetail = document.getElementById("reading-plan-detail");
+const readingPlanBackButton = document.getElementById("reading-plan-back");
+const readingPlanDetailTitle = document.getElementById("reading-plan-detail-title");
+const readingPlanDetailDescription = document.getElementById("reading-plan-detail-description");
+const readingPlanDaysList = document.getElementById("reading-plan-days");
+const readingPlanSigninHint = document.getElementById("reading-plan-signin-hint");
+
+let readingPlansData = []; // last-loaded { id, title, description, days, completedDays }[]
+let openReadingPlan = null; // the plan object currently shown in the detail panel, or null
+
+function renderReadingPlansList() {
+  readingPlansList.innerHTML = readingPlansData
+    .map((plan) => {
+      const total = plan.days.length;
+      const done = plan.completedDays.length;
+      return `<li>
+        <button type="button" class="reading-plan-item" data-plan-id="${escapeHtml(plan.id)}">
+          <span class="reading-plan-item-title">${escapeHtml(plan.title)}</span>
+          <span class="reading-plan-item-progress">${done > 0 ? `${done}/${total} days` : `${total} days`}</span>
+        </button>
+      </li>`;
+    })
+    .join("");
+}
+
+function renderReadingPlanDays(plan, { canTrack }) {
+  const completed = new Set(plan.completedDays);
+  readingPlanDaysList.innerHTML = plan.days
+    .map((d) => {
+      const isDone = completed.has(d.day);
+      return `<li class="reading-plan-day" data-day="${d.day}">
+        <input type="checkbox" ${isDone ? "checked" : ""} ${canTrack ? "" : "disabled"} aria-label="Mark day ${d.day} complete" />
+        <div class="reading-plan-day-body">
+          <button type="button" class="reading-plan-day-ref">Day ${d.day}: ${escapeHtml(d.label)}</button>
+          <p class="reading-plan-day-tag">${escapeHtml(d.tag)}</p>
+        </div>
+      </li>`;
+    })
+    .join("");
+}
+
+function showReadingPlansList() {
+  readingPlansHeading.hidden = false;
+  readingPlansList.hidden = false;
+  readingPlanDetail.hidden = true;
+}
+
+async function showReadingPlanDetail(plan) {
+  readingPlansHeading.hidden = true;
+  readingPlansList.hidden = true;
+  readingPlanDetail.hidden = false;
+  readingPlanDetailTitle.textContent = plan.title;
+  readingPlanDetailDescription.textContent = plan.description;
+
+  const accessToken = await window.adFontesAuth.getAccessToken();
+  readingPlanSigninHint.hidden = Boolean(accessToken);
+  renderReadingPlanDays(plan, { canTrack: Boolean(accessToken) });
+}
+
+readingPlansList.addEventListener("click", (event) => {
+  const item = event.target.closest(".reading-plan-item");
+  if (!item) return;
+  const plan = readingPlansData.find((p) => p.id === item.dataset.planId);
+  if (!plan) return;
+  openReadingPlan = plan;
+  showReadingPlanDetail(plan);
+});
+
+readingPlanBackButton.addEventListener("click", () => {
+  openReadingPlan = null;
+  renderReadingPlansList(); // reflect any progress changes made while in the detail panel
+  showReadingPlansList();
+});
+
+readingPlanDaysList.addEventListener("click", (event) => {
+  const refButton = event.target.closest(".reading-plan-day-ref");
+  if (!refButton || !openReadingPlan) return;
+  const dayLi = refButton.closest(".reading-plan-day");
+  const day = openReadingPlan.days.find((d) => d.day === Number(dayLi.dataset.day));
+  if (day) sendChatMessage(`What does ${day.label} (${day.usfm}) mean?`);
+});
+
+readingPlanDaysList.addEventListener("change", async (event) => {
+  const checkbox = event.target.closest('input[type="checkbox"]');
+  if (!checkbox || !openReadingPlan) return;
+  const dayLi = checkbox.closest(".reading-plan-day");
+  const day = Number(dayLi.dataset.day);
+  const completed = checkbox.checked;
+
+  const accessToken = await window.adFontesAuth.getAccessToken();
+  if (!accessToken) {
+    checkbox.checked = !completed; // shouldn't happen -- the box is disabled when signed out -- but stay consistent
+    return;
+  }
+
+  checkbox.disabled = true;
+  try {
+    const response = await fetch(`/api/reading-plans/${encodeURIComponent(openReadingPlan.id)}/days/${day}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ completed }),
+    });
+    if (!response.ok) {
+      checkbox.checked = !completed;
+      return;
+    }
+    const { completedDays } = await response.json();
+    openReadingPlan.completedDays = completedDays;
+    // Keep the shared readingPlansData entry in sync too, so the list view
+    // (rendered from that same array) shows the right count on "All plans"
+    // without a redundant refetch.
+    const stored = readingPlansData.find((p) => p.id === openReadingPlan.id);
+    if (stored) stored.completedDays = completedDays;
+  } catch {
+    checkbox.checked = !completed;
+  } finally {
+    checkbox.disabled = false;
+  }
+});
+
+// Called on initial page load and again whenever sign-in state changes
+// (auth.js calls window.adFontesReadingPlans.refresh() alongside its own
+// loadConversations()/loadDigestPreference() calls) -- completedDays
+// depends on who's signed in, so this has to re-fetch, not just re-render,
+// on every auth transition, both into and out of a session.
+async function loadReadingPlans() {
+  try {
+    const accessToken = await window.adFontesAuth.getAccessToken();
+    const headers = {};
+    if (accessToken) headers.authorization = `Bearer ${accessToken}`;
+    const response = await fetch("/api/reading-plans", { headers });
+    if (!response.ok) return;
+    const { plans } = await response.json();
+    readingPlansData = plans ?? [];
+    if (readingPlansData.length === 0) return;
+
+    renderReadingPlansList();
+    // If the detail panel was already open (e.g. this refresh was triggered
+    // by signing in/out while browsing a plan), refresh it in place instead
+    // of silently bouncing back to the list.
+    if (openReadingPlan) {
+      const refreshed = readingPlansData.find((p) => p.id === openReadingPlan.id);
+      if (refreshed) {
+        openReadingPlan = refreshed;
+        showReadingPlanDetail(refreshed);
+      }
+    }
+    readingPlansContainer.hidden = false;
+  } catch {
+    // Network hiccup or the endpoint being briefly unavailable shouldn't
+    // block or clutter the rest of the page -- same reasoning as
+    // loadDailyPassage().
+  }
+}
+
+window.adFontesReadingPlans = { refresh: loadReadingPlans };
+
 // Replays a { role, text, gathered? } log through the same render functions
 // a live turn uses — shared by restoreChatState() (from localStorage) and
 // loadConversation() (from the server, via the top-left menu's "previous
@@ -764,3 +932,4 @@ if (restoreChatState()) {
   history.replaceState({ view: "home" }, "", HOME_PATH);
 }
 loadDailyPassage();
+loadReadingPlans();

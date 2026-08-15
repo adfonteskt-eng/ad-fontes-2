@@ -147,6 +147,28 @@
         <p>New here? Create a free account to keep a running record of what you study — Claude will remember it in future conversations, and you'll unlock sermon and lesson outlines too.</p>
         <button type="button" id="site-callout-dismiss" aria-label="Dismiss">&times;</button>
       </div>
+
+      <!-- Curated multi-day reading plans (lib/reading-plans.js) -- filled
+           in by app.js from GET /api/reading-plans, which always succeeds
+           (plan content is public; only progress tracking needs sign-in).
+           Hidden until that request resolves, same "no empty placeholder"
+           reasoning as #daily-passage above. Two panels sharing this one
+           block: the plan list (#reading-plans-list) and, once a plan is
+           picked, its day-by-day detail (#reading-plan-detail) -- toggled
+           in place rather than a real view/URL change, since this is a
+           lightweight drill-down, not a separate page. -->
+      <div id="reading-plans" class="reading-plans" hidden>
+        <h2 class="reading-plans-heading">Reading plans</h2>
+        <ul id="reading-plans-list" class="reading-plans-list"></ul>
+
+        <div id="reading-plan-detail" class="reading-plan-detail" hidden>
+          <button type="button" id="reading-plan-back" class="reading-plan-back">&larr; All plans</button>
+          <h3 id="reading-plan-detail-title"></h3>
+          <p id="reading-plan-detail-description"></p>
+          <ol id="reading-plan-days" class="reading-plan-days"></ol>
+          <p id="reading-plan-signin-hint" class="reading-plan-signin-hint" hidden>Sign in (top-left menu) to track your progress through this plan.</p>
+        </div>
+      </div>
     </div>
 
     <div id="chat-log" aria-live="polite"></div>

@@ -57,6 +57,21 @@
 //   object rather than PATCHing a single field, so this doesn't need to
 //   change shape when a second preference is added later.)
 //
+// GET /api/reading-plans -> { plans: [{ id, title, description, days: [{
+//   day, usfm, label, tag }], completedDays: [] }] } -- the full curated
+//   list (lib/reading-plans.js), always 200 whether or not the caller is
+//   signed in. No Authorization header: completedDays is [] for every plan
+//   (nothing to attach progress to). With one: each plan's completedDays
+//   reflects that signed-in user's own progress. Never 401 -- unlike
+//   /api/notes and /api/conversations, there's a meaningful anonymous
+//   response here (the plan content itself), same reasoning as /api/chat.
+//
+// PUT /api/reading-plans/:id/days/:day { completed: boolean } -> { completedDays:
+//   [...] }, the plan's updated completed-day list for the signed-in user.
+//   404 if :id isn't a real plan or :day isn't one of its real day numbers.
+//   Requires a valid Authorization header — 401 without one (unlike GET
+//   above, there's no meaningful anonymous version of "mark this done").
+//
 // GET /chat -> serves the same index.html as GET / -- the frontend is a
 //   single-page app with two client-side views (home and conversation, see
 //   public/app.js), and this route exists purely so a hard refresh or a
@@ -92,6 +107,7 @@ import { chatTurn } from "./lib/chat.js";
 import { getDailyPassage } from "./lib/daily-passage.js";
 import { gatherPassage } from "./lib/gather.js";
 import { CHAT_DAILY_LIMIT, SUMMARY_DAILY_LIMIT, checkAndIncrement } from "./lib/rate-limit.js";
+import { getReadingPlan, isValidPlanDay, READING_PLANS } from "./lib/reading-plans.js";
 import { summarizePassage } from "./lib/summarize.js";
 import {
   createNote,
@@ -100,7 +116,9 @@ import {
   getDigestOptIn,
   listConversations,
   listNotes,
+  listReadingPlanProgress,
   setDigestOptIn,
+  setReadingPlanDayComplete,
   verifyUser,
 } from "./lib/supabase.js";
 
@@ -206,6 +224,12 @@ const CONVERSATION_ID_PATTERN = /^\/api\/conversations\/([0-9a-f]{8}-[0-9a-f]{4}
 // not a uuid like conversations — so this pattern (and NOTE_ID_PATTERN's
 // use below) is deliberately simpler than CONVERSATION_ID_PATTERN.
 const NOTE_ID_PATTERN = /^\/api\/notes\/(\d+)$/;
+
+// Plan ids are lib/reading-plans.js's own hand-picked kebab-case strings
+// (e.g. "gospel-in-six-verses"), not a generated id -- this pattern is just
+// a shape guard on the URL, not a lookup; getReadingPlan() below is what
+// actually confirms the id refers to a real plan.
+const READING_PLAN_DAY_PATTERN = /^\/api\/reading-plans\/([a-z0-9-]+)\/days\/(\d+)$/;
 
 // Both /api/conversations routes require a real signed-in user — unlike
 // /api/chat, where accounts are optional and a missing/invalid token just
@@ -344,6 +368,61 @@ async function handleDeleteNote(req, res, noteId) {
   }
   res.writeHead(204);
   res.end();
+}
+
+// No requireUser() here -- unlike /api/notes and /api/conversations, a
+// signed-out request gets a real, useful 200 (the plan content itself,
+// just with every completedDays empty), same "accounts are additive, never
+// required" reasoning as /api/chat. authenticateRequest() already returns
+// null gracefully for no/invalid token, so this only needs to branch on
+// whether a genuine user came back.
+async function handleListReadingPlans(req, res) {
+  let user = null;
+  try {
+    user = await authenticateRequest(req);
+  } catch (error) {
+    console.error("Supabase auth check failed, listing reading plans without progress:", error.message);
+  }
+
+  const progressByPlan = user ? await listReadingPlanProgress(user.id) : {};
+
+  const plans = READING_PLANS.map((plan) => ({
+    id: plan.id,
+    title: plan.title,
+    description: plan.description,
+    days: plan.days,
+    completedDays: progressByPlan[plan.id]?.completedDays ?? [],
+  }));
+
+  sendJson(res, 200, { plans });
+}
+
+async function handleSetReadingPlanDay(req, res, planId, dayParam) {
+  const user = await requireUser(req, res);
+  if (!user) return;
+
+  const plan = getReadingPlan(planId);
+  const day = Number(dayParam);
+  if (!plan || !isValidPlanDay(plan, day)) {
+    sendJson(res, 404, { error: "Reading plan or day not found." });
+    return;
+  }
+
+  let body;
+  try {
+    body = await readJsonBody(req, { maxBytes: MAX_CHAT_BODY_BYTES });
+  } catch (error) {
+    sendJson(res, error.status ?? 400, { error: error.message });
+    return;
+  }
+
+  if (typeof body.completed !== "boolean") {
+    sendJson(res, 400, { error: "Missing or invalid field: completed (must be true or false)." });
+    return;
+  }
+
+  const completedDays = await setReadingPlanDayComplete(user.id, planId, day, body.completed);
+  sendJson(res, 200, { completedDays });
 }
 
 async function handleGetPreferences(req, res) {
@@ -599,6 +678,15 @@ const server = createServer(async (req, res) => {
     const noteMatch = req.method === "DELETE" ? url.pathname.match(NOTE_ID_PATTERN) : null;
     if (noteMatch) {
       await handleDeleteNote(req, res, noteMatch[1]);
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/reading-plans") {
+      await handleListReadingPlans(req, res);
+      return;
+    }
+    const planDayMatch = req.method === "PUT" ? url.pathname.match(READING_PLAN_DAY_PATTERN) : null;
+    if (planDayMatch) {
+      await handleSetReadingPlanDay(req, res, planDayMatch[1], planDayMatch[2]);
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/preferences") {

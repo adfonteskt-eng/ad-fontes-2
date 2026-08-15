@@ -410,11 +410,34 @@ already configured inside Supabase's Custom SMTP settings for magic-link
 emails, since Supabase never hands that key back out to this app's own
 code.
 
+**Reading plans.** A handful of curated, named, multi-day passage sequences
+(`lib/reading-plans.js`, e.g. "The Gospel in Six Verses") shown on the
+homepage below the daily passage — distinct from the daily passage rotation
+in what they optimize for: daily-passage is the same single reference for
+every visitor on a given day (a low-commitment nudge); a plan is something
+a specific user picks and returns to, with real per-user progress behind
+it. Plan content itself is static (committed to the repo, no admin UI,
+same reasoning as `DAILY_PASSAGES`), and every day is deliberately a
+*single* verse, not a range — `gatherPassage()`'s original-language lookup
+is built and tested against exact single-verse references (see
+`lib/interlinear.js`'s `parseReference()`), so a plan reusing the daily
+passage's exact "click a reference → gather + chat" flow is only safe to
+do this way. Browsing a plan and reading a day's passage needs no sign-in
+at all (`GET /api/reading-plans`, always 200); only checking a day off
+does, since that needs somewhere to store progress — signed-out, the
+checkboxes are disabled with a "sign in to track your progress" note
+instead of hidden entirely, so the content stays visible either way.
+`PUT /api/reading-plans/:id/days/:day { completed }` marks one day done or
+undone for the signed-in user and returns their updated day list; like
+notes and the digest preference, this is not fire-and-forget — an explicit
+action (checking a box) should surface a real error if the write fails.
+
 **Setup** (run once): create a free Supabase project, open the SQL Editor,
 paste in and run `supabase/schema.sql` (creates `profiles`/`study_entries`/
-`conversations`/`notes`, the `profiles.daily_digest_opt_in` column, and
-their RLS policies — idempotent, safe to re-run), then copy the three
-values from Settings -> API Keys into `.env`.
+`conversations`/`notes`/`reading_plan_progress`, the
+`profiles.daily_digest_opt_in` column, and their RLS policies — idempotent,
+safe to re-run), then copy the three values from Settings -> API Keys into
+`.env`.
 
 ## Deployment
 
@@ -581,14 +604,15 @@ fetched live from biblehub.com per verse rather than bundled.
 | `lib/upstash.js` | Shared Upstash Redis REST client (`redisCommand()`, `isRedisConfigured()`) used by both `lib/session-store.js` and `lib/rate-limit.js`. |
 | `lib/daily-passage.js` | `getDailyPassage(date)` — the curated, date-rotating "today's passage" (with a short teaser tag) shown on the homepage. No external calls, no storage. |
 | `lib/bible-books.js` | Canonical 66-book Bible order (Genesis→Revelation, not alphabetical) + lookup helpers, used to sort the previous-conversations menu by book. |
-| `lib/supabase.js` | Server-side Supabase client for accounts: `verifyUser()` (Auth REST); `logStudyEntry()`/`searchStudyHistory()`, `appendToConversation()`/`listConversations()`/`getConversation()`, `createNote()`/`listNotes()`/`deleteNote()`, and `getDigestOptIn()`/`setDigestOptIn()`/`listDigestOptedInUsers()` (PostgREST). Plain fetch, no SDK — see Accounts & study memory below. |
+| `lib/supabase.js` | Server-side Supabase client for accounts: `verifyUser()` (Auth REST); `logStudyEntry()`/`searchStudyHistory()`, `appendToConversation()`/`listConversations()`/`getConversation()`, `createNote()`/`listNotes()`/`deleteNote()`, `getDigestOptIn()`/`setDigestOptIn()`/`listDigestOptedInUsers()`, and `getReadingPlanProgress()`/`listReadingPlanProgress()`/`setReadingPlanDayComplete()` (PostgREST). Plain fetch, no SDK — see Accounts & study memory below. |
 | `lib/daily-digest.js` | `sendDailyDigest(opts)` — emails today's featured passage to every opted-in user via Resend's HTTP API. Invoked by `scripts/send-daily-digest.js`, not by any request handler. |
 | `scripts/send-daily-digest.js` | CLI entry point (`npm run digest`) for the daily digest cron job — see `render.yaml`. |
-| `supabase/schema.sql` | The `profiles` (incl. `daily_digest_opt_in`)/`study_entries`/`conversations`/`notes` tables + RLS policies. Run once in the Supabase SQL Editor. |
+| `lib/reading-plans.js` | `READING_PLANS` — curated, named, multi-day single-verse reading sequences (with a per-user completion checklist, backed by `reading_plan_progress`), plus `getReadingPlan()`/`isValidPlanDay()` lookup helpers. No external calls, no storage — same pattern as `lib/daily-passage.js`. |
+| `supabase/schema.sql` | The `profiles` (incl. `daily_digest_opt_in`)/`study_entries`/`conversations`/`notes`/`reading_plan_progress` tables + RLS policies. Run once in the Supabase SQL Editor. |
 | `lib/interlinear.js` | Greek/Hebrew parsing against the STEPBible data files. Also exports `searchLexicon()` (keyword → Strong's numbers) and `findStrongsOccurrences()` (Strong's number → every tagged verse). |
 | `lib/commentary.js` | biblehub.com scraper. |
 | `lib/fetch-timeout.js` | `fetchWithTimeout()` — shared AbortController-based timeout wrapper used by every external call (YouVersion, biblehub, Anthropic, Upstash). |
 | `index.js` | CLI: calls `gatherPassage()`/`summarizePassage()` and prints the result. |
-| `server.js` | Web API: `/api/passage`, `/api/chat`, `/api/daily`, `/api/config`, `/api/conversations[/:id]`, `/api/notes[/:id]`, `/api/preferences`, plus static file serving. |
+| `server.js` | Web API: `/api/passage`, `/api/chat`, `/api/daily`, `/api/config`, `/api/conversations[/:id]`, `/api/notes[/:id]`, `/api/preferences`, `/api/reading-plans[/:id/days/:day]`, plus static file serving. |
 | `public/` | Website frontend — plain HTML/CSS/JS, no build step. `auth.js` is the one exception to "no dependencies": loads the official Supabase client from a CDN for the sign-in flow (server-side stays dependency-free — see `lib/supabase.js`), and also owns the top-left menu's previous-conversations list. |
 | `scripts/fetch-data.js` | Downloads the STEPBible data files into `data/`. |

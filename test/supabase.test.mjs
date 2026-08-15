@@ -20,6 +20,9 @@ import {
   getDigestOptIn,
   setDigestOptIn,
   listDigestOptedInUsers,
+  getReadingPlanProgress,
+  listReadingPlanProgress,
+  setReadingPlanDayComplete,
   isSupabaseConfigured,
 } from "../lib/supabase.js";
 
@@ -59,6 +62,7 @@ function stubSupabase({ validToken = "valid-token", user = { id: "user-1", email
   const notes = [];
   let nextNoteId = 1;
   const profiles = new Map(); // id -> row, same "mirrors a real table" spirit as conversations
+  const readingPlanProgress = new Map(); // `${user_id}:${plan_id}` -> row
 
   globalThis.fetch = async (requestUrl, opts = {}) => {
     const url = new URL(requestUrl);
@@ -187,10 +191,40 @@ function stubSupabase({ validToken = "valid-token", user = { id: "user-1", email
       return { ok: true, status: 200, text: async () => JSON.stringify(results) };
     }
 
+    if (url.pathname === "/rest/v1/reading_plan_progress") {
+      assert.equal(headers.apikey, SECRET_KEY, "reading_plan_progress access should use the secret key");
+      assert.equal(headers.Authorization, undefined, "should not send an Authorization header for secret-key requests");
+
+      const params = url.searchParams;
+
+      if (opts.method === "POST") {
+        // A real upsert (on_conflict=user_id,plan_id, Prefer:
+        // resolution=merge-duplicates) -- mirrors appendToConversation's fake
+        // above: replace the whole row on conflict rather than trying to
+        // merge fields, since setReadingPlanDayComplete always sends a
+        // complete completed_days array.
+        const [row] = JSON.parse(opts.body);
+        const key = `${row.user_id}:${row.plan_id}`;
+        const existing = readingPlanProgress.get(key);
+        readingPlanProgress.set(key, {
+          started_at: existing?.started_at ?? new Date().toISOString(),
+          ...existing,
+          ...row,
+        });
+        return { ok: true, status: 201, text: async () => "" };
+      }
+
+      // GET
+      let results = [...readingPlanProgress.values()].filter((r) => `eq.${r.user_id}` === params.get("user_id"));
+      const planFilter = params.get("plan_id");
+      if (planFilter) results = results.filter((r) => `eq.${r.plan_id}` === planFilter);
+      return { ok: true, status: 200, text: async () => JSON.stringify(results) };
+    }
+
     return { ok: false, status: 404, statusText: "Not Found", text: async () => "unknown path" };
   };
 
-  return { requests, studyEntries, conversations, notes, profiles };
+  return { requests, studyEntries, conversations, notes, profiles, readingPlanProgress };
 }
 
 // --- verifyUser --------------------------------------------------------
@@ -558,4 +592,126 @@ test("listDigestOptedInUsers returns only opted-in users as { id, email }", asyn
   assert.equal(results.length, 1);
   assert.equal(results[0].id, "user-1");
   assert.equal(results[0].email, "opted-in@example.com");
+});
+
+// --- getReadingPlanProgress / listReadingPlanProgress / setReadingPlanDayComplete
+
+test("getReadingPlanProgress returns null when Supabase isn't configured, without calling fetch", async () => {
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    return { ok: true, status: 200, text: async () => "[]" };
+  };
+  assert.equal(await getReadingPlanProgress("user-1", "gospel-in-six-verses"), null);
+  assert.equal(called, false);
+});
+
+test("getReadingPlanProgress returns null when the user hasn't started the plan", async () => {
+  stubSupabase();
+  assert.equal(await getReadingPlanProgress("user-1", "gospel-in-six-verses"), null);
+});
+
+test("getReadingPlanProgress returns the stored progress", async () => {
+  const { readingPlanProgress } = stubSupabase();
+  readingPlanProgress.set("user-1:gospel-in-six-verses", {
+    user_id: "user-1",
+    plan_id: "gospel-in-six-verses",
+    completed_days: [1, 2],
+    started_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-02T00:00:00Z",
+  });
+
+  const progress = await getReadingPlanProgress("user-1", "gospel-in-six-verses");
+  assert.deepEqual(progress.completedDays, [1, 2]);
+  assert.equal(progress.startedAt, "2026-01-01T00:00:00Z");
+});
+
+test("listReadingPlanProgress returns {} when Supabase isn't configured, without calling fetch", async () => {
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    return { ok: true, status: 200, text: async () => "[]" };
+  };
+  assert.deepEqual(await listReadingPlanProgress("user-1"), {});
+  assert.equal(called, false);
+});
+
+test("listReadingPlanProgress keys progress by plan_id, scoped to the given user", async () => {
+  const { readingPlanProgress } = stubSupabase();
+  readingPlanProgress.set("user-1:gospel-in-six-verses", {
+    user_id: "user-1",
+    plan_id: "gospel-in-six-verses",
+    completed_days: [1],
+    started_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  });
+  readingPlanProgress.set("user-1:character-of-god", {
+    user_id: "user-1",
+    plan_id: "character-of-god",
+    completed_days: [1, 2, 3],
+    started_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  });
+  readingPlanProgress.set("user-2:gospel-in-six-verses", {
+    user_id: "user-2",
+    plan_id: "gospel-in-six-verses",
+    completed_days: [1, 2, 3, 4, 5, 6],
+    started_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  });
+
+  const byPlan = await listReadingPlanProgress("user-1");
+  assert.deepEqual(Object.keys(byPlan).sort(), ["character-of-god", "gospel-in-six-verses"]);
+  assert.deepEqual(byPlan["gospel-in-six-verses"].completedDays, [1]);
+  assert.deepEqual(byPlan["character-of-god"].completedDays, [1, 2, 3]);
+});
+
+test("setReadingPlanDayComplete creates a row on first use and adds the given day", async () => {
+  const { readingPlanProgress } = stubSupabase();
+  const completedDays = await setReadingPlanDayComplete("user-1", "gospel-in-six-verses", 2, true);
+
+  assert.deepEqual(completedDays, [2]);
+  const row = readingPlanProgress.get("user-1:gospel-in-six-verses");
+  assert.deepEqual(row.completed_days, [2]);
+});
+
+test("setReadingPlanDayComplete adds a day to existing progress, sorted, without duplicating", async () => {
+  const { readingPlanProgress } = stubSupabase();
+  readingPlanProgress.set("user-1:gospel-in-six-verses", {
+    user_id: "user-1",
+    plan_id: "gospel-in-six-verses",
+    completed_days: [1, 3],
+    started_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  });
+
+  const completedDays = await setReadingPlanDayComplete("user-1", "gospel-in-six-verses", 2, true);
+  assert.deepEqual(completedDays, [1, 2, 3]);
+
+  // Marking the same day complete again shouldn't duplicate it.
+  const again = await setReadingPlanDayComplete("user-1", "gospel-in-six-verses", 2, true);
+  assert.deepEqual(again, [1, 2, 3]);
+});
+
+test("setReadingPlanDayComplete(day, false) removes a day from progress", async () => {
+  const { readingPlanProgress } = stubSupabase();
+  readingPlanProgress.set("user-1:gospel-in-six-verses", {
+    user_id: "user-1",
+    plan_id: "gospel-in-six-verses",
+    completed_days: [1, 2, 3],
+    started_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  });
+
+  const completedDays = await setReadingPlanDayComplete("user-1", "gospel-in-six-verses", 2, false);
+  assert.deepEqual(completedDays, [1, 3]);
+});
+
+test("setReadingPlanDayComplete keeps different users' progress on the same plan separate", async () => {
+  const { readingPlanProgress } = stubSupabase();
+  await setReadingPlanDayComplete("user-1", "gospel-in-six-verses", 1, true);
+  await setReadingPlanDayComplete("user-2", "gospel-in-six-verses", 5, true);
+
+  assert.deepEqual(readingPlanProgress.get("user-1:gospel-in-six-verses").completed_days, [1]);
+  assert.deepEqual(readingPlanProgress.get("user-2:gospel-in-six-verses").completed_days, [5]);
 });

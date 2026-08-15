@@ -317,6 +317,13 @@ async function initAuth() {
   } else {
     showSignedOut();
   }
+  // Reading plans' progress depends on who's signed in (or isn't), unlike
+  // conversations/digest-preference which have nothing to show at all when
+  // signed out -- so this refreshes on both branches above, not just the
+  // signed-in one. window.adFontesReadingPlans is defined unconditionally
+  // by app.js (even before this file's async setup finishes), same
+  // "always safe to call" contract as window.adFontesAuth.
+  window.adFontesReadingPlans?.refresh();
   menuButton.hidden = false;
 
   // Fires on sign-in (including a magic link completing, which lands here
@@ -330,6 +337,7 @@ async function initAuth() {
     } else {
       showSignedOut();
     }
+    window.adFontesReadingPlans?.refresh();
   });
 
   signinForm.addEventListener("submit", async (event) => {

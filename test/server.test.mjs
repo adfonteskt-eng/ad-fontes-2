@@ -210,6 +210,28 @@ test("DELETE /api/notes/not-a-number doesn't match the notes route (falls throug
   assert.equal(response.status, 405);
 });
 
+test("GET /api/reading-plans returns the curated plan list, no auth required", async () => {
+  const response = await fetch(BASE_URL + "/api/reading-plans");
+  assert.equal(response.status, 200);
+  const { plans } = await response.json();
+  assert.ok(Array.isArray(plans) && plans.length > 0);
+  for (const plan of plans) {
+    assert.equal(typeof plan.id, "string");
+    assert.equal(typeof plan.title, "string");
+    assert.ok(Array.isArray(plan.days) && plan.days.length > 0);
+    assert.deepEqual(plan.completedDays, [], "no Authorization header -- nothing to attach progress to");
+  }
+});
+
+test("PUT /api/reading-plans/:id/days/:day with no Authorization header returns 401", async () => {
+  const response = await fetch(BASE_URL + "/api/reading-plans/gospel-in-six-verses/days/1", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ completed: true }),
+  });
+  assert.equal(response.status, 401);
+});
+
 test("GET /api/preferences with no Authorization header returns 401", async () => {
   const response = await fetch(BASE_URL + "/api/preferences");
   assert.equal(response.status, 401);
