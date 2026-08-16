@@ -13,12 +13,15 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <!-- Top-left menu: accounts (sign in/up, sign out) and, once signed in,
-       the "previous conversations" list. The button itself stays hidden
-       until auth.js confirms Supabase is actually configured (GET
-       /api/config) -- with no account backend set up, there's nothing this
-       menu could do, so it doesn't appear at all rather than opening onto a
-       form that can't work. -->
+  <!-- Top-left menu: page navigation (Home / Today's Passage / Reading
+       Plans), the "previous conversations" list once signed in,
+       Subscription, and accounts (sign up/in, sign out). The button itself
+       stays hidden until auth.js confirms Supabase is actually configured
+       (GET /api/config) -- account-related menu items only mean anything
+       once there's an account backend to back them, though the page-
+       navigation items (Home/Today/Plans/Subscription) work the same with
+       or without accounts configured, since the menu button's visibility is
+       currently all-or-nothing rather than per-item. -->
   <div id="site-menu" class="site-menu">
     <button
       type="button"
@@ -27,7 +30,7 @@
       aria-haspopup="true"
       aria-expanded="false"
       aria-controls="site-menu-panel"
-      title="Account & conversations"
+      title="Menu"
       hidden
     >
       <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
@@ -41,6 +44,8 @@
       <!-- Same "go home and start fresh" action as the in-page Home button/
            logo click -- see app.js's startNewConversation(). -->
       <button type="button" id="menu-home-button" class="menu-nav-item">Home</button>
+      <button type="button" id="menu-today-button" class="menu-nav-item">Today's Passage</button>
+      <button type="button" id="menu-plans-button" class="menu-nav-item">Reading Plans</button>
 
       <!-- The conversations list (signed-in users, via GET /api/conversations)
            or, when there's nothing to show -- signed out, or signed in with
@@ -58,17 +63,61 @@
         <button type="button" id="menu-new-chat-button" class="menu-nav-item">New chat</button>
       </div>
 
+      <button type="button" id="menu-subscription-button" class="menu-nav-item">Subscription</button>
+
       <div class="menu-footer">
-        <!-- Signed out: one email form does double duty as sign-in and
-             sign-up -- signInWithOtp() creates the account on first use, so
-             there's no separate password/sign-up step to build. -->
+        <!-- Signed out: an initial choice between creating an account and
+             signing in to an existing one, each revealing its own
+             email+password form in place (see auth.js's showAuthState()) --
+             replacing the old single email-only magic-link form. -->
         <div id="menu-signed-out">
-          <form id="auth-signin-form" class="auth-signin">
-            <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email" required />
-            <button type="submit">Sign up</button>
+          <div id="auth-choice-buttons">
+            <button type="button" id="auth-show-signup" class="auth-primary-button">Create new account</button>
+            <button type="button" id="auth-show-signin" class="auth-link-button">Already have an account? Sign in</button>
+          </div>
+
+          <form id="auth-signup-form" class="auth-form" hidden>
+            <input type="email" id="auth-signup-email" placeholder="you@example.com" autocomplete="email" required />
+            <input type="password" id="auth-signup-password" placeholder="Password (min 8 characters)" autocomplete="new-password" minlength="8" required />
+            <button type="submit">Create account</button>
+            <button type="button" class="auth-back-button" data-auth-back>&larr; Back</button>
           </form>
-          <p id="auth-signin-sent" class="auth-note" hidden>Check your email for a link.</p>
-          <p class="menu-note">One-time link, no password. Already signed up? Enter the same email to sign back in.</p>
+
+          <form id="auth-signin-form" class="auth-form" hidden>
+            <input type="email" id="auth-signin-email" placeholder="you@example.com" autocomplete="email" required />
+            <input type="password" id="auth-signin-password" placeholder="Password" autocomplete="current-password" required />
+            <button type="submit">Sign in</button>
+            <div class="auth-form-footer">
+              <button type="button" id="auth-show-forgot" class="auth-link-button">Forgot password?</button>
+              <button type="button" class="auth-back-button" data-auth-back>&larr; Back</button>
+            </div>
+          </form>
+
+          <form id="auth-forgot-form" class="auth-form" hidden>
+            <p class="menu-note">We'll email you a link to reset your password.</p>
+            <input type="email" id="auth-forgot-email" placeholder="you@example.com" autocomplete="email" required />
+            <button type="submit">Send reset link</button>
+            <button type="button" class="auth-back-button" data-auth-back>&larr; Back</button>
+          </form>
+
+          <p id="auth-signup-sent" class="auth-note" hidden>Check your email to activate your account.</p>
+          <p id="auth-forgot-sent" class="auth-note" hidden>Check your email for a password reset link.</p>
+          <p id="auth-error" class="auth-error" hidden></p>
+        </div>
+
+        <!-- Shown only right after clicking a password-reset email link
+             (Supabase's PASSWORD_RECOVERY event -- see auth.js). A real,
+             if temporary, session exists at this point, but the normal
+             signed-in menu shouldn't show until a new password is actually
+             set -- this is a third state alongside signed-out/signed-in,
+             not a variant of either. -->
+        <div id="menu-recovery" hidden>
+          <p class="menu-note">Set a new password for your account.</p>
+          <form id="auth-recovery-form" class="auth-form">
+            <input type="password" id="auth-recovery-password" placeholder="New password (min 8 characters)" autocomplete="new-password" minlength="8" required />
+            <button type="submit">Set new password</button>
+          </form>
+          <p id="auth-recovery-error" class="auth-error" hidden></p>
         </div>
 
         <!-- Signed in: account row, filled in by auth.js. -->
@@ -81,6 +130,21 @@
             <input type="checkbox" id="auth-digest-optin" />
             Email me today's passage
           </label>
+
+          <!-- Paid-only: name your agent (see README -> Subscription /
+               paid tier). Hidden entirely until GET /api/preferences
+               confirms this account is paid; a free signed-in account sees
+               agent-name-upsell instead. -->
+          <div id="agent-name-field" class="agent-name-field" hidden>
+            <label for="auth-agent-name">Your agent's name</label>
+            <div class="agent-name-row">
+              <input type="text" id="auth-agent-name" placeholder="e.g. Wisdom, Sage, Theo" maxlength="40" />
+              <button type="button" id="auth-agent-name-save">Save</button>
+            </div>
+          </div>
+          <p id="agent-name-upsell" class="agent-name-upsell" hidden>
+            <a href="/subscription" id="agent-name-upsell-link">Upgrade to Pro</a> to name your agent.
+          </p>
         </div>
       </div>
     </div>
@@ -105,10 +169,10 @@
         <!-- Buttons are generated by app.js — a fresh random pick of four
              from a larger pool on every load/new conversation. -->
       </div>
-      <!-- Only shown on the conversation view (see app.js's renderView) --
-           there's nothing to go "home" from while already on home. Takes
-           over "New conversation"'s old job: starts fresh AND navigates
-           home, same as clicking the logo. -->
+      <!-- Shown on every view except home -- there's nothing to go "home"
+           from while already on it. Works the same from the conversation
+           view or any of the standalone pages (Today's Passage, Reading
+           Plans, Subscription) below. -->
       <button type="button" id="nav-home-button" title="Go home">Home</button>
     </div>
 
@@ -127,9 +191,28 @@
       </svg>
       <p>Type a reference, or just ask what's on your mind — no need to look anything up first.</p>
 
-      <!-- Filled in by app.js from GET /api/daily. Hidden until that
-           request resolves, so there's no empty/broken-looking placeholder
-           if it's ever slow or fails. -->
+      <!-- A one-time nudge toward creating an account, shown on a signed-out
+           visitor's first look at the page (auth.js hides it permanently
+           once dismissed, or immediately for anyone already signed in).
+           Only ever shown if accounts are actually configured (GET
+           /api/config) -- see auth.js's maybeShowCallout(). -->
+      <div id="site-callout" class="site-callout" hidden>
+        <p>New here? Create a free account to keep a running record of what you study — your agent will remember it in future conversations, and you'll unlock sermon and lesson outlines too.</p>
+        <button type="button" id="site-callout-dismiss" aria-label="Dismiss">&times;</button>
+      </div>
+    </div>
+
+    <div id="chat-log" aria-live="polite"></div>
+
+    <!-- Today's Passage -- its own page (see app.js's view system), reached
+         from the top-left menu rather than shown as part of the home empty
+         state. Filled in by app.js from GET /api/daily, which always
+         succeeds (no auth, no external calls -- see lib/daily-passage.js);
+         hidden until that request resolves so there's no empty/broken-
+         looking placeholder if it's ever slow or fails. -->
+    <div id="page-today" class="page" hidden>
+      <h2 class="page-heading">Today's passage</h2>
+      <p class="page-subhead">The same passage for everyone today — a place to start if nothing else comes to mind.</p>
       <div id="daily-passage" hidden>
         <div class="daily-passage-row">
           <span>Today's passage:</span>
@@ -137,26 +220,18 @@
         </div>
         <p id="daily-passage-tag" class="daily-passage-tag"></p>
       </div>
+    </div>
 
-      <!-- A one-time nudge toward creating an account, shown under the daily
-           passage on a signed-out visitor's first look at the page (auth.js
-           hides it permanently once dismissed, or immediately for anyone
-           already signed in). Only ever shown if accounts are actually
-           configured (GET /api/config) -- see auth.js's maybeShowCallout(). -->
-      <div id="site-callout" class="site-callout" hidden>
-        <p>New here? Create a free account to keep a running record of what you study — Claude will remember it in future conversations, and you'll unlock sermon and lesson outlines too.</p>
-        <button type="button" id="site-callout-dismiss" aria-label="Dismiss">&times;</button>
-      </div>
-
-      <!-- Curated multi-day reading plans (lib/reading-plans.js) -- filled
-           in by app.js from GET /api/reading-plans, which always succeeds
-           (plan content is public; only progress tracking needs sign-in).
-           Hidden until that request resolves, same "no empty placeholder"
-           reasoning as #daily-passage above. Two panels sharing this one
-           block: the plan list (#reading-plans-list) and, once a plan is
-           picked, its day-by-day detail (#reading-plan-detail) -- toggled
-           in place rather than a real view/URL change, since this is a
-           lightweight drill-down, not a separate page. -->
+    <!-- Reading Plans -- its own page, reached from the top-left menu.
+         Curated multi-day sequences (lib/reading-plans.js), filled in by
+         app.js from GET /api/reading-plans, which always succeeds (plan
+         content is public; only progress tracking needs sign-in). Two
+         panels sharing this one page: the plan list (#reading-plans-list)
+         and, once a plan is picked, its day-by-day detail
+         (#reading-plan-detail) -- toggled in place rather than yet another
+         view/URL change, since this is a lightweight drill-down within the
+         page, not a separate page of its own. -->
+    <div id="page-plans" class="page" hidden>
       <div id="reading-plans" class="reading-plans" hidden>
         <h2 class="reading-plans-heading">Reading plans</h2>
         <ul id="reading-plans-list" class="reading-plans-list"></ul>
@@ -171,7 +246,37 @@
       </div>
     </div>
 
-    <div id="chat-log" aria-live="polite"></div>
+    <!-- Subscription -- its own page, reached from the top-left menu.
+         Static content for now (see README -> Subscription / paid tier):
+         no real checkout is wired up yet, so pricing is a placeholder and
+         there's no working "upgrade" action -- this is a plans/features
+         reference page, not a billing flow, until that's built. -->
+    <div id="page-subscription" class="page" hidden>
+      <h2 class="page-heading">Subscription</h2>
+      <div class="subscription-plans">
+        <div class="subscription-plan">
+          <h3>Free</h3>
+          <p class="subscription-price">$0</p>
+          <ul>
+            <li>Full chat — translations, original-language interlinear, commentary</li>
+            <li>Notes on any passage</li>
+            <li>Reading plans with progress tracking</li>
+            <li>Daily passage email</li>
+            <li>Full-text Bible search</li>
+            <li>Sermon &amp; lesson outlines</li>
+          </ul>
+        </div>
+        <div class="subscription-plan subscription-plan-paid">
+          <h3>Pro</h3>
+          <p class="subscription-price">Pricing coming soon</p>
+          <ul>
+            <li>Everything in Free</li>
+            <li>Name your AI agent for a more personal conversation</li>
+          </ul>
+          <p class="subscription-note">Not open for signup yet — check back soon.</p>
+        </div>
+      </div>
+    </div>
 
     <form id="chat-form">
       <textarea
@@ -197,9 +302,10 @@
        step" approach as the rest of this project's frontend. Auth is one
        of the few places worth using the officially maintained client
        instead of hand-rolled fetch calls (see lib/supabase.js's header
-       comment) -- magic-link/PKCE token handling is genuinely easy to get
-       subtly wrong by hand. auth.js only initializes it if GET /api/config
-       reports Supabase as configured, so this is a no-op today. -->
+       comment) -- password/session/recovery token handling is genuinely
+       easy to get subtly wrong by hand. auth.js only initializes it if GET
+       /api/config reports Supabase as configured, so this is a no-op
+       today. -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="/auth.js"></script>
   <script src="/app.js"></script>

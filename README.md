@@ -143,25 +143,27 @@ used shown alongside it in a collapsible block per passage. Ask a follow-up
 without repeating the reference, or ask something with no specific verse in
 mind — Claude can pull in a cross-reference itself if one genuinely helps.
 
-One page, two client-side views: home (title/tagline, the "Try:" examples,
-today's passage) and conversation (the chat log), toggled by
-`public/app.js`'s `renderView()` rather than a real page load — sending the
-first message, clicking an example or the daily passage, or resuming a
-conversation from the top-left menu all switch to the conversation view;
-the "Home" button (only shown there) or clicking the "ad fontes" logo goes
-back and starts fresh. The URL (`/` vs `/chat`) tracks whichever view is
+One page, five client-side views: home (title/tagline, the "Try:" examples),
+conversation (the chat log), Today's Passage, Reading Plans, and
+Subscription — toggled by `public/app.js`'s `renderView()` rather than a
+real page load. Sending the first message, clicking an example, or resuming
+a conversation from the top-left menu switches to the conversation view;
+Today's Passage/Reading Plans/Subscription are reached from their own
+top-left menu items, without touching whatever conversation is in progress;
+the "Home" button (shown on every view except home) or clicking the
+"ad fontes" logo goes back home and starts a fresh conversation. The URL
+(`/`, `/chat`, `/today`, `/plans`, `/subscription`) tracks whichever view is
 showing via `history.pushState`, so the browser's back/forward buttons work
-like real navigation, and `GET /chat` (`server.js`) serves the same
-`index.html` so a direct link or hard refresh still loads correctly.
+like real navigation, and `server.js` serves the same `index.html` for all
+of them so a direct link or hard refresh still loads correctly.
 
-The empty state also shows a "Today's passage" pick (`GET /api/daily`,
-`lib/daily-passage.js`) — the same reference for every visitor on a given
-UTC day, deterministically rotating through a curated ~120-passage list
-rather than picked randomly, so it's reproducible and spread across both
-testaments instead of clustering on a handful of famous verses. Clicking it
-just sends a normal chat message ("What does John 3:16 (JHN.3.16) mean?"),
-so it reuses the exact same flow as typing a reference by hand — no
-separate rendering path to keep in sync.
+**Today's Passage** (its own page, `GET /api/daily`, `lib/daily-passage.js`)
+is the same reference for every visitor on a given UTC day, deterministically
+rotating through a curated ~120-passage list rather than picked randomly, so
+it's reproducible and spread across both testaments instead of clustering on
+a handful of famous verses. Clicking it just sends a normal chat message
+("What does John 3:16 (JHN.3.16) mean?"), so it reuses the exact same flow
+as typing a reference by hand — no separate rendering path to keep in sync.
 
 This works because the chat box isn't a second, separate question-answering
 path bolted onto search — there is no separate search anymore. Every
@@ -288,46 +290,63 @@ study"). This is the actual product bet behind accounts: a tool that gets
 more valuable to a specific person the longer they use it, rather than one
 that resets to zero context every conversation.
 
-**Sign-in flow.** Magic link only for now (no password to manage, and no
-Google/OAuth setup required to get started) — `public/auth.js` loads the
-official `@supabase/supabase-js` client from a CDN (the one place in this
-project's frontend that isn't hand-rolled fetch: PKCE/magic-link token
-handling is genuinely easy to get subtly wrong by hand, which is exactly why
-a managed provider was chosen for auth in the first place — see the
-Deployment section's reasoning, one level up). The browser handles the
-entire flow itself — requesting the link, detecting the token when the user
-clicks back into the site, keeping the session current — and only ever
-hands `lib/chat.js` the resulting access token via an `Authorization: Bearer`
-header on `/api/chat` (and on the `/api/conversations` routes below).
-`GET /api/config` hands the frontend the public URL and publishable key it
-needs to set this up, rather than hardcoding them into a static file that
-can't read the server's `.env`. All of this lives in a single top-left menu
-(`#site-menu` in `public/index.html`), not scattered across the page: Home
-at the top; below it, either the previous-conversations list (with the
-recent/by-book sort toggle) or, when there's nothing to show yet, a New
-chat button; sign up (or, once signed in, the account row + sign out) at
-the bottom.
+**Sign-in flow.** Email + password, not a magic link — `public/auth.js` loads
+the official `@supabase/supabase-js` client from a CDN (the one place in
+this project's frontend that isn't hand-rolled fetch: token handling is
+genuinely easy to get subtly wrong by hand, which is exactly why a managed
+provider was chosen for auth in the first place — see the Deployment
+section's reasoning, one level up) and calls `signUp()` /
+`signInWithPassword()` directly. The Supabase project's **Confirm email**
+setting (**Authentication -> Sign In / Providers -> Email**) stays **on**:
+`signUp()` never returns an active session on first use, only a "check your
+email to activate your account" prompt — the account becomes usable once
+that confirmation link is clicked, which lands back on this same page and
+completes sign-in via a normal `SIGNED_IN` auth event, no special handling
+needed. `GET /api/config` hands the frontend the public URL and publishable
+key it needs to construct that client, rather than hardcoding them into a
+static file that can't read the server's `.env`.
 
-**Magic link setup — don't skip this.** `signInWithOtp()` passes
-`emailRedirectTo: window.location.origin` so the emailed link points back
-at wherever the app is actually running, but that URL still has to be on
+All of this lives in a single top-left menu (`#site-menu` in
+`public/index.html`), not scattered across the page: Home, Today's Passage,
+and Reading Plans at the top; below that, either the previous-conversations
+list (with the recent/by-book sort toggle) or, when there's nothing to show
+yet, a New chat button; a Subscription link; and, at the bottom, accounts —
+signed out, a "Create new account" / "Already have an account? Sign in"
+choice, each revealing its own inline form; signed in, the account row,
+sign-out, the digest toggle, and (paid accounts only) the name-your-agent
+field.
+
+**Forgot password.** A "Forgot password?" link on the sign-in form calls
+`resetPasswordForEmail()`, which emails a reset link. Clicking it lands back
+on the site carrying Supabase's `PASSWORD_RECOVERY` auth event (detected two
+ways in `public/auth.js` — the event itself, and an upfront check for
+`type=recovery` in the URL so the form appears immediately rather than
+flashing "signed out" first): the menu opens on its own to a "set a new
+password" form rather than the normal signed-in view, since a recovery link
+grants a session before a new password has actually been chosen. Submitting
+that form calls `updateUser({ password })`, after which the account behaves
+like any other sign-in.
+
+**Auth email setup — don't skip this.** Both `signUp()` and
+`resetPasswordForEmail()` pass a redirect pinned to wherever the app is
+actually running (`window.location.origin`), but that URL still has to be on
 the project's allow list or Supabase will reject the redirect. In the
 Supabase dashboard, go to **Authentication -> URL Configuration** and: set
 **Site URL** to your deployed URL (it defaults to `http://localhost:3000`,
-which is why a magic link can look "broken" — it's sending fine, just
-redirecting somewhere dead) and add that same URL under **Redirect URLs**.
-Do this for every environment you actually sign in from (e.g. both your
-Render URL and `http://localhost:3000` for local dev).
+which is why a confirmation/reset link can look "broken" — it's sending
+fine, just redirecting somewhere dead) and add that same URL under
+**Redirect URLs**. Do this for every environment you actually sign in from
+(e.g. both your Render URL and `http://localhost:3000` for local dev).
 
-By default, magic-link emails come from Supabase's own shared sending
-service, which is why they show up as sent by "Supabase Auth" rather than
-this app. Two separate things to change, both in the dashboard: the
-**subject line** is editable for free under **Authentication -> Email
-Templates -> Magic Link**; the **sender name/address** (what most email
-clients show before you even open the message) requires configuring
-**Custom SMTP** (**Authentication -> SMTP Settings**) with your own email
-provider (Resend, Postmark, SendGrid, etc.) — Supabase's built-in sender
-can't be renamed without one. Neither of these can be set from this
+By default, these emails come from Supabase's own shared sending service,
+which is why they show up as sent by "Supabase Auth" rather than this app.
+Two separate things to change, both in the dashboard: the **subject line**
+is editable for free under **Authentication -> Email Templates** (Confirm
+signup / Reset password, edited separately); the **sender name/address**
+(what most email clients show before you even open the message) requires
+configuring **Custom SMTP** (**Authentication -> SMTP Settings**) with your
+own email provider (Resend, Postmark, SendGrid, etc.) — Supabase's built-in
+sender can't be renamed without one. Neither of these can be set from this
 codebase; they're project-level Supabase config.
 
 **Server-side, no SDK.** `lib/supabase.js` talks to Supabase's REST APIs
@@ -398,10 +417,11 @@ failure surfaces as a real error in the UI rather than being swallowed.
 **Daily digest email.** A signed-in user can opt into a once-a-day email
 with the same "today's featured passage" the homepage already shows (see
 the daily-passage section above) — a toggle ("Email me today's passage") in
-the account menu, right below sign-out. `GET /api/preferences` and
-`PUT /api/preferences { dailyDigestOptIn }` read/write the preference
-(`profiles.daily_digest_opt_in`, defaulting to `false` — opt-in, not
-opt-out); both require a valid `Authorization` header. Sending itself is
+the account menu, right below sign-out. `GET /api/preferences` returns
+`{ dailyDigestOptIn, isPaid, agentName }` (see the Subscription / paid tier
+section below for the latter two) and `PUT /api/preferences` saves whichever
+of `{ dailyDigestOptIn, agentName }` are present in the body — both require
+a valid `Authorization` header. Sending itself is
 *not* part of the request/response cycle at all — it's a separate scheduled
 job (`lib/daily-digest.js`, invoked by `scripts/send-daily-digest.js` /
 `npm run digest`) that Resend's HTTP API delivers, meant to be triggered
@@ -416,33 +436,61 @@ emails, since Supabase never hands that key back out to this app's own
 code.
 
 **Reading plans.** A handful of curated, named, multi-day passage sequences
-(`lib/reading-plans.js`, e.g. "The Gospel in Six Verses") shown on the
-homepage below the daily passage — distinct from the daily passage rotation
-in what they optimize for: daily-passage is the same single reference for
-every visitor on a given day (a low-commitment nudge); a plan is something
-a specific user picks and returns to, with real per-user progress behind
-it. Plan content itself is static (committed to the repo, no admin UI,
-same reasoning as `DAILY_PASSAGES`), and every day is deliberately a
-*single* verse, not a range — `gatherPassage()`'s original-language lookup
-is built and tested against exact single-verse references (see
-`lib/interlinear.js`'s `parseReference()`), so a plan reusing the daily
-passage's exact "click a reference → gather + chat" flow is only safe to
-do this way. Browsing a plan and reading a day's passage needs no sign-in
-at all (`GET /api/reading-plans`, always 200); only checking a day off
-does, since that needs somewhere to store progress — signed-out, the
-checkboxes are disabled with a "sign in to track your progress" note
-instead of hidden entirely, so the content stays visible either way.
-`PUT /api/reading-plans/:id/days/:day { completed }` marks one day done or
-undone for the signed-in user and returns their updated day list; like
-notes and the digest preference, this is not fire-and-forget — an explicit
-action (checking a box) should surface a real error if the write fails.
+(`lib/reading-plans.js`, e.g. "The Gospel in Six Verses") shown on their own
+page (**Reading Plans**, in the top-left menu) — distinct from the daily
+passage in what they optimize for: daily-passage (its own page too — see
+**Today's Passage** in the menu) is the same single reference for every
+visitor on a given day (a low-commitment nudge); a plan is something a
+specific user picks and returns to, with real per-user progress behind it.
+Plan content itself is static (committed to the repo, no admin UI, same
+reasoning as `DAILY_PASSAGES`), and every day is deliberately a *single*
+verse, not a range — `gatherPassage()`'s original-language lookup is built
+and tested against exact single-verse references (see `lib/interlinear.js`'s
+`parseReference()`), so a plan reusing the daily passage's exact "click a
+reference → gather + chat" flow is only safe to do this way. Browsing a
+plan and reading a day's passage needs no sign-in at all (`GET
+/api/reading-plans`, always 200); only checking a day off does, since that
+needs somewhere to store progress — signed-out, the checkboxes are disabled
+with a "sign in to track your progress" note instead of hidden entirely, so
+the content stays visible either way. `PUT /api/reading-plans/:id/days/:day
+{ completed }` marks one day done or undone for the signed-in user and
+returns their updated day list; like notes and the digest preference, this
+is not fire-and-forget — an explicit action (checking a box) should surface
+a real error if the write fails.
+
+**Subscription / paid tier.** A free/paid split with no real checkout wired
+up yet — `profiles.is_paid` is a plain boolean, flipped by hand in the
+Supabase dashboard's Table Editor, not by any code path in this app. The
+**Subscription** page (top-left menu) lists what's in the Free and Pro
+tiers, with a "pricing coming soon" placeholder and no working "upgrade"
+button — it's a reference page today, not a billing flow. Deliberately
+minimal scope: everything already in this app (notes, reading plans, the
+digest, full-text search, sermon/lesson outlines) stays free; the *only*
+thing `is_paid` currently gates is naming your AI agent (see below). `GET
+/api/preferences`'s `isPaid` field is what the frontend uses to decide
+whether to show the name-your-agent field or its upsell — this flag is
+never settable through the API itself, only read.
+
+**Name your agent.** A paid-only cosmetic feature: a signed-in, paid account
+can give the AI a display name (`profiles.agent_name`, up to 40 characters)
+via a field in the account menu, right below the digest toggle. `lib/chat.js`
+looks it up fresh on every turn (`getAgentNameIfPaid()` in
+`lib/supabase.js` — re-checks `is_paid` each time rather than trusting a
+stale value, so a downgraded account stops seeing the name used
+immediately even though the column itself is untouched) and, when set,
+prepends a short line to the system prompt so Claude answers to it
+naturally. `PUT /api/preferences { agentName }` on a non-paid account
+returns 403 — enforced server-side in `server.js`, not just hidden in the
+UI, so it can't be set by a direct API request either. An empty string
+clears it back to the default persona.
 
 **Setup** (run once): create a free Supabase project, open the SQL Editor,
 paste in and run `supabase/schema.sql` (creates `profiles`/`study_entries`/
 `conversations`/`notes`/`reading_plan_progress`, the
-`profiles.daily_digest_opt_in` column, and their RLS policies — idempotent,
-safe to re-run), then copy the three values from Settings -> API Keys into
-`.env`.
+`profiles.daily_digest_opt_in`/`is_paid`/`agent_name` columns, and their RLS
+policies — idempotent, safe to re-run), then copy the three values from
+Settings -> API Keys into `.env`. Under **Authentication -> Sign In /
+Providers -> Email**, make sure **Confirm email** is switched on.
 
 ## Deployment
 

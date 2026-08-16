@@ -20,6 +20,9 @@ import {
   getDigestOptIn,
   setDigestOptIn,
   listDigestOptedInUsers,
+  getPaidProfile,
+  setAgentName,
+  getAgentNameIfPaid,
   getReadingPlanProgress,
   listReadingPlanProgress,
   setReadingPlanDayComplete,
@@ -592,6 +595,80 @@ test("listDigestOptedInUsers returns only opted-in users as { id, email }", asyn
   assert.equal(results.length, 1);
   assert.equal(results[0].id, "user-1");
   assert.equal(results[0].email, "opted-in@example.com");
+});
+
+// --- getPaidProfile / setAgentName / getAgentNameIfPaid (paid tier) --------
+
+test("getPaidProfile returns { isPaid: false, agentName: null } when Supabase isn't configured, without calling fetch", async () => {
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    return { ok: true, status: 200, text: async () => "[]" };
+  };
+  assert.deepEqual(await getPaidProfile("user-1"), { isPaid: false, agentName: null });
+  assert.equal(called, false);
+});
+
+test("getPaidProfile defaults to not paid, no name, when there's no profiles row", async () => {
+  stubSupabase();
+  assert.deepEqual(await getPaidProfile("user-1"), { isPaid: false, agentName: null });
+});
+
+test("getPaidProfile returns the stored is_paid + agent_name", async () => {
+  const { profiles } = stubSupabase();
+  profiles.set("user-1", { id: "user-1", is_paid: true, agent_name: "Wisdom" });
+  assert.deepEqual(await getPaidProfile("user-1"), { isPaid: true, agentName: "Wisdom" });
+});
+
+test("setAgentName PATCHes the user's profiles row with the secret key", async () => {
+  const { requests, profiles } = stubSupabase();
+  profiles.set("user-1", { id: "user-1", is_paid: true, agent_name: null });
+
+  await setAgentName("user-1", "Sage");
+
+  const patchRequest = requests.find(
+    (r) => r.url.pathname === "/rest/v1/profiles" && r.opts.method === "PATCH" && r.url.searchParams.get("id") === "eq.user-1",
+  );
+  assert.ok(patchRequest, "should have PATCHed profiles");
+  assert.deepEqual(JSON.parse(patchRequest.opts.body), { agent_name: "Sage" });
+  assert.equal(profiles.get("user-1").agent_name, "Sage");
+});
+
+test("setAgentName stores null for an empty name (clearing it back to the default persona)", async () => {
+  const { profiles } = stubSupabase();
+  profiles.set("user-1", { id: "user-1", is_paid: true, agent_name: "Sage" });
+
+  await setAgentName("user-1", "");
+
+  assert.equal(profiles.get("user-1").agent_name, null);
+});
+
+test("getAgentNameIfPaid returns null for no userId, without calling fetch", async () => {
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    return { ok: true, status: 200, text: async () => "[]" };
+  };
+  assert.equal(await getAgentNameIfPaid(null), null);
+  assert.equal(called, false);
+});
+
+test("getAgentNameIfPaid returns null for an unpaid account even if agent_name is set", async () => {
+  const { profiles } = stubSupabase();
+  profiles.set("user-1", { id: "user-1", is_paid: false, agent_name: "Leftover Name" });
+  assert.equal(await getAgentNameIfPaid("user-1"), null);
+});
+
+test("getAgentNameIfPaid returns the trimmed name for a paid account", async () => {
+  const { profiles } = stubSupabase();
+  profiles.set("user-1", { id: "user-1", is_paid: true, agent_name: "  Theo  " });
+  assert.equal(await getAgentNameIfPaid("user-1"), "Theo");
+});
+
+test("getAgentNameIfPaid returns null for a paid account with no name set", async () => {
+  const { profiles } = stubSupabase();
+  profiles.set("user-1", { id: "user-1", is_paid: true, agent_name: null });
+  assert.equal(await getAgentNameIfPaid("user-1"), null);
 });
 
 // --- getReadingPlanProgress / listReadingPlanProgress / setReadingPlanDayComplete

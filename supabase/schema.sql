@@ -39,6 +39,23 @@ create table if not exists public.profiles (
 alter table public.profiles
   add column if not exists daily_digest_opt_in boolean not null default false;
 
+-- Minimal paid tier (see README -> Subscription / paid tier): there's no
+-- real checkout wired up yet, so this is set by hand in the Supabase
+-- dashboard's Table Editor for now, not by any code path in this app.
+-- Everything already built stays free; the only thing this currently gates
+-- is naming your agent (agent_name below, and lib/chat.js's use of it).
+alter table public.profiles
+  add column if not exists is_paid boolean not null default false;
+
+-- Paid-only: a display name for the AI agent, purely cosmetic (used in the
+-- chat system prompt -- see lib/chat.js) to make conversations feel a
+-- little more personal. Null/empty means "use the default persona." Not
+-- enforced server-side that only paid accounts can set this (PostgREST has
+-- no notion of that without a stored procedure) -- server.js's
+-- handleSetPreferences is what actually gates the write on is_paid.
+alter table public.profiles
+  add column if not exists agent_name text;
+
 alter table public.profiles enable row level security;
 
 drop policy if exists "profiles: users can read their own row" on public.profiles;

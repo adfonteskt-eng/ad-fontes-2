@@ -48,14 +48,18 @@
 //   isn't the signed-in user's own. Requires a valid Authorization header —
 //   401 without one.
 //
-// GET /api/preferences -> { dailyDigestOptIn: boolean } for the signed-in
-//   user. Requires a valid Authorization header — 401 without one.
+// GET /api/preferences -> { dailyDigestOptIn: boolean, isPaid: boolean,
+//   agentName: string|null } for the signed-in user. isPaid is read-only
+//   here (set by hand in Supabase for now — no real checkout yet, see
+//   README -> Subscription / paid tier); it just tells the frontend whether
+//   to show the "name your agent" field or its upsell. Requires a valid
+//   Authorization header — 401 without one.
 //
-// PUT /api/preferences { dailyDigestOptIn: boolean } -> the preference as
-//   saved, same shape as GET. Requires a valid Authorization header — 401
-//   without one. (Only one preference exists today; PUT replaces the whole
-//   object rather than PATCHing a single field, so this doesn't need to
-//   change shape when a second preference is added later.)
+// PUT /api/preferences { dailyDigestOptIn?: boolean, agentName?: string } ->
+//   the full preferences object, same shape as GET. Provide either or both
+//   fields — each present field is saved, absent ones are left alone (a
+//   400 if neither is present). Setting agentName on a non-paid account
+//   returns 403. Requires a valid Authorization header — 401 without one.
 //
 // GET /api/reading-plans -> { plans: [{ id, title, description, days: [{
 //   day, usfm, label, tag }], completedDays: [] }] } -- the full curated
@@ -72,12 +76,14 @@
 //   Requires a valid Authorization header — 401 without one (unlike GET
 //   above, there's no meaningful anonymous version of "mark this done").
 //
-// GET /chat -> serves the same index.html as GET / -- the frontend is a
-//   single-page app with two client-side views (home and conversation, see
-//   public/app.js), and this route exists purely so a hard refresh or a
-//   direct/bookmarked link to /chat still loads the app instead of 404ing.
-//   Which view actually renders is decided client-side (from localStorage),
-//   not by this route.
+// GET /chat, /today, /plans, /subscription -> all serve the same index.html
+//   as GET / -- the frontend is a single-page app with five client-side
+//   views (home, conversation, today, plans, subscription — see
+//   public/app.js's view system), and these routes exist purely so a hard
+//   refresh or a direct/bookmarked link to any of them still loads the app
+//   instead of 404ing. Which view actually renders is decided client-side
+//   (from localStorage for a resumed conversation, otherwise from the
+//   request path itself — see app.js's PATH_VIEWS).
 //
 //      POST /api/chat   { sessionId?: string, conversationId?: string, message: string }
 //   -> { sessionId, conversationId, reply }
@@ -114,9 +120,11 @@ import {
   deleteNote,
   getConversation,
   getDigestOptIn,
+  getPaidProfile,
   listConversations,
   listNotes,
   listReadingPlanProgress,
+  setAgentName,
   setDigestOptIn,
   setReadingPlanDayComplete,
   verifyUser,
@@ -425,14 +433,32 @@ async function handleSetReadingPlanDay(req, res, planId, dayParam) {
   sendJson(res, 200, { completedDays });
 }
 
+// A cosmetic display name, not a real identity field -- generous but bounded
+// (matches the frontend's own maxlength=40 on the input -- see
+// public/index.html -- this is the server-side backstop, not the primary
+// guard).
+const MAX_AGENT_NAME_LENGTH = 40;
+
 async function handleGetPreferences(req, res) {
   const user = await requireUser(req, res);
   if (!user) return;
 
-  const dailyDigestOptIn = await getDigestOptIn(user.id);
-  sendJson(res, 200, { dailyDigestOptIn });
+  const [dailyDigestOptIn, { isPaid, agentName }] = await Promise.all([
+    getDigestOptIn(user.id),
+    getPaidProfile(user.id),
+  ]);
+  sendJson(res, 200, { dailyDigestOptIn, isPaid, agentName });
 }
 
+// PUT replaces whichever of the known preference fields are present in the
+// body, rather than requiring the whole object every time -- unlike when
+// this only handled dailyDigestOptIn, agentName is saved from its own
+// dedicated "Save" button (see public/auth.js), a separate action from the
+// digest checkbox, so a caller updating one shouldn't have to resend the
+// other's current value just to avoid clobbering it. isPaid is deliberately
+// never settable here -- see README -> Subscription / paid tier; that flag
+// is flipped by hand in the Supabase dashboard for now, not by any request
+// this app's own server handles.
 async function handleSetPreferences(req, res) {
   const user = await requireUser(req, res);
   if (!user) return;
@@ -445,13 +471,47 @@ async function handleSetPreferences(req, res) {
     return;
   }
 
-  if (typeof body.dailyDigestOptIn !== "boolean") {
-    sendJson(res, 400, { error: "Missing or invalid field: dailyDigestOptIn (must be true or false)." });
+  const hasDigestField = Object.prototype.hasOwnProperty.call(body, "dailyDigestOptIn");
+  const hasAgentNameField = Object.prototype.hasOwnProperty.call(body, "agentName");
+  if (!hasDigestField && !hasAgentNameField) {
+    sendJson(res, 400, { error: "Provide at least one of: dailyDigestOptIn, agentName." });
     return;
   }
 
-  await setDigestOptIn(user.id, body.dailyDigestOptIn);
-  sendJson(res, 200, { dailyDigestOptIn: body.dailyDigestOptIn });
+  if (hasDigestField) {
+    if (typeof body.dailyDigestOptIn !== "boolean") {
+      sendJson(res, 400, { error: "Invalid field: dailyDigestOptIn (must be true or false)." });
+      return;
+    }
+    await setDigestOptIn(user.id, body.dailyDigestOptIn);
+  }
+
+  if (hasAgentNameField) {
+    if (typeof body.agentName !== "string") {
+      sendJson(res, 400, { error: "Invalid field: agentName (must be a string)." });
+      return;
+    }
+    const agentName = body.agentName.trim();
+    if (agentName.length > MAX_AGENT_NAME_LENGTH) {
+      sendJson(res, 400, { error: `agentName is too long (max ${MAX_AGENT_NAME_LENGTH} characters).` });
+      return;
+    }
+    // Paid-only feature -- see README -> Subscription / paid tier. Checked
+    // here (not just hidden client-side) so this can't be set by a direct
+    // API request from a free account either.
+    const { isPaid } = await getPaidProfile(user.id);
+    if (!isPaid) {
+      sendJson(res, 403, { error: "Naming your agent is a Pro feature. See the Subscription page." });
+      return;
+    }
+    await setAgentName(user.id, agentName);
+  }
+
+  const [dailyDigestOptIn, { isPaid, agentName }] = await Promise.all([
+    getDigestOptIn(user.id),
+    getPaidProfile(user.id),
+  ]);
+  sendJson(res, 200, { dailyDigestOptIn, isPaid, agentName });
 }
 
 async function handlePassage(req, res, searchParams) {
@@ -701,7 +761,7 @@ const server = createServer(async (req, res) => {
       await handleChat(req, res);
       return;
     }
-    if (req.method === "GET" && url.pathname === "/chat") {
+    if (req.method === "GET" && ["/chat", "/today", "/plans", "/subscription"].includes(url.pathname)) {
       await serveStatic(res, "/"); // same file as the homepage -- see the GET /chat doc comment above
       return;
     }

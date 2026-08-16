@@ -124,26 +124,78 @@ body {
   color: var(--ink-soft);
 }
 
-.auth-signin {
+/* --- Accounts: create/sign-in/forgot forms, recovery, signed-in row ------ */
+
+#auth-choice-buttons {
   display: flex;
-  gap: 0.4rem;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
-.auth-signin input[type="email"] {
-  flex: 1;
-  min-width: 0;
-  padding: 0.35rem 0.6rem;
+.auth-primary-button {
+  padding: 0.5rem 0.7rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border: 1px solid var(--accent);
+  border-radius: 0.4rem;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+}
+
+.auth-primary-button:hover {
+  opacity: 0.9;
+}
+
+.auth-link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
   font-size: 0.8rem;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.auth-link-button:hover {
+  opacity: 0.8;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.auth-form[hidden] {
+  display: none;
+}
+
+.auth-form input[type="email"],
+.auth-form input[type="password"],
+.auth-form input[type="text"] {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.82rem;
+  font-family: inherit;
   border: 1px solid var(--line);
   border-radius: 0.4rem;
   background: var(--paper);
   color: var(--ink);
 }
 
-.auth-signin button,
-#auth-signout {
-  padding: 0.35rem 0.7rem;
-  font-size: 0.8rem;
+.auth-form input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.auth-form button[type="submit"],
+#auth-signout,
+#auth-agent-name-save {
+  padding: 0.4rem 0.7rem;
+  font-size: 0.82rem;
+  font-weight: 600;
   border: 1px solid var(--accent);
   border-radius: 0.4rem;
   background: none;
@@ -152,15 +204,60 @@ body {
   white-space: nowrap;
 }
 
-.auth-signin button:hover,
-#auth-signout:hover {
+.auth-form button[type="submit"]:hover,
+#auth-signout:hover,
+#auth-agent-name-save:hover {
   background: var(--accent);
   color: white;
+}
+
+.auth-form button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.auth-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.auth-back-button {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.auth-back-button:hover {
+  color: var(--accent);
 }
 
 .auth-note {
   margin: 0.5rem 0 0;
   font-style: italic;
+}
+
+.auth-note[hidden] {
+  display: none;
+}
+
+.auth-error {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: var(--error);
+}
+
+.auth-error[hidden] {
+  display: none;
+}
+
+#menu-recovery[hidden] {
+  display: none;
 }
 
 .menu-account-row {
@@ -187,6 +284,60 @@ body {
 
 .menu-digest-toggle input {
   cursor: pointer;
+}
+
+/* --- Paid-only "name your agent" field, plus its free-account upsell ---- */
+
+.agent-name-field {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.agent-name-field[hidden] {
+  display: none;
+}
+
+.agent-name-field label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
+.agent-name-row {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.agent-name-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.82rem;
+  font-family: inherit;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.agent-name-upsell {
+  margin: 0.75rem 0 0;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+.agent-name-upsell[hidden] {
+  display: none;
+}
+
+.agent-name-upsell a {
+  color: var(--accent);
+  font-style: normal;
 }
 
 .menu-conversations-header {
@@ -1069,10 +1220,107 @@ table.interlinear th {
   cursor: default;
 }
 
+/* --- Standalone pages: Today's Passage, Reading Plans, Subscription ----- */
+/* Reached from the top-left menu (see app.js's view system) rather than
+   shown as part of the home empty state -- #daily-passage and
+   #reading-plans keep their own existing styles above (they're the same
+   elements, just relocated into #page-today/#page-plans), so this section
+   only needs the page-level wrapper/heading rules and Subscription's own
+   content, which has nowhere else to live. */
+
+.page {
+  padding: 1.5rem 0 1rem;
+}
+
+.page[hidden] {
+  display: none;
+}
+
+.page-heading {
+  margin: 0 0 0.35rem;
+  font-family: var(--serif);
+  font-size: 1.35rem;
+  text-align: center;
+}
+
+.page-subhead {
+  margin: 0 0 1.25rem;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  text-align: center;
+}
+
+/* #page-today centers its content the same way the old home empty-state
+   did; #page-plans defers entirely to .reading-plans' own centered layout
+   (see the "Reading plans" section above), so it needs no extra rule here. */
+#page-today {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+#page-today[hidden] {
+  display: none;
+}
+
+.subscription-plans {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 1rem;
+  max-width: 34rem;
+  margin: 0 auto;
+}
+
+.subscription-plan {
+  padding: 1.1rem 1.2rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--panel);
+}
+
+.subscription-plan h3 {
+  margin: 0 0 0.2rem;
+  font-family: var(--serif);
+  font-size: 1.1rem;
+}
+
+.subscription-price {
+  margin: 0 0 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.subscription-plan ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+.subscription-plan li + li {
+  margin-top: 0.35rem;
+}
+
+.subscription-plan-paid {
+  border-color: var(--accent);
+}
+
+.subscription-note {
+  margin: 0.8rem 0 0;
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
 #chat-form {
   display: flex;
   gap: 0.5rem;
   align-items: flex-end;
+}
+
+#chat-form[hidden] {
+  display: none;
 }
 
 #chat-input {

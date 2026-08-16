@@ -80,6 +80,15 @@ test("GET /chat serves the same index.html as GET / (client-side view routing)",
   assert.match(body, /<html/i);
 });
 
+test("GET /today, /plans, and /subscription each serve the same index.html (client-side view routing)", async () => {
+  for (const path of ["/today", "/plans", "/subscription"]) {
+    const response = await fetch(BASE_URL + path);
+    assert.equal(response.status, 200, `${path} should return 200`);
+    const body = await response.text();
+    assert.match(body, /<html/i, `${path} should serve index.html`);
+  }
+});
+
 test("GET /app.js serves the frontend script with the right content type", async () => {
   const response = await fetch(BASE_URL + "/app.js");
   assert.equal(response.status, 200);

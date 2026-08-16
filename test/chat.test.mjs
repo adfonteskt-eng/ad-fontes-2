@@ -237,6 +237,15 @@ test("a signed-in user gets a 5th tool (search_study_history), and calling it hi
       }
 
       const parsed = new URL(href);
+      // chatTurn checks whether this signed-in user is on the paid tier
+      // (for the "name your agent" feature -- see getAgentNameIfPaid in
+      // lib/supabase.js) before every turn, regardless of what the turn is
+      // actually about -- an empty result here just means "not paid, no
+      // custom name," which is what every test in this file wants unless
+      // it's specifically testing that feature.
+      if (parsed.pathname === "/rest/v1/profiles") {
+        return { ok: true, status: 200, text: async () => "[]" };
+      }
       if (parsed.pathname === "/rest/v1/study_entries") {
         sawStudyHistoryRequest = true;
         assert.equal(parsed.searchParams.get("user_id"), "eq.user-42");
@@ -274,6 +283,9 @@ test("gathering a passage for a signed-in user logs a study_entries row in the b
       }
 
       const parsed = new URL(href);
+      if (parsed.pathname === "/rest/v1/profiles") {
+        return { ok: true, status: 200, text: async () => "[]" };
+      }
       if (parsed.pathname === "/rest/v1/study_entries" && opts.method === "POST") {
         loggedRow = JSON.parse(opts.body)[0];
         return { ok: true, status: 201, text: async () => "" };
@@ -309,6 +321,9 @@ test("a signed-in user's first turn gets a conversationId equal to its sessionId
         return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
       }
       const parsed = new URL(href);
+      if (parsed.pathname === "/rest/v1/profiles") {
+        return { ok: true, status: 200, text: async () => "[]" };
+      }
       if (parsed.pathname === "/rest/v1/conversations" && opts.method === "GET") {
         return { ok: true, status: 200, text: async () => "[]" };
       }
@@ -341,6 +356,9 @@ test("an explicit conversationId keeps appending to that row even under a differ
         return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
       }
       const parsed = new URL(href);
+      if (parsed.pathname === "/rest/v1/profiles") {
+        return { ok: true, status: 200, text: async () => "[]" };
+      }
       if (parsed.pathname === "/rest/v1/conversations" && opts.method === "GET") {
         return { ok: true, status: 200, text: async () => "[]" };
       }

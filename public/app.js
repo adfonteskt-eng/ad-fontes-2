@@ -269,7 +269,7 @@ function appendPendingMessage() {
 // wait already underway, at which point it's a reassurance, not clutter.
 const COLD_START_HINT_DELAY_MS = 8000;
 const COLD_START_HINT_TEXT =
-  "Still working… if this is the first message in a while, the server may be waking up (can take up to a minute).";
+  "Still gathering… ad fontes takes a little longer to stir after some quiet time, but it's on its way.";
 
 function appendSources(gatheredList) {
   const html = renderSources(gatheredList);
@@ -560,37 +560,85 @@ chatInput.addEventListener("keydown", (event) => {
 
 const emptyState = document.getElementById("chat-empty-state");
 const examplesContainer = document.querySelector(".examples");
+const pageToday = document.getElementById("page-today");
+const pagePlans = document.getElementById("page-plans");
+const pageSubscription = document.getElementById("page-subscription");
+
 const HOME_PATH = "/";
 const CONVERSATION_PATH = "/chat";
+const TODAY_PATH = "/today";
+const PLANS_PATH = "/plans";
+const SUBSCRIPTION_PATH = "/subscription";
+
+const VIEW_PATHS = {
+  home: HOME_PATH,
+  conversation: CONVERSATION_PATH,
+  today: TODAY_PATH,
+  plans: PLANS_PATH,
+  subscription: SUBSCRIPTION_PATH,
+};
+const PATH_VIEWS = Object.fromEntries(Object.entries(VIEW_PATHS).map(([view, path]) => [path, view]));
 
 // Pure DOM update, no history/URL side effects -- the one function every
 // other navigation helper below funnels through, and also what the
 // popstate handler calls directly (browser back/forward should change what
 // you see without mutating the conversation itself or pushing more history).
+// Five views share this one document: home and conversation (as before),
+// plus three standalone pages -- Today's Passage, Reading Plans, and
+// Subscription -- reached from the top-left menu (see auth.js's
+// menuTodayButton/menuPlansButton/menuSubscriptionButton handlers, which
+// call the goTo*View() wrappers below via window.adFontesChat).
 function renderView(view) {
   const isHome = view === "home";
+  const isConversation = view === "conversation";
+  const isToday = view === "today";
+  const isPlans = view === "plans";
+  const isSubscription = view === "subscription";
+
   emptyState.hidden = !isHome;
   examplesContainer.hidden = !isHome;
-  chatLog.hidden = isHome;
+  chatLog.hidden = !isConversation;
+  pageToday.hidden = !isToday;
+  pagePlans.hidden = !isPlans;
+  pageSubscription.hidden = !isSubscription;
+  // The message box only makes sense on the chat-flow views -- the three
+  // standalone pages have their own actions (a passage button, a reading-
+  // plan day, static plan copy) that route back into chat via
+  // sendChatMessage() rather than taking typed input directly.
+  chatForm.hidden = !(isHome || isConversation);
   homeButton.hidden = isHome; // nothing to go "home" from while already there
 }
 
-function goToConversationView({ push = true } = {}) {
-  renderView("conversation");
-  if (push && location.pathname !== CONVERSATION_PATH) {
-    history.pushState({ view: "conversation" }, "", CONVERSATION_PATH);
+function goToView(view, { push = true } = {}) {
+  renderView(view);
+  const path = VIEW_PATHS[view] ?? HOME_PATH;
+  if (push && location.pathname !== path) {
+    history.pushState({ view }, "", path);
   }
 }
 
-function goToHomeView({ push = true } = {}) {
-  renderView("home");
-  if (push && location.pathname !== HOME_PATH) {
-    history.pushState({ view: "home" }, "", HOME_PATH);
-  }
+function goToConversationView(options) {
+  goToView("conversation", options);
+}
+
+function goToHomeView(options) {
+  goToView("home", options);
+}
+
+function goToTodayView(options) {
+  goToView("today", options);
+}
+
+function goToPlansView(options) {
+  goToView("plans", options);
+}
+
+function goToSubscriptionView(options) {
+  goToView("subscription", options);
 }
 
 window.addEventListener("popstate", (event) => {
-  const view = event.state?.view ?? (location.pathname === CONVERSATION_PATH ? "conversation" : "home");
+  const view = event.state?.view ?? PATH_VIEWS[location.pathname] ?? "home";
   renderView(view);
 });
 
@@ -922,14 +970,25 @@ function loadConversation(conversation) {
   chatInput.focus();
 }
 
-window.adFontesChat = { loadConversation, startNewConversation };
+window.adFontesChat = {
+  loadConversation,
+  startNewConversation,
+  goToToday: () => goToTodayView(),
+  goToPlans: () => goToPlansView(),
+  goToSubscription: () => goToSubscriptionView(),
+};
 
 renderExamples();
 if (restoreChatState()) {
   history.replaceState({ view: "conversation" }, "", CONVERSATION_PATH);
 } else {
-  renderView("home");
-  history.replaceState({ view: "home" }, "", HOME_PATH);
+  // A saved chat log always wins (matching the previous home-vs-chat
+  // behavior), but absent one, honor whatever path was actually loaded --
+  // /today, /plans, and /subscription are real, linkable/refreshable pages
+  // now, not just menu-only states (see server.js's routes for each).
+  const initialView = PATH_VIEWS[location.pathname] ?? "home";
+  renderView(initialView);
+  history.replaceState({ view: initialView }, "", VIEW_PATHS[initialView]);
 }
 loadDailyPassage();
 loadReadingPlans();
