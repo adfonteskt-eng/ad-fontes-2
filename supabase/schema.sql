@@ -253,3 +253,15 @@ drop policy if exists "reading_plan_progress: users can delete their own rows" o
 create policy "reading_plan_progress: users can delete their own rows"
   on public.reading_plan_progress for delete
   using (auth.uid() = user_id);
+
+-- Ensure service_role (used server-side via SUPABASE_SECRET_KEY, meant to
+-- bypass RLS entirely) actually has standing privileges on every table in
+-- the public schema, and will automatically get them on any table created
+-- here in the future too. Safe/idempotent to re-run. This closes off the
+-- class of permission-denied error that surfaced when is_paid/agent_name
+-- were added by hand without a matching grant.
+grant usage on schema public to service_role;
+grant all privileges on all tables in schema public to service_role;
+grant all privileges on all sequences in schema public to service_role;
+alter default privileges in schema public grant all on tables to service_role;
+alter default privileges in schema public grant all on sequences to service_role;
