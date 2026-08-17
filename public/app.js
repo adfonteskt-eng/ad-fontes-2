@@ -992,9 +992,27 @@ window.adFontesChat = {
   goToSubscription: () => goToSubscriptionView(),
 };
 
+// IMPORTANT: this replaceState only ever rewrites the *pathname*, never
+// location.search/location.hash -- a Supabase auth redirect (password
+// reset, or historically a magic link) lands here carrying a session/
+// recovery marker in the query string or hash fragment (e.g.
+// "#access_token=...&type=recovery"), and auth.js's own detection of that
+// (isPasswordRecoveryLink(), and the Supabase client's own built-in
+// session-from-URL parsing inside createClient()) doesn't run until after
+// an `await fetch("/api/config")` inside initAuth() -- a real network round
+// trip. This script, by contrast, runs synchronously the moment it loads,
+// well before that fetch resolves. A version of this that rewrote the
+// whole URL (as an earlier version of this file did) would silently strip
+// the fragment out from under auth.js before it ever got a chance to look
+// at it -- confirmed as the actual cause of a real "reset link lands on an
+// unsigned-in site" bug report. Preserving search+hash here costs nothing
+// (auth.js's own recovery-success handler clears them once it's actually
+// consumed the marker) and closes that race off entirely.
+const CURRENT_SEARCH_AND_HASH = location.search + location.hash;
+
 renderExamples();
 if (restoreChatState()) {
-  history.replaceState({ view: "conversation" }, "", CONVERSATION_PATH);
+  history.replaceState({ view: "conversation" }, "", CONVERSATION_PATH + CURRENT_SEARCH_AND_HASH);
 } else {
   // A saved chat log always wins (matching the previous home-vs-chat
   // behavior), but absent one, honor whatever path was actually loaded --
@@ -1002,7 +1020,7 @@ if (restoreChatState()) {
   // now, not just menu-only states (see server.js's routes for each).
   const initialView = PATH_VIEWS[location.pathname] ?? "home";
   renderView(initialView);
-  history.replaceState({ view: initialView }, "", VIEW_PATHS[initialView]);
+  history.replaceState({ view: initialView }, "", VIEW_PATHS[initialView] + CURRENT_SEARCH_AND_HASH);
 }
 loadDailyPassage();
 loadReadingPlans();
