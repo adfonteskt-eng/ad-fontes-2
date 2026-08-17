@@ -706,13 +706,17 @@ async function loadDailyPassage() {
 }
 
 // --- Reading plans ---------------------------------------------------------
-// Curated multi-day plans (lib/reading-plans.js), shown as part of the home
-// empty state below the daily passage. Content is public -- no sign-in
-// needed to browse a plan or read a day's passage (clicking a day's
-// reference reuses sendChatMessage(), same flow as the daily-passage
-// button above) -- only checking a day off needs somewhere to store
-// progress, so that part alone is gated on being signed in.
+// Curated multi-day plans (lib/reading-plans.js), shown on their own page.
+// A Pro feature (see README -> Subscription / paid tier) -- GET
+// /api/reading-plans returns `locked: true` and no real plan content for
+// anyone who isn't a signed-in, paid account, in which case
+// #reading-plans-locked (an upsell) is shown instead of the plan list --
+// see loadReadingPlans() below. Because only a paid account ever sees real
+// plan content at all, there's no separate "signed in but can't track
+// progress" state to handle here the way there used to be -- every
+// checkbox shown is always trackable.
 
+const readingPlansLockedContainer = document.getElementById("reading-plans-locked");
 const readingPlansContainer = document.getElementById("reading-plans");
 const readingPlansHeading = document.querySelector(".reading-plans-heading");
 const readingPlansList = document.getElementById("reading-plans-list");
@@ -721,7 +725,6 @@ const readingPlanBackButton = document.getElementById("reading-plan-back");
 const readingPlanDetailTitle = document.getElementById("reading-plan-detail-title");
 const readingPlanDetailDescription = document.getElementById("reading-plan-detail-description");
 const readingPlanDaysList = document.getElementById("reading-plan-days");
-const readingPlanSigninHint = document.getElementById("reading-plan-signin-hint");
 
 let readingPlansData = []; // last-loaded { id, title, description, days, completedDays }[]
 let openReadingPlan = null; // the plan object currently shown in the detail panel, or null
@@ -741,13 +744,13 @@ function renderReadingPlansList() {
     .join("");
 }
 
-function renderReadingPlanDays(plan, { canTrack }) {
+function renderReadingPlanDays(plan) {
   const completed = new Set(plan.completedDays);
   readingPlanDaysList.innerHTML = plan.days
     .map((d) => {
       const isDone = completed.has(d.day);
       return `<li class="reading-plan-day" data-day="${d.day}">
-        <input type="checkbox" ${isDone ? "checked" : ""} ${canTrack ? "" : "disabled"} aria-label="Mark day ${d.day} complete" />
+        <input type="checkbox" ${isDone ? "checked" : ""} aria-label="Mark day ${d.day} complete" />
         <div class="reading-plan-day-body">
           <button type="button" class="reading-plan-day-ref">Day ${d.day}: ${escapeHtml(d.label)}</button>
           <p class="reading-plan-day-tag">${escapeHtml(d.tag)}</p>
@@ -763,16 +766,13 @@ function showReadingPlansList() {
   readingPlanDetail.hidden = true;
 }
 
-async function showReadingPlanDetail(plan) {
+function showReadingPlanDetail(plan) {
   readingPlansHeading.hidden = true;
   readingPlansList.hidden = true;
   readingPlanDetail.hidden = false;
   readingPlanDetailTitle.textContent = plan.title;
   readingPlanDetailDescription.textContent = plan.description;
-
-  const accessToken = await window.adFontesAuth.getAccessToken();
-  readingPlanSigninHint.hidden = Boolean(accessToken);
-  renderReadingPlanDays(plan, { canTrack: Boolean(accessToken) });
+  renderReadingPlanDays(plan);
 }
 
 readingPlansList.addEventListener("click", (event) => {
@@ -848,7 +848,21 @@ async function loadReadingPlans() {
     if (accessToken) headers.authorization = `Bearer ${accessToken}`;
     const response = await fetch("/api/reading-plans", { headers });
     if (!response.ok) return;
-    const { plans } = await response.json();
+    const { plans, locked } = await response.json();
+
+    if (locked) {
+      // Signed out, or signed in but free -- show the upsell instead of the
+      // plan list/detail, and drop anything that was previously loaded (a
+      // downgrade mid-session, however unlikely, shouldn't leave stale plan
+      // content showing).
+      readingPlansData = [];
+      openReadingPlan = null;
+      readingPlansContainer.hidden = true;
+      readingPlansLockedContainer.hidden = false;
+      return;
+    }
+
+    readingPlansLockedContainer.hidden = true;
     readingPlansData = plans ?? [];
     if (readingPlansData.length === 0) return;
 

@@ -197,7 +197,7 @@
            Only ever shown if accounts are actually configured (GET
            /api/config) -- see auth.js's maybeShowCallout(). -->
       <div id="site-callout" class="site-callout" hidden>
-        <p>New here? Create a free account to keep a running record of what you study — your agent will remember it in future conversations, and you'll unlock sermon and lesson outlines too.</p>
+        <p>New here? Create a free account to save notes on what you study and get today's passage by email — reading plans, sermon outlines, and more are available with Pro.</p>
         <button type="button" id="site-callout-dismiss" aria-label="Dismiss">&times;</button>
       </div>
     </div>
@@ -232,6 +232,18 @@
          view/URL change, since this is a lightweight drill-down within the
          page, not a separate page of its own. -->
     <div id="page-plans" class="page" hidden>
+      <!-- Reading plans are a Pro feature (see README -> Subscription /
+           paid tier) -- shown instead of the plan list/detail below for
+           anyone who isn't a signed-in, paid account (GET
+           /api/reading-plans's `locked` flag -- see app.js's
+           loadReadingPlans()). Still 200, not a 401/403 page, since this is
+           an upsell, not an error. -->
+      <div id="reading-plans-locked" class="page-locked" hidden>
+        <h2 class="page-heading">Reading plans</h2>
+        <p>Curated, multi-day passage plans with progress tracking you can pick up where you left off — a Pro feature.</p>
+        <a href="/subscription" class="auth-primary-button page-locked-link">See Subscription plans</a>
+      </div>
+
       <div id="reading-plans" class="reading-plans" hidden>
         <h2 class="reading-plans-heading">Reading plans</h2>
         <ul id="reading-plans-list" class="reading-plans-list"></ul>
@@ -241,7 +253,6 @@
           <h3 id="reading-plan-detail-title"></h3>
           <p id="reading-plan-detail-description"></p>
           <ol id="reading-plan-days" class="reading-plan-days"></ol>
-          <p id="reading-plan-signin-hint" class="reading-plan-signin-hint" hidden>Sign in (top-left menu) to track your progress through this plan.</p>
         </div>
       </div>
     </div>
@@ -260,10 +271,8 @@
           <ul>
             <li>Full chat — translations, original-language interlinear, commentary</li>
             <li>Notes on any passage</li>
-            <li>Reading plans with progress tracking</li>
-            <li>Daily passage email</li>
             <li>Full-text Bible search</li>
-            <li>Sermon &amp; lesson outlines</li>
+            <li>Daily passage email</li>
           </ul>
         </div>
         <div class="subscription-plan subscription-plan-paid">
@@ -271,6 +280,9 @@
           <p class="subscription-price">Pricing coming soon</p>
           <ul>
             <li>Everything in Free</li>
+            <li>Reading plans with progress tracking</li>
+            <li>Sermon &amp; lesson outlines</li>
+            <li>Compounding study memory — Claude recalls what you've studied across past conversations</li>
             <li>Name your AI agent for a more personal conversation</li>
           </ul>
           <p class="subscription-note">Not open for signup yet — check back soon.</p>

@@ -22,7 +22,6 @@ import {
   listDigestOptedInUsers,
   getPaidProfile,
   setAgentName,
-  getAgentNameIfPaid,
   getReadingPlanProgress,
   listReadingPlanProgress,
   setReadingPlanDayComplete,
@@ -641,34 +640,6 @@ test("setAgentName stores null for an empty name (clearing it back to the defaul
   await setAgentName("user-1", "");
 
   assert.equal(profiles.get("user-1").agent_name, null);
-});
-
-test("getAgentNameIfPaid returns null for no userId, without calling fetch", async () => {
-  let called = false;
-  globalThis.fetch = async () => {
-    called = true;
-    return { ok: true, status: 200, text: async () => "[]" };
-  };
-  assert.equal(await getAgentNameIfPaid(null), null);
-  assert.equal(called, false);
-});
-
-test("getAgentNameIfPaid returns null for an unpaid account even if agent_name is set", async () => {
-  const { profiles } = stubSupabase();
-  profiles.set("user-1", { id: "user-1", is_paid: false, agent_name: "Leftover Name" });
-  assert.equal(await getAgentNameIfPaid("user-1"), null);
-});
-
-test("getAgentNameIfPaid returns the trimmed name for a paid account", async () => {
-  const { profiles } = stubSupabase();
-  profiles.set("user-1", { id: "user-1", is_paid: true, agent_name: "  Theo  " });
-  assert.equal(await getAgentNameIfPaid("user-1"), "Theo");
-});
-
-test("getAgentNameIfPaid returns null for a paid account with no name set", async () => {
-  const { profiles } = stubSupabase();
-  profiles.set("user-1", { id: "user-1", is_paid: true, agent_name: null });
-  assert.equal(await getAgentNameIfPaid("user-1"), null);
 });
 
 // --- getReadingPlanProgress / listReadingPlanProgress / setReadingPlanDayComplete

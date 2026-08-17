@@ -211,7 +211,7 @@ test("anonymous chat (no userId) never touches Supabase, even if it's configured
   }
 });
 
-test("a signed-in user gets a 5th tool (search_study_history), and calling it hits PostgREST", async () => {
+test("a signed-in, PAID user gets a 5th tool (search_study_history), and calling it hits PostgREST", async () => {
   stubSupabaseEnv();
   try {
     let step = 0;
@@ -221,7 +221,7 @@ test("a signed-in user gets a 5th tool (search_study_history), and calling it hi
       const href = url.toString();
       if (href === "https://api.anthropic.com/v1/messages") {
         const body = JSON.parse(opts.body);
-        assert.equal(body.tools.length, 5, "a signed-in user should see all five tools");
+        assert.equal(body.tools.length, 5, "a signed-in, paid user should see all five tools");
         assert.ok(
           body.tools.some((t) => t.name === "search_study_history"),
           "search_study_history should be in the tools list",
@@ -238,13 +238,12 @@ test("a signed-in user gets a 5th tool (search_study_history), and calling it hi
 
       const parsed = new URL(href);
       // chatTurn checks whether this signed-in user is on the paid tier
-      // (for the "name your agent" feature -- see getAgentNameIfPaid in
-      // lib/supabase.js) before every turn, regardless of what the turn is
-      // actually about -- an empty result here just means "not paid, no
-      // custom name," which is what every test in this file wants unless
-      // it's specifically testing that feature.
+      // (search_study_history/sermon-outline mode/the agent name are all
+      // Pro features -- see getPaidProfile in lib/supabase.js) before every
+      // turn. This test is specifically about the paid-tier behavior, so
+      // the stub reports this user as paid.
       if (parsed.pathname === "/rest/v1/profiles") {
-        return { ok: true, status: 200, text: async () => "[]" };
+        return { ok: true, status: 200, text: async () => JSON.stringify([{ id: "user-42", is_paid: true, agent_name: null }]) };
       }
       if (parsed.pathname === "/rest/v1/study_entries") {
         sawStudyHistoryRequest = true;
@@ -257,6 +256,40 @@ test("a signed-in user gets a 5th tool (search_study_history), and calling it hi
 
     const result = await chatTurn({ message: "What does the Bible say about love?", appKey: "k", apiKey: "fake", userId: "user-42" });
     assert.ok(sawStudyHistoryRequest, "expected search_study_history to actually query PostgREST");
+    assert.ok(result.reply.length > 0);
+  } finally {
+    clearSupabaseEnv();
+  }
+});
+
+test("a signed-in but FREE user does not get search_study_history, and the system prompt upsells it as Pro", async () => {
+  stubSupabaseEnv();
+  try {
+    globalThis.fetch = async (url, opts) => {
+      const href = url.toString();
+      if (href === "https://api.anthropic.com/v1/messages") {
+        const body = JSON.parse(opts.body);
+        assert.equal(body.tools.length, 4, "a free account should see only the four base tools");
+        assert.ok(
+          !body.tools.some((t) => t.name === "search_study_history"),
+          "search_study_history should NOT be offered to a free account",
+        );
+        assert.match(body.system, /Pro feature/, "the system prompt should mention study memory is a Pro feature to a free signed-in user");
+        return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+      }
+      const parsed = new URL(href);
+      // No row at all (same as a brand-new profile) -- reads as not paid,
+      // same as an explicit is_paid: false row.
+      if (parsed.pathname === "/rest/v1/profiles") {
+        return { ok: true, status: 200, text: async () => "[]" };
+      }
+      if (parsed.pathname === "/rest/v1/conversations") {
+        return { ok: true, status: opts.method === "GET" ? 200 : 201, text: async () => "[]" };
+      }
+      throw new Error(`unexpected fetch to ${href}`);
+    };
+
+    const result = await chatTurn({ message: "What does John 3:16 mean?", appKey: "k", apiKey: "fake", userId: "user-99" });
     assert.ok(result.reply.length > 0);
   } finally {
     clearSupabaseEnv();

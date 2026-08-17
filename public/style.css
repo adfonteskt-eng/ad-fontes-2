@@ -905,17 +905,6 @@ table.interlinear th {
   color: var(--ink-soft);
 }
 
-.reading-plan-signin-hint {
-  margin-top: 0.6rem;
-  font-size: 0.8rem;
-  font-style: italic;
-  color: var(--ink-soft);
-}
-
-.reading-plan-signin-hint[hidden] {
-  display: none;
-}
-
 #chat-log {
   display: flex;
   flex-direction: column;
@@ -1248,6 +1237,33 @@ table.interlinear th {
   color: var(--ink-soft);
   font-size: 0.88rem;
   text-align: center;
+}
+
+/* Shared upsell shown in place of locked, Pro-only page content -- see
+   #reading-plans-locked. */
+.page-locked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: 26rem;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.page-locked[hidden] {
+  display: none;
+}
+
+.page-locked p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+}
+
+.page-locked-link {
+  display: inline-block;
+  text-decoration: none;
 }
 
 /* #page-today centers its content the same way the old home empty-state

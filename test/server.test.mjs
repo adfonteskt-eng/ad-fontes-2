@@ -219,17 +219,15 @@ test("DELETE /api/notes/not-a-number doesn't match the notes route (falls throug
   assert.equal(response.status, 405);
 });
 
-test("GET /api/reading-plans returns the curated plan list, no auth required", async () => {
+test("GET /api/reading-plans with no Authorization header returns locked:true and no plan content (Pro feature)", async () => {
+  // Reading plans are a Pro feature (see README -> Subscription / paid
+  // tier) -- still a 200, not a 401, since a signed-out visitor gets a real
+  // "here's what you're missing" response (locked: true), not an error.
   const response = await fetch(BASE_URL + "/api/reading-plans");
   assert.equal(response.status, 200);
-  const { plans } = await response.json();
-  assert.ok(Array.isArray(plans) && plans.length > 0);
-  for (const plan of plans) {
-    assert.equal(typeof plan.id, "string");
-    assert.equal(typeof plan.title, "string");
-    assert.ok(Array.isArray(plan.days) && plan.days.length > 0);
-    assert.deepEqual(plan.completedDays, [], "no Authorization header -- nothing to attach progress to");
-  }
+  const data = await response.json();
+  assert.equal(data.locked, true);
+  assert.deepEqual(data.plans, []);
 });
 
 test("PUT /api/reading-plans/:id/days/:day with no Authorization header returns 401", async () => {

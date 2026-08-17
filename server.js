@@ -61,20 +61,19 @@
 //   400 if neither is present). Setting agentName on a non-paid account
 //   returns 403. Requires a valid Authorization header — 401 without one.
 //
-// GET /api/reading-plans -> { plans: [{ id, title, description, days: [{
-//   day, usfm, label, tag }], completedDays: [] }] } -- the full curated
-//   list (lib/reading-plans.js), always 200 whether or not the caller is
-//   signed in. No Authorization header: completedDays is [] for every plan
-//   (nothing to attach progress to). With one: each plan's completedDays
-//   reflects that signed-in user's own progress. Never 401 -- unlike
-//   /api/notes and /api/conversations, there's a meaningful anonymous
-//   response here (the plan content itself), same reasoning as /api/chat.
+// Reading plans are a Pro feature (see README -> Subscription / paid tier).
 //
-// PUT /api/reading-plans/:id/days/:day { completed: boolean } -> { completedDays:
-//   [...] }, the plan's updated completed-day list for the signed-in user.
-//   404 if :id isn't a real plan or :day isn't one of its real day numbers.
-//   Requires a valid Authorization header — 401 without one (unlike GET
-//   above, there's no meaningful anonymous version of "mark this done").
+// GET /api/reading-plans -> for a signed-in, paid account: { plans: [{ id,
+//   title, description, days: [{ day, usfm, label, tag }], completedDays:
+//   [] }], locked: false }, each plan's completedDays reflecting that
+//   user's own progress. For anyone else (signed out, or signed in but
+//   free): { plans: [], locked: true } — still 200, not 401/403, since
+//   there's nothing to error about, just an upsell to show instead.
+//
+// PUT /api/reading-plans/:id/days/:day { completed: boolean } -> {
+//   completedDays: [...] }, the plan's updated completed-day list. 401 with
+//   no Authorization header; 403 if signed in but not paid; 404 if :id
+//   isn't a real plan or :day isn't one of its real day numbers.
 //
 // GET /chat, /today, /plans, /subscription -> all serve the same index.html
 //   as GET / -- the frontend is a single-page app with five client-side
@@ -378,12 +377,16 @@ async function handleDeleteNote(req, res, noteId) {
   res.end();
 }
 
-// No requireUser() here -- unlike /api/notes and /api/conversations, a
-// signed-out request gets a real, useful 200 (the plan content itself,
-// just with every completedDays empty), same "accounts are additive, never
-// required" reasoning as /api/chat. authenticateRequest() already returns
-// null gracefully for no/invalid token, so this only needs to branch on
-// whether a genuine user came back.
+// Reading plans are a Pro feature (see README -> Subscription / paid tier)
+// — unlike notes/conversations (401 with no auth) or the old public-content
+// version of this endpoint, a signed-out or free-tier request still gets a
+// 200 (there's nothing to error about — they just haven't unlocked the
+// content), but with `locked: true` and an empty plans array rather than
+// the real plan content, so the frontend can render an upsell instead of a
+// 401/403 page. Only a signed-in, paid account gets the real list.
+// authenticateRequest() already returns null gracefully for no/invalid
+// token, so this only needs to branch on whether a genuine, paid user came
+// back.
 async function handleListReadingPlans(req, res) {
   let user = null;
   try {
@@ -392,7 +395,13 @@ async function handleListReadingPlans(req, res) {
     console.error("Supabase auth check failed, listing reading plans without progress:", error.message);
   }
 
-  const progressByPlan = user ? await listReadingPlanProgress(user.id) : {};
+  const isPaid = user ? (await getPaidProfile(user.id)).isPaid : false;
+  if (!isPaid) {
+    sendJson(res, 200, { plans: [], locked: true });
+    return;
+  }
+
+  const progressByPlan = await listReadingPlanProgress(user.id);
 
   const plans = READING_PLANS.map((plan) => ({
     id: plan.id,
@@ -402,12 +411,18 @@ async function handleListReadingPlans(req, res) {
     completedDays: progressByPlan[plan.id]?.completedDays ?? [],
   }));
 
-  sendJson(res, 200, { plans });
+  sendJson(res, 200, { plans, locked: false });
 }
 
 async function handleSetReadingPlanDay(req, res, planId, dayParam) {
   const user = await requireUser(req, res);
   if (!user) return;
+
+  const { isPaid } = await getPaidProfile(user.id);
+  if (!isPaid) {
+    sendJson(res, 403, { error: "Reading plans are a Pro feature. See the Subscription page." });
+    return;
+  }
 
   const plan = getReadingPlan(planId);
   const day = Number(dayParam);

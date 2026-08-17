@@ -23,14 +23,16 @@ No npm dependencies — `package.json` has none, and every server-side integrati
   chat interface (`lib/chat.js`): one box, ask about any passage, Claude
   gathers translations/original-language/commentary via tool use as needed
   and shows them alongside a conversational reply. Deployable to Render via
-  `render.yaml` — see Deployment below. Optional accounts (Supabase magic
-  link, from a top-left menu) unlock a compounding study memory, a
-  sermon/lesson outline mode, a durable "previous conversations" list
-  (filterable by most-recent or by canonical book order), and a rotating
-  daily passage — with a one-line teaser — on the homepage. See Accounts &
-  study memory. Not yet done: billing (the free beta has per-IP usage caps
-  instead, see Configuration) and an app or browser extension if still
-  wanted later.
+  `render.yaml` — see Deployment below. Optional accounts (email + password,
+  from a top-left menu) unlock notes on any passage, a daily digest email,
+  and a durable "previous conversations" list (filterable by most-recent or
+  by canonical book order) — all free. A paid tier (see Subscription / paid
+  tier — no real checkout wired up yet, `is_paid` is set by hand for now)
+  adds reading plans with progress tracking, a sermon/lesson outline mode, a
+  compounding study memory across past conversations, and naming your AI
+  agent. See Accounts & study memory. Not yet done: real billing (the free
+  beta has per-IP usage caps instead, see Configuration) and an app or
+  browser extension if still wanted later.
 
 ## Setup
 
@@ -280,15 +282,21 @@ being signed in. Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and
 `SUPABASE_SECRET_KEY` (see `.env.example`) to enable it — without them, the
 top-left menu button never appears and nothing about the app changes.
 
-What signing in actually unlocks is a compounding study memory: every
-passage Claude gathers during a signed-in conversation gets logged (in the
-background — see below) as a `study_entries` row, and a signed-in user gets
-a fourth tool, `search_study_history`, that lets Claude search *that specific
-user's* past study — not just the current conversation's own history — for
-genuine callbacks ("you looked at this same passage back in your Ephesians
-study"). This is the actual product bet behind accounts: a tool that gets
-more valuable to a specific person the longer they use it, rather than one
-that resets to zero context every conversation.
+Signing in (free) unlocks notes on any passage, the daily digest email, and
+a durable "previous conversations" list. The compounding study memory —
+every passage Claude gathers during a signed-in conversation gets logged (in
+the background — see below) as a `study_entries` row, and a fifth tool,
+`search_study_history`, lets Claude search *that specific user's* past
+study — not just the current conversation's own history — for genuine
+callbacks ("you looked at this same passage back in your Ephesians study")
+— is a Pro feature (see Subscription / paid tier below): logging happens
+for every signed-in user regardless of tier (so the history is already
+there the moment someone upgrades), but only a paid account's turns get the
+tool itself, gated in `lib/chat.js`'s `buildTools()`/`buildSystemPrompt()`
+via a fresh `getPaidProfile()` check on every turn. This is the actual
+product bet behind the paid tier: a tool that gets more valuable to a
+specific person the longer they use it, rather than one that resets to zero
+context every conversation.
 
 **Sign-in flow.** Email + password, not a magic link — `public/auth.js` loads
 the official `@supabase/supabase-js` client from a CDN (the one place in
@@ -435,51 +443,55 @@ already configured inside Supabase's Custom SMTP settings for magic-link
 emails, since Supabase never hands that key back out to this app's own
 code.
 
-**Reading plans.** A handful of curated, named, multi-day passage sequences
-(`lib/reading-plans.js`, e.g. "The Gospel in Six Verses") shown on their own
-page (**Reading Plans**, in the top-left menu) — distinct from the daily
-passage in what they optimize for: daily-passage (its own page too — see
-**Today's Passage** in the menu) is the same single reference for every
-visitor on a given day (a low-commitment nudge); a plan is something a
-specific user picks and returns to, with real per-user progress behind it.
+**Reading plans (Pro).** A handful of curated, named, multi-day passage
+sequences (`lib/reading-plans.js`, e.g. "The Gospel in Six Verses") shown on
+their own page (**Reading Plans**, in the top-left menu) — distinct from the
+daily passage in what they optimize for: daily-passage (its own page too —
+see **Today's Passage** in the menu, free for everyone) is the same single
+reference for every visitor on a given day (a low-commitment nudge); a plan
+is something a specific user picks and returns to, with real per-user
+progress behind it — a Pro feature (see Subscription / paid tier below).
 Plan content itself is static (committed to the repo, no admin UI, same
 reasoning as `DAILY_PASSAGES`), and every day is deliberately a *single*
 verse, not a range — `gatherPassage()`'s original-language lookup is built
 and tested against exact single-verse references (see `lib/interlinear.js`'s
 `parseReference()`), so a plan reusing the daily passage's exact "click a
-reference → gather + chat" flow is only safe to do this way. Browsing a
-plan and reading a day's passage needs no sign-in at all (`GET
-/api/reading-plans`, always 200); only checking a day off does, since that
-needs somewhere to store progress — signed-out, the checkboxes are disabled
-with a "sign in to track your progress" note instead of hidden entirely, so
-the content stays visible either way. `PUT /api/reading-plans/:id/days/:day
-{ completed }` marks one day done or undone for the signed-in user and
-returns their updated day list; like notes and the digest preference, this
-is not fire-and-forget — an explicit action (checking a box) should surface
-a real error if the write fails.
+reference → gather + chat" flow is only safe to do this way. `GET
+/api/reading-plans` is still always 200 (never 401/403): for a signed-in,
+paid account it returns the real plan list with that user's own progress;
+for anyone else (signed out, or signed in but free) it returns `{ plans: [],
+locked: true }`, which the frontend renders as an upsell pointing at the
+Subscription page rather than an error. `PUT
+/api/reading-plans/:id/days/:day { completed }` marks one day done or undone
+— 401 with no `Authorization` header, 403 if signed in but not paid; like
+notes and the digest preference, this is not fire-and-forget — an explicit
+action (checking a box) should surface a real error if the write fails.
 
 **Subscription / paid tier.** A free/paid split with no real checkout wired
 up yet — `profiles.is_paid` is a plain boolean, flipped by hand in the
 Supabase dashboard's Table Editor, not by any code path in this app. The
 **Subscription** page (top-left menu) lists what's in the Free and Pro
 tiers, with a "pricing coming soon" placeholder and no working "upgrade"
-button — it's a reference page today, not a billing flow. Deliberately
-minimal scope: everything already in this app (notes, reading plans, the
-digest, full-text search, sermon/lesson outlines) stays free; the *only*
-thing `is_paid` currently gates is naming your AI agent (see below). `GET
+button — it's a reference page today, not a billing flow. The free tier is
+deliberately narrow: full chat (translations, original-language interlinear,
+commentary), notes on any passage, full-text Bible search, and the daily
+digest email. Everything else is Pro: reading plans, sermon/lesson outline
+mode, the compounding study memory (`search_study_history`), and naming
+your AI agent. Future features get sorted into one tier or the other as
+they're built, not added to this list by default. `GET
 /api/preferences`'s `isPaid` field is what the frontend uses to decide
-whether to show the name-your-agent field or its upsell — this flag is
-never settable through the API itself, only read.
+whether to show Pro UI (the name-your-agent field, the unlocked Reading
+Plans page) or its upsell — this flag is never settable through the API
+itself, only read. `lib/chat.js` re-checks it fresh on every chat turn via
+`getPaidProfile()` (not cached), so a just-flipped `is_paid` takes effect on
+that account's very next message.
 
-**Name your agent.** A paid-only cosmetic feature: a signed-in, paid account
-can give the AI a display name (`profiles.agent_name`, up to 40 characters)
-via a field in the account menu, right below the digest toggle. `lib/chat.js`
-looks it up fresh on every turn (`getAgentNameIfPaid()` in
-`lib/supabase.js` — re-checks `is_paid` each time rather than trusting a
-stale value, so a downgraded account stops seeing the name used
-immediately even though the column itself is untouched) and, when set,
-prepends a short line to the system prompt so Claude answers to it
-naturally. `PUT /api/preferences { agentName }` on a non-paid account
+**Name your agent (Pro).** A cosmetic feature: a signed-in, paid account can
+give the AI a display name (`profiles.agent_name`, up to 40 characters) via
+a field in the account menu, right below the digest toggle. `lib/chat.js`'s
+same per-turn `getPaidProfile()` check (see above) supplies the name, and
+when set, a short line is prepended to the system prompt so Claude answers
+to it naturally. `PUT /api/preferences { agentName }` on a non-paid account
 returns 403 — enforced server-side in `server.js`, not just hidden in the
 UI, so it can't be set by a direct API request either. An empty string
 clears it back to the default persona.
@@ -707,7 +719,7 @@ display elsewhere in the app.
 | ---- | ---- |
 | `lib/gather.js` | Phase 1. `gatherPassage(usfm, opts)` → structured object, no printing. Results cached in-memory for 15 min (`clearGatherCache()` to force-clear). |
 | `lib/summarize.js` | Phase 2. `summarizePassage(gathered, opts)` → `{ shortSummary, studyNotes }`. Also exports `formatGatheredPassage()`, the plain-text formatter shared with `lib/chat.js`. |
-| `lib/chat.js` | Phase 3 chat. `chatTurn(opts)` → `{ sessionId, conversationId, reply, gathered }`, looping Claude tool calls (`gather_passage`, `search_lexicon`, `find_occurrences`, `search_bible_text`, and for a signed-in user `search_study_history`) as needed. Live session storage delegated to `lib/session-store.js`; durable per-conversation persistence (signed-in only) delegated to `lib/supabase.js`. |
+| `lib/chat.js` | Phase 3 chat. `chatTurn(opts)` → `{ sessionId, conversationId, reply, gathered }`, looping Claude tool calls (`gather_passage`, `search_lexicon`, `find_occurrences`, `search_bible_text`, and for a signed-in, paid user `search_study_history`) as needed. Live session storage delegated to `lib/session-store.js`; durable per-conversation persistence (signed-in only) delegated to `lib/supabase.js`. |
 | `lib/session-store.js` | Pluggable session storage: Upstash Redis when configured, in-memory Map fallback otherwise. |
 | `lib/rate-limit.js` | Per-IP daily usage caps (`checkAndIncrement()`) protecting the Anthropic bill during the free beta. Same Redis/in-memory split as session storage. |
 | `lib/upstash.js` | Shared Upstash Redis REST client (`redisCommand()`, `isRedisConfigured()`) used by both `lib/session-store.js` and `lib/rate-limit.js`. |
