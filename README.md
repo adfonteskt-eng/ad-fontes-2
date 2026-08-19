@@ -298,6 +298,15 @@ product bet behind the paid tier: a tool that gets more valuable to a
 specific person the longer they use it, rather than one that resets to zero
 context every conversation.
 
+A sixth tool, `search_my_notes` (same paid-only gating, same
+keyword/reference `ilike` match — see `lib/supabase.js`'s `searchMyNotes()`),
+extends that same bet to a second, arguably stronger signal: not what
+Claude happened to look up on a user's behalf, but what the user personally
+sat down and wrote in a note. Notes themselves stay free to create, read,
+and delete from the Notes UI on any passage — this is specifically about
+Claude being able to recall them unprompted in conversation, same as
+`search_study_history`.
+
 **Sign-in flow.** Email + password, not a magic link — `public/auth.js` loads
 the official `@supabase/supabase-js` client from a CDN (the one place in
 this project's frontend that isn't hand-rolled fetch: token handling is
@@ -476,8 +485,9 @@ button — it's a reference page today, not a billing flow. The free tier is
 deliberately narrow: full chat (translations, original-language interlinear,
 commentary), notes on any passage, full-text Bible search, and the daily
 digest email. Everything else is Pro: reading plans, sermon/lesson outline
-mode, the compounding study memory (`search_study_history`), and naming
-your AI agent. Future features get sorted into one tier or the other as
+mode, the compounding study memory (`search_study_history` and
+`search_my_notes`), and naming your AI agent. Future features get sorted
+into one tier or the other as
 they're built, not added to this list by default. `GET
 /api/preferences`'s `isPaid` field is what the frontend uses to decide
 whether to show Pro UI (the name-your-agent field, the unlocked Reading
@@ -719,7 +729,7 @@ display elsewhere in the app.
 | ---- | ---- |
 | `lib/gather.js` | Phase 1. `gatherPassage(usfm, opts)` → structured object, no printing. Results cached in-memory for 15 min (`clearGatherCache()` to force-clear). |
 | `lib/summarize.js` | Phase 2. `summarizePassage(gathered, opts)` → `{ shortSummary, studyNotes }`. Also exports `formatGatheredPassage()`, the plain-text formatter shared with `lib/chat.js`. |
-| `lib/chat.js` | Phase 3 chat. `chatTurn(opts)` → `{ sessionId, conversationId, reply, gathered }`, looping Claude tool calls (`gather_passage`, `search_lexicon`, `find_occurrences`, `search_bible_text`, and for a signed-in, paid user `search_study_history`) as needed. Live session storage delegated to `lib/session-store.js`; durable per-conversation persistence (signed-in only) delegated to `lib/supabase.js`. |
+| `lib/chat.js` | Phase 3 chat. `chatTurn(opts)` → `{ sessionId, conversationId, reply, gathered }`, looping Claude tool calls (`gather_passage`, `search_lexicon`, `find_occurrences`, `search_bible_text`, and for a signed-in, paid user `search_study_history` + `search_my_notes`) as needed. Live session storage delegated to `lib/session-store.js`; durable per-conversation persistence (signed-in only) delegated to `lib/supabase.js`. |
 | `lib/session-store.js` | Pluggable session storage: Upstash Redis when configured, in-memory Map fallback otherwise. |
 | `lib/rate-limit.js` | Per-IP daily usage caps (`checkAndIncrement()`) protecting the Anthropic bill during the free beta. Same Redis/in-memory split as session storage. |
 | `lib/upstash.js` | Shared Upstash Redis REST client (`redisCommand()`, `isRedisConfigured()`) used by both `lib/session-store.js` and `lib/rate-limit.js`. |

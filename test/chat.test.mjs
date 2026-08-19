@@ -211,7 +211,7 @@ test("anonymous chat (no userId) never touches Supabase, even if it's configured
   }
 });
 
-test("a signed-in, PAID user gets a 5th tool (search_study_history), and calling it hits PostgREST", async () => {
+test("a signed-in, PAID user gets a 5th and 6th tool (search_study_history, search_my_notes), and calling search_study_history hits PostgREST", async () => {
   stubSupabaseEnv();
   try {
     let step = 0;
@@ -221,10 +221,14 @@ test("a signed-in, PAID user gets a 5th tool (search_study_history), and calling
       const href = url.toString();
       if (href === "https://api.anthropic.com/v1/messages") {
         const body = JSON.parse(opts.body);
-        assert.equal(body.tools.length, 5, "a signed-in, paid user should see all five tools");
+        assert.equal(body.tools.length, 6, "a signed-in, paid user should see all six tools");
         assert.ok(
           body.tools.some((t) => t.name === "search_study_history"),
           "search_study_history should be in the tools list",
+        );
+        assert.ok(
+          body.tools.some((t) => t.name === "search_my_notes"),
+          "search_my_notes should be in the tools list",
         );
         step++;
         if (step === 1) {
@@ -262,7 +266,7 @@ test("a signed-in, PAID user gets a 5th tool (search_study_history), and calling
   }
 });
 
-test("a signed-in but FREE user does not get search_study_history, and the system prompt upsells it as Pro", async () => {
+test("a signed-in but FREE user does not get search_study_history or search_my_notes, and the system prompt upsells them as Pro", async () => {
   stubSupabaseEnv();
   try {
     globalThis.fetch = async (url, opts) => {
@@ -273,6 +277,10 @@ test("a signed-in but FREE user does not get search_study_history, and the syste
         assert.ok(
           !body.tools.some((t) => t.name === "search_study_history"),
           "search_study_history should NOT be offered to a free account",
+        );
+        assert.ok(
+          !body.tools.some((t) => t.name === "search_my_notes"),
+          "search_my_notes should NOT be offered to a free account",
         );
         assert.match(body.system, /Pro feature/, "the system prompt should mention study memory is a Pro feature to a free signed-in user");
         return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
@@ -290,6 +298,53 @@ test("a signed-in but FREE user does not get search_study_history, and the syste
     };
 
     const result = await chatTurn({ message: "What does John 3:16 mean?", appKey: "k", apiKey: "fake", userId: "user-99" });
+    assert.ok(result.reply.length > 0);
+  } finally {
+    clearSupabaseEnv();
+  }
+});
+
+test("a signed-in, PAID user calling search_my_notes hits PostgREST's notes table, scoped to their own user_id", async () => {
+  stubSupabaseEnv();
+  try {
+    let step = 0;
+    let sawNotesRequest = false;
+
+    globalThis.fetch = async (url, opts) => {
+      const href = url.toString();
+      if (href === "https://api.anthropic.com/v1/messages") {
+        step++;
+        if (step === 1) {
+          return jsonResponse({
+            stop_reason: "tool_use",
+            content: [{ type: "tool_use", id: "t1", name: "search_my_notes", input: { keyword: "grace" } }],
+          });
+        }
+        return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "Based on a note you wrote..." }] });
+      }
+
+      const parsed = new URL(href);
+      if (parsed.pathname === "/rest/v1/profiles") {
+        return { ok: true, status: 200, text: async () => JSON.stringify([{ id: "user-42", is_paid: true, agent_name: null }]) };
+      }
+      if (parsed.pathname === "/rest/v1/notes") {
+        sawNotesRequest = true;
+        assert.equal(parsed.searchParams.get("user_id"), "eq.user-42", "should scope the search to this user's own notes");
+        assert.match(parsed.searchParams.get("or") ?? "", /grace/);
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify([
+              { reference: "EPH.2.8", body: "Grace is a gift, not earned.", created_at: "2026-01-01T00:00:00Z" },
+            ]),
+        };
+      }
+      throw new Error(`unexpected fetch to ${href}`);
+    };
+
+    const result = await chatTurn({ message: "What did I write about grace?", appKey: "k", apiKey: "fake", userId: "user-42" });
+    assert.ok(sawNotesRequest, "expected search_my_notes to actually query PostgREST's notes table");
     assert.ok(result.reply.length > 0);
   } finally {
     clearSupabaseEnv();

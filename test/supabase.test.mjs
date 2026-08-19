@@ -17,6 +17,7 @@ import {
   createNote,
   listNotes,
   deleteNote,
+  searchMyNotes,
   getDigestOptIn,
   setDigestOptIn,
   listDigestOptedInUsers,
@@ -165,6 +166,16 @@ function stubSupabase({ validToken = "valid-token", user = { id: "user-1", email
       let results = notes.filter((n) => `eq.${n.user_id}` === params.get("user_id"));
       const refFilter = params.get("reference");
       if (refFilter) results = results.filter((n) => `eq.${n.reference}` === refFilter);
+      // Same "or" filter shape as study_entries above -- used by
+      // searchMyNotes (lib/chat.js's search_my_notes tool), which doesn't
+      // pin to one reference the way listNotes does.
+      const orFilter = params.get("or");
+      if (orFilter) {
+        const keyword = orFilter.match(/ilike\.\*(.*?)\*/)[1].toLowerCase();
+        results = results.filter(
+          (n) => (n.body ?? "").toLowerCase().includes(keyword) || (n.reference ?? "").toLowerCase().includes(keyword),
+        );
+      }
       results = [...results].sort((a, b) => b.created_at.localeCompare(a.created_at));
       return { ok: true, status: 200, text: async () => JSON.stringify(results) };
     }
@@ -537,6 +548,46 @@ test("deleteNote returns false and deletes nothing for another user's note (owne
 test("deleteNote returns false for a nonexistent id", async () => {
   stubSupabase();
   assert.equal(await deleteNote("user-1", 999), false);
+});
+
+// --- searchMyNotes (unlike listNotes, searches across ALL of a user's
+// notes, not scoped to one reference -- this is lib/chat.js's
+// search_my_notes tool's data source) --------------------------------------
+
+test("searchMyNotes returns [] when Supabase isn't configured, without calling fetch", async () => {
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    return { ok: true, status: 200, text: async () => "[]" };
+  };
+  assert.deepEqual(await searchMyNotes("user-1"), []);
+  assert.equal(called, false);
+});
+
+test("searchMyNotes with no keyword returns the user's most recent notes across every reference", async () => {
+  const { notes } = stubSupabase();
+  notes.push(
+    { id: 1, user_id: "user-1", reference: "JHN.3.16", body: "older", created_at: "2026-01-01T00:00:00Z" },
+    { id: 2, user_id: "user-1", reference: "ROM.8.28", body: "newer", created_at: "2026-02-01T00:00:00Z" },
+    { id: 3, user_id: "user-2", reference: "GEN.1.1", body: "someone else's", created_at: "2026-03-01T00:00:00Z" },
+  );
+
+  const results = await searchMyNotes("user-1");
+  assert.equal(results.length, 2);
+  assert.equal(results[0].reference, "ROM.8.28", "should be newest-first");
+  assert.ok(results.every((n) => n.body !== "someone else's"), "should never return another user's notes");
+});
+
+test("searchMyNotes with a keyword filters by reference or note body", async () => {
+  const { notes } = stubSupabase();
+  notes.push(
+    { id: 1, user_id: "user-1", reference: "EPH.2.8", body: "Grace is a gift, not earned.", created_at: "2026-01-01T00:00:00Z" },
+    { id: 2, user_id: "user-1", reference: "GEN.1.1", body: "Creation account.", created_at: "2026-01-02T00:00:00Z" },
+  );
+
+  const results = await searchMyNotes("user-1", { keyword: "grace" });
+  assert.equal(results.length, 1);
+  assert.equal(results[0].reference, "EPH.2.8");
 });
 
 // --- getDigestOptIn / setDigestOptIn / listDigestOptedInUsers --------------
