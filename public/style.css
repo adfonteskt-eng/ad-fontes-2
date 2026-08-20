@@ -905,6 +905,189 @@ table.interlinear th {
   color: var(--ink-soft);
 }
 
+/* --- My Outlines ---------------------------------------------------------
+   Same list-of-cards shape as reading plans, but each entry expands in
+   place (a native <details>) rather than drilling into a separate detail
+   panel -- an outline is a single saved block of text, not a multi-day
+   structure worth its own drill-down view. */
+
+.outlines {
+  width: 100%;
+  max-width: 34rem;
+  margin: 0 auto;
+  text-align: left;
+}
+
+.outlines[hidden] {
+  display: none;
+}
+
+.outlines-heading {
+  margin: 0 0 0.35rem;
+  font-family: var(--serif);
+  font-size: 1.35rem;
+  text-align: center;
+}
+
+.outlines-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+}
+
+.outline-item {
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--panel);
+}
+
+.outline-item summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.6rem 0.8rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.outline-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.outline-item-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
+.outline-item-meta {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.outline-item-body {
+  margin: 0;
+  padding: 0 0.8rem 0.7rem;
+  font-size: 0.88rem;
+  white-space: pre-wrap;
+  color: var(--ink);
+}
+
+.outline-item .outline-delete-button {
+  display: block;
+  margin: 0 0.8rem 0.7rem auto;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.outline-item .outline-delete-button:hover {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.outline-item .outline-delete-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* --- "Save as outline" (under each assistant chat message) -------------- */
+
+.message-actions {
+  margin-top: 0.5rem;
+}
+
+.outline-save-button {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.78rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-family: var(--sans);
+}
+
+.outline-save-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.outline-save-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.outline-title-input {
+  flex: 1 1 12rem;
+  min-width: 8rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  font-family: var(--sans);
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.outline-title-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.outline-form-cancel,
+.outline-form-save {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  font-family: var(--sans);
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+
+.outline-form-cancel {
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--ink-soft);
+}
+
+.outline-form-cancel:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.outline-form-save {
+  border: none;
+  background: var(--accent);
+  color: white;
+}
+
+.outline-form-save:hover {
+  opacity: 0.9;
+}
+
+.outline-form-save:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.outline-saved-hint {
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
 #chat-log {
   display: flex;
   flex-direction: column;
@@ -1209,13 +1392,14 @@ table.interlinear th {
   cursor: default;
 }
 
-/* --- Standalone pages: Today's Passage, Reading Plans, Subscription ----- */
+/* --- Standalone pages: Today's Passage, Reading Plans, My Outlines,
+   Subscription ------------------------------------------------------------ */
 /* Reached from the top-left menu (see app.js's view system) rather than
-   shown as part of the home empty state -- #daily-passage and
-   #reading-plans keep their own existing styles above (they're the same
-   elements, just relocated into #page-today/#page-plans), so this section
-   only needs the page-level wrapper/heading rules and Subscription's own
-   content, which has nowhere else to live. */
+   shown as part of the home empty state -- #daily-passage, #reading-plans,
+   and #outlines keep their own existing styles above (they're the same
+   elements, just relocated into #page-today/#page-plans/#page-outlines), so
+   this section only needs the page-level wrapper/heading rules and
+   Subscription's own content, which has nowhere else to live. */
 
 .page {
   padding: 1.5rem 0 1rem;

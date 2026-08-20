@@ -72,6 +72,7 @@ const agentNameUpsell = document.getElementById("agent-name-upsell");
 const menuHomeButton = document.getElementById("menu-home-button");
 const menuTodayButton = document.getElementById("menu-today-button");
 const menuPlansButton = document.getElementById("menu-plans-button");
+const menuOutlinesButton = document.getElementById("menu-outlines-button");
 const menuSubscriptionButton = document.getElementById("menu-subscription-button");
 const menuNewChatButton = document.getElementById("menu-new-chat-button");
 const menuConversationsHeader = document.getElementById("menu-conversations-header");
@@ -137,6 +138,11 @@ menuTodayButton.addEventListener("click", () => {
 
 menuPlansButton.addEventListener("click", () => {
   window.adFontesChat?.goToPlans();
+  closeMenu();
+});
+
+menuOutlinesButton.addEventListener("click", () => {
+  window.adFontesChat?.goToOutlines();
   closeMenu();
 });
 
@@ -505,6 +511,7 @@ async function initAuth() {
       showSignedOut();
     }
     window.adFontesReadingPlans?.refresh();
+    window.adFontesOutlines?.refresh();
   });
 
   const {
@@ -519,13 +526,14 @@ async function initAuth() {
       showSignedOut();
     }
   }
-  // Reading plans' progress depends on who's signed in (or isn't), unlike
-  // conversations/preferences which have nothing to show at all when
-  // signed out -- so this refreshes regardless of the branch above.
-  // window.adFontesReadingPlans is defined unconditionally by app.js (even
-  // before this file's async setup finishes), same "always safe to call"
-  // contract as window.adFontesAuth.
+  // Reading plans' progress and the outlines library both depend on who's
+  // signed in (or isn't), unlike conversations/preferences which have
+  // nothing to show at all when signed out -- so both refresh regardless of
+  // the branch above. window.adFontesReadingPlans/adFontesOutlines are both
+  // defined unconditionally by app.js (even before this file's async setup
+  // finishes), same "always safe to call" contract as window.adFontesAuth.
   window.adFontesReadingPlans?.refresh();
+  window.adFontesOutlines?.refresh();
   menuButton.hidden = false;
 
   signupForm.addEventListener("submit", async (event) => {
@@ -649,6 +657,7 @@ async function initAuth() {
         loadConversations();
         loadPreferences();
         window.adFontesReadingPlans?.refresh();
+        window.adFontesOutlines?.refresh();
       } else {
         showSignedOut();
       }

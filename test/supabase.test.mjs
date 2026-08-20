@@ -18,6 +18,9 @@ import {
   listNotes,
   deleteNote,
   searchMyNotes,
+  createOutline,
+  listOutlines,
+  deleteOutline,
   getDigestOptIn,
   setDigestOptIn,
   listDigestOptedInUsers,
@@ -64,6 +67,8 @@ function stubSupabase({ validToken = "valid-token", user = { id: "user-1", email
   const conversations = new Map(); // id -> row, mirrors an upsert-by-id table
   const notes = [];
   let nextNoteId = 1;
+  const outlines = [];
+  let nextOutlineId = 1;
   const profiles = new Map(); // id -> row, same "mirrors a real table" spirit as conversations
   const readingPlanProgress = new Map(); // `${user_id}:${plan_id}` -> row
 
@@ -180,6 +185,37 @@ function stubSupabase({ validToken = "valid-token", user = { id: "user-1", email
       return { ok: true, status: 200, text: async () => JSON.stringify(results) };
     }
 
+    if (url.pathname === "/rest/v1/outlines") {
+      assert.equal(headers.apikey, SECRET_KEY, "outlines access should use the secret key");
+      assert.equal(headers.Authorization, undefined, "should not send an Authorization header for secret-key requests");
+
+      if (opts.method === "POST") {
+        const rows = JSON.parse(opts.body);
+        const now = new Date().toISOString();
+        const created = rows.map((row) => {
+          const full = { id: nextOutlineId++, ...row, created_at: now };
+          outlines.push(full);
+          return full;
+        });
+        return { ok: true, status: 201, text: async () => JSON.stringify(created) };
+      }
+
+      const params = url.searchParams;
+
+      if (opts.method === "DELETE") {
+        const idFilter = params.get("id");
+        const userFilter = params.get("user_id");
+        const toDelete = outlines.filter((o) => `eq.${o.id}` === idFilter && `eq.${o.user_id}` === userFilter);
+        for (const row of toDelete) outlines.splice(outlines.indexOf(row), 1);
+        return { ok: true, status: 200, text: async () => JSON.stringify(toDelete) };
+      }
+
+      // GET
+      let results = outlines.filter((o) => `eq.${o.user_id}` === params.get("user_id"));
+      results = [...results].sort((a, b) => b.created_at.localeCompare(a.created_at));
+      return { ok: true, status: 200, text: async () => JSON.stringify(results) };
+    }
+
     if (url.pathname === "/rest/v1/profiles") {
       assert.equal(headers.apikey, SECRET_KEY, "profiles access should use the secret key");
       assert.equal(headers.Authorization, undefined, "should not send an Authorization header for secret-key requests");
@@ -237,7 +273,7 @@ function stubSupabase({ validToken = "valid-token", user = { id: "user-1", email
     return { ok: false, status: 404, statusText: "Not Found", text: async () => "unknown path" };
   };
 
-  return { requests, studyEntries, conversations, notes, profiles, readingPlanProgress };
+  return { requests, studyEntries, conversations, notes, outlines, profiles, readingPlanProgress };
 }
 
 // --- verifyUser --------------------------------------------------------
@@ -588,6 +624,77 @@ test("searchMyNotes with a keyword filters by reference or note body", async () 
   const results = await searchMyNotes("user-1", { keyword: "grace" });
   assert.equal(results.length, 1);
   assert.equal(results[0].reference, "EPH.2.8");
+});
+
+// --- createOutline / listOutlines / deleteOutline (a paid user's saved
+// sermon/lesson outlines -- see server.js's /api/outlines routes) ----------
+
+test("createOutline POSTs a row and returns it with reference/title/body/id", async () => {
+  const { requests, outlines } = stubSupabase();
+  const outline = await createOutline("user-1", { reference: "ROM.8.28", title: "Romans 8 outline", body: "I. Point one\nII. Point two" });
+
+  const postRequest = requests.find((r) => r.url.pathname === "/rest/v1/outlines" && r.opts.method === "POST");
+  assert.ok(postRequest, "should have POSTed to outlines");
+  assert.deepEqual(JSON.parse(postRequest.opts.body), [
+    { user_id: "user-1", reference: "ROM.8.28", title: "Romans 8 outline", body: "I. Point one\nII. Point two" },
+  ]);
+  assert.equal(outline.reference, "ROM.8.28");
+  assert.equal(outline.title, "Romans 8 outline");
+  assert.ok(outline.id, "should return the created row's id");
+  assert.equal(outlines.length, 1);
+});
+
+test("createOutline stores a null reference when none is given", async () => {
+  const { outlines } = stubSupabase();
+  await createOutline("user-1", { reference: null, title: "A topical outline", body: "Some content." });
+  assert.equal(outlines[0].reference, null);
+});
+
+test("listOutlines returns [] when Supabase isn't configured, without calling fetch", async () => {
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    return { ok: true, status: 200, text: async () => "[]" };
+  };
+  assert.deepEqual(await listOutlines("user-1"), []);
+  assert.equal(called, false);
+});
+
+test("listOutlines scopes to the given user, newest first, across every reference", async () => {
+  const { outlines } = stubSupabase();
+  outlines.push(
+    { id: 1, user_id: "user-1", reference: "JHN.3.16", title: "older", body: "b", created_at: "2026-01-01T00:00:00Z" },
+    { id: 2, user_id: "user-1", reference: "ROM.8.28", title: "newer", body: "b", created_at: "2026-02-01T00:00:00Z" },
+    { id: 3, user_id: "user-2", reference: "GEN.1.1", title: "someone else's", body: "b", created_at: "2026-03-01T00:00:00Z" },
+  );
+
+  const results = await listOutlines("user-1");
+  assert.equal(results.length, 2);
+  assert.equal(results[0].title, "newer", "should be newest-first");
+  assert.ok(results.every((o) => o.title !== "someone else's"));
+});
+
+test("deleteOutline removes the row and returns true when it belongs to the given user", async () => {
+  const { outlines } = stubSupabase();
+  outlines.push({ id: 1, user_id: "user-1", reference: "JHN.3.16", title: "mine", body: "b", created_at: "2026-01-01T00:00:00Z" });
+
+  const deleted = await deleteOutline("user-1", 1);
+  assert.equal(deleted, true);
+  assert.equal(outlines.length, 0);
+});
+
+test("deleteOutline returns false and deletes nothing for another user's outline", async () => {
+  const { outlines } = stubSupabase();
+  outlines.push({ id: 1, user_id: "user-2", reference: "JHN.3.16", title: "not yours", body: "b", created_at: "2026-01-01T00:00:00Z" });
+
+  const deleted = await deleteOutline("user-1", 1);
+  assert.equal(deleted, false);
+  assert.equal(outlines.length, 1, "the other user's row should be untouched");
+});
+
+test("deleteOutline returns false for a nonexistent id", async () => {
+  stubSupabase();
+  assert.equal(await deleteOutline("user-1", 999), false);
 });
 
 // --- getDigestOptIn / setDigestOptIn / listDigestOptedInUsers --------------

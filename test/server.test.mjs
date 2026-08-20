@@ -80,8 +80,8 @@ test("GET /chat serves the same index.html as GET / (client-side view routing)",
   assert.match(body, /<html/i);
 });
 
-test("GET /today, /plans, and /subscription each serve the same index.html (client-side view routing)", async () => {
-  for (const path of ["/today", "/plans", "/subscription"]) {
+test("GET /today, /plans, /outlines, and /subscription each serve the same index.html (client-side view routing)", async () => {
+  for (const path of ["/today", "/plans", "/outlines", "/subscription"]) {
     const response = await fetch(BASE_URL + path);
     assert.equal(response.status, 200, `${path} should return 200`);
     const body = await response.text();
@@ -237,6 +237,35 @@ test("PUT /api/reading-plans/:id/days/:day with no Authorization header returns 
     body: JSON.stringify({ completed: true }),
   });
   assert.equal(response.status, 401);
+});
+
+test("GET /api/outlines with no Authorization header returns locked:true and no outline content (Pro feature)", async () => {
+  // Same "still 200, upsell not an error" reasoning as GET /api/reading-plans.
+  const response = await fetch(BASE_URL + "/api/outlines");
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.equal(data.locked, true);
+  assert.deepEqual(data.outlines, []);
+});
+
+test("POST /api/outlines with no Authorization header returns 401", async () => {
+  const response = await fetch(BASE_URL + "/api/outlines", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title: "A title", body: "Some content." }),
+  });
+  assert.equal(response.status, 401);
+});
+
+test("DELETE /api/outlines/:id with no Authorization header returns 401", async () => {
+  const response = await fetch(BASE_URL + "/api/outlines/1", { method: "DELETE" });
+  assert.equal(response.status, 401);
+});
+
+test("DELETE /api/outlines/not-a-number doesn't match the outlines route (falls through to 405)", async () => {
+  // Same reasoning as the equivalent /api/notes/not-a-number test above.
+  const response = await fetch(BASE_URL + "/api/outlines/not-a-number", { method: "DELETE" });
+  assert.equal(response.status, 405);
 });
 
 test("GET /api/preferences with no Authorization header returns 401", async () => {

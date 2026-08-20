@@ -232,7 +232,26 @@ function loadChatState() {
 function appendChatMessage(role, text) {
   const el = document.createElement("div");
   el.className = `chat-message ${role}`;
-  el.textContent = text;
+
+  if (role === "assistant") {
+    // Assistant replies get a "Save as outline" action underneath (see the
+    // Outlines section below) -- a plain textContent write like the other
+    // roles get would work fine for display, but there'd be nowhere to
+    // attach that button without also holding the reply's own text apart
+    // from it. The text itself still goes in via textContent (not
+    // innerHTML), so nothing about this introduces any HTML injection risk.
+    const textEl = document.createElement("p");
+    textEl.className = "chat-message-text";
+    textEl.textContent = text;
+    el.appendChild(textEl);
+    el.insertAdjacentHTML(
+      "beforeend",
+      `<div class="message-actions"><button type="button" class="outline-save-button">Save as outline</button></div>`,
+    );
+  } else {
+    el.textContent = text;
+  }
+
   chatLog.appendChild(el);
   chatLog.scrollTop = chatLog.scrollHeight;
   return el;
@@ -562,12 +581,14 @@ const emptyState = document.getElementById("chat-empty-state");
 const examplesContainer = document.querySelector(".examples");
 const pageToday = document.getElementById("page-today");
 const pagePlans = document.getElementById("page-plans");
+const pageOutlines = document.getElementById("page-outlines");
 const pageSubscription = document.getElementById("page-subscription");
 
 const HOME_PATH = "/";
 const CONVERSATION_PATH = "/chat";
 const TODAY_PATH = "/today";
 const PLANS_PATH = "/plans";
+const OUTLINES_PATH = "/outlines";
 const SUBSCRIPTION_PATH = "/subscription";
 
 const VIEW_PATHS = {
@@ -575,6 +596,7 @@ const VIEW_PATHS = {
   conversation: CONVERSATION_PATH,
   today: TODAY_PATH,
   plans: PLANS_PATH,
+  outlines: OUTLINES_PATH,
   subscription: SUBSCRIPTION_PATH,
 };
 const PATH_VIEWS = Object.fromEntries(Object.entries(VIEW_PATHS).map(([view, path]) => [path, view]));
@@ -583,16 +605,18 @@ const PATH_VIEWS = Object.fromEntries(Object.entries(VIEW_PATHS).map(([view, pat
 // other navigation helper below funnels through, and also what the
 // popstate handler calls directly (browser back/forward should change what
 // you see without mutating the conversation itself or pushing more history).
-// Five views share this one document: home and conversation (as before),
-// plus three standalone pages -- Today's Passage, Reading Plans, and
-// Subscription -- reached from the top-left menu (see auth.js's
-// menuTodayButton/menuPlansButton/menuSubscriptionButton handlers, which
-// call the goTo*View() wrappers below via window.adFontesChat).
+// Six views share this one document: home and conversation (as before),
+// plus four standalone pages -- Today's Passage, Reading Plans, My
+// Outlines, and Subscription -- reached from the top-left menu (see
+// auth.js's menuTodayButton/menuPlansButton/menuOutlinesButton/
+// menuSubscriptionButton handlers, which call the goTo*View() wrappers
+// below via window.adFontesChat).
 function renderView(view) {
   const isHome = view === "home";
   const isConversation = view === "conversation";
   const isToday = view === "today";
   const isPlans = view === "plans";
+  const isOutlines = view === "outlines";
   const isSubscription = view === "subscription";
 
   emptyState.hidden = !isHome;
@@ -600,11 +624,12 @@ function renderView(view) {
   chatLog.hidden = !isConversation;
   pageToday.hidden = !isToday;
   pagePlans.hidden = !isPlans;
+  pageOutlines.hidden = !isOutlines;
   pageSubscription.hidden = !isSubscription;
-  // The message box only makes sense on the chat-flow views -- the three
+  // The message box only makes sense on the chat-flow views -- the
   // standalone pages have their own actions (a passage button, a reading-
-  // plan day, static plan copy) that route back into chat via
-  // sendChatMessage() rather than taking typed input directly.
+  // plan day, a saved outline, static plan copy) that route back into chat
+  // via sendChatMessage() rather than taking typed input directly.
   chatForm.hidden = !(isHome || isConversation);
   homeButton.hidden = isHome; // nothing to go "home" from while already there
 }
@@ -631,6 +656,10 @@ function goToTodayView(options) {
 
 function goToPlansView(options) {
   goToView("plans", options);
+}
+
+function goToOutlinesView(options) {
+  goToView("outlines", options);
 }
 
 function goToSubscriptionView(options) {
@@ -887,6 +916,186 @@ async function loadReadingPlans() {
 
 window.adFontesReadingPlans = { refresh: loadReadingPlans };
 
+// --- My Outlines -------------------------------------------------------
+// A library of chat replies a paid user explicitly chose to keep (see the
+// "Save as outline" button under every assistant message -- appendChatMessage
+// above), most often but not only a sermon/lesson outline. A Pro feature
+// (see README -> Subscription / paid tier) -- GET /api/outlines returns
+// `locked: true` and no content for anyone who isn't signed-in-and-paid,
+// same upsell-not-error reasoning as GET /api/reading-plans.
+
+const outlinesLockedContainer = document.getElementById("outlines-locked");
+const outlinesContainer = document.getElementById("outlines");
+const outlinesEmpty = document.getElementById("outlines-empty");
+const outlinesList = document.getElementById("outlines-list");
+
+function renderOutlineItem(outline) {
+  const date = new Date(outline.createdAt).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  return `<li class="outline-item" data-outline-id="${outline.id}">
+    <details>
+      <summary>
+        <span class="outline-item-title">${escapeHtml(outline.title)}</span>
+        <span class="outline-item-meta">${outline.reference ? `${escapeHtml(outline.reference)} &middot; ` : ""}${date}</span>
+      </summary>
+      <p class="outline-item-body">${escapeHtml(outline.body)}</p>
+      <button type="button" class="outline-delete-button">Delete</button>
+    </details>
+  </li>`;
+}
+
+function renderOutlinesList(outlines) {
+  outlinesEmpty.hidden = outlines.length > 0;
+  outlinesList.innerHTML = outlines.map(renderOutlineItem).join("");
+}
+
+// Called on initial page load and whenever sign-in state changes (auth.js
+// calls window.adFontesOutlines.refresh() alongside its other refresh
+// calls) -- same reasoning as loadReadingPlans().
+async function loadOutlines() {
+  try {
+    const accessToken = await window.adFontesAuth.getAccessToken();
+    const headers = {};
+    if (accessToken) headers.authorization = `Bearer ${accessToken}`;
+
+    const response = await fetch("/api/outlines", { headers });
+    if (!response.ok) return;
+    const { outlines, locked } = await response.json();
+
+    if (locked) {
+      outlinesContainer.hidden = true;
+      outlinesLockedContainer.hidden = false;
+      return;
+    }
+
+    outlinesLockedContainer.hidden = true;
+    renderOutlinesList(outlines ?? []);
+    outlinesContainer.hidden = false;
+  } catch {
+    // Network hiccup or the endpoint being briefly unavailable shouldn't
+    // block or clutter the rest of the page -- same reasoning as
+    // loadReadingPlans().
+  }
+}
+
+window.adFontesOutlines = { refresh: loadOutlines };
+
+outlinesList.addEventListener("click", async (event) => {
+  const deleteButton = event.target.closest(".outline-delete-button");
+  if (!deleteButton) return;
+
+  const item = deleteButton.closest(".outline-item");
+  const accessToken = await window.adFontesAuth.getAccessToken();
+  if (!item || !accessToken) return;
+
+  deleteButton.disabled = true;
+  try {
+    const response = await fetch(`/api/outlines/${item.dataset.outlineId}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    // A 404 here means it's already gone (deleted from another tab, say) --
+    // still fine to remove it from view, same reasoning as note deletion.
+    if (response.ok || response.status === 404) {
+      item.remove();
+      outlinesEmpty.hidden = outlinesList.children.length > 0;
+    }
+  } catch {
+    deleteButton.disabled = false;
+  }
+});
+
+// --- "Save as outline" (the button under every assistant chat message) ----
+// Handled here rather than as a plain form submit because the flow needs a
+// short-lived inline title prompt first -- same "reveal a small form in
+// place" pattern as the notes feature's note-add-button, but here the body
+// is already fixed (the message's own text) so the only thing to ask for is
+// a title.
+
+function showOutlineSaveForm(messageEl) {
+  const actions = messageEl.querySelector(".message-actions");
+  actions.innerHTML = `<div class="outline-save-form">
+    <input type="text" class="outline-title-input" placeholder="Title this outline…" maxlength="200" />
+    <button type="button" class="outline-form-cancel">Cancel</button>
+    <button type="button" class="outline-form-save">Save</button>
+  </div>`;
+  actions.querySelector(".outline-title-input").focus();
+}
+
+function resetOutlineActions(messageEl) {
+  const actions = messageEl.querySelector(".message-actions");
+  actions.innerHTML = `<button type="button" class="outline-save-button">Save as outline</button>`;
+}
+
+async function handleOutlineSaveButtonClick(messageEl) {
+  const accessToken = await window.adFontesAuth.getAccessToken();
+  if (!accessToken) {
+    const actions = messageEl.querySelector(".message-actions");
+    actions.innerHTML = `<span class="note-signin-hint">Sign in (top-left menu) to save outlines.</span>`;
+    setTimeout(() => resetOutlineActions(messageEl), 4000);
+    return;
+  }
+  showOutlineSaveForm(messageEl);
+}
+
+async function handleOutlineFormSaveClick(messageEl) {
+  const actions = messageEl.querySelector(".message-actions");
+  const titleInput = actions.querySelector(".outline-title-input");
+  const saveButton = actions.querySelector(".outline-form-save");
+  const title = titleInput.value.trim();
+  if (!title) {
+    titleInput.focus();
+    return;
+  }
+
+  const body = messageEl.querySelector(".chat-message-text")?.textContent ?? "";
+  const accessToken = await window.adFontesAuth.getAccessToken();
+  if (!accessToken) {
+    resetOutlineActions(messageEl);
+    return;
+  }
+
+  saveButton.disabled = true;
+  try {
+    const response = await fetch("/api/outlines", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ title, body }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      alert(data.error ?? "Could not save outline.");
+      saveButton.disabled = false;
+      return;
+    }
+    actions.innerHTML = `<span class="outline-saved-hint">Saved to My Outlines.</span>`;
+    loadOutlines(); // refresh the library in the background so it's current whenever they check it
+  } catch (error) {
+    alert(`Network error: ${error.message}`);
+    saveButton.disabled = false;
+  }
+}
+
+chatLog.addEventListener("click", (event) => {
+  const saveButton = event.target.closest(".outline-save-button");
+  if (saveButton) {
+    handleOutlineSaveButtonClick(saveButton.closest(".chat-message"));
+    return;
+  }
+  const cancelButton = event.target.closest(".outline-form-cancel");
+  if (cancelButton) {
+    resetOutlineActions(cancelButton.closest(".chat-message"));
+    return;
+  }
+  const formSaveButton = event.target.closest(".outline-form-save");
+  if (formSaveButton) {
+    handleOutlineFormSaveClick(formSaveButton.closest(".chat-message"));
+  }
+});
+
 // Replays a { role, text, gathered? } log through the same render functions
 // a live turn uses — shared by restoreChatState() (from localStorage) and
 // loadConversation() (from the server, via the top-left menu's "previous
@@ -989,6 +1198,7 @@ window.adFontesChat = {
   startNewConversation,
   goToToday: () => goToTodayView(),
   goToPlans: () => goToPlansView(),
+  goToOutlines: () => goToOutlinesView(),
   goToSubscription: () => goToSubscriptionView(),
 };
 
@@ -1024,3 +1234,4 @@ if (restoreChatState()) {
 }
 loadDailyPassage();
 loadReadingPlans();
+loadOutlines();

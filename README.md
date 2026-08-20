@@ -145,17 +145,18 @@ used shown alongside it in a collapsible block per passage. Ask a follow-up
 without repeating the reference, or ask something with no specific verse in
 mind — Claude can pull in a cross-reference itself if one genuinely helps.
 
-One page, five client-side views: home (title/tagline, the "Try:" examples),
-conversation (the chat log), Today's Passage, Reading Plans, and
-Subscription — toggled by `public/app.js`'s `renderView()` rather than a
+One page, six client-side views: home (title/tagline, the "Try:" examples),
+conversation (the chat log), Today's Passage, Reading Plans, My Outlines,
+and Subscription — toggled by `public/app.js`'s `renderView()` rather than a
 real page load. Sending the first message, clicking an example, or resuming
 a conversation from the top-left menu switches to the conversation view;
-Today's Passage/Reading Plans/Subscription are reached from their own
-top-left menu items, without touching whatever conversation is in progress;
-the "Home" button (shown on every view except home) or clicking the
-"ad fontes" logo goes back home and starts a fresh conversation. The URL
-(`/`, `/chat`, `/today`, `/plans`, `/subscription`) tracks whichever view is
-showing via `history.pushState`, so the browser's back/forward buttons work
+Today's Passage/Reading Plans/My Outlines/Subscription are reached from
+their own top-left menu items, without touching whatever conversation is in
+progress; the "Home" button (shown on every view except home) or clicking
+the "ad fontes" logo goes back home and starts a fresh conversation. The URL
+(`/`, `/chat`, `/today`, `/plans`, `/outlines`, `/subscription`) tracks
+whichever view is showing via `history.pushState`, so the browser's
+back/forward buttons work
 like real navigation, and `server.js` serves the same `index.html` for all
 of them so a direct link or hard refresh still loads correctly.
 
@@ -476,6 +477,26 @@ Subscription page rather than an error. `PUT
 notes and the digest preference, this is not fire-and-forget — an explicit
 action (checking a box) should surface a real error if the write fails.
 
+**My Outlines (Pro).** A durable library of chat replies a paid user
+explicitly chose to keep — most often, but not only, a sermon/lesson
+outline (see Chat interface's system prompt above). Every assistant message
+gets a "Save as outline" button underneath it (`public/app.js`'s
+`appendChatMessage()`); clicking it prompts for a short title and POSTs the
+message's own text as the body, no auto-save of every reply, since not
+every one is a keeper. `lib/supabase.js`'s `createOutline()`/`listOutlines()`/
+`deleteOutline()` back a small `outlines` table (`supabase/schema.sql`) —
+same shape and RLS-policy pattern as `notes`, plus a `title` column notes
+don't need, since an outline is meant to be found again by name on its own
+page rather than only alongside the passage it's on. `GET /api/outlines` is
+gated exactly like `GET /api/reading-plans`: always 200, with `{ outlines:
+[], locked: true }` for anyone who isn't signed-in-and-paid rather than a
+401/403, so the **My Outlines** page (top-left menu) can render an upsell
+instead of an error. `POST /api/outlines` (creating one) is a real
+401/403 — an explicit save action, not a page load. `DELETE
+/api/outlines/:id` only requires being signed in and owning the row, not
+being paid — the same "you can always clean up your own stuff" reasoning as
+`DELETE /api/notes/:id`.
+
 **Subscription / paid tier.** A free/paid split with no real checkout wired
 up yet — `profiles.is_paid` is a plain boolean, flipped by hand in the
 Supabase dashboard's Table Editor, not by any code path in this app. The
@@ -485,9 +506,9 @@ button — it's a reference page today, not a billing flow. The free tier is
 deliberately narrow: full chat (translations, original-language interlinear,
 commentary), notes on any passage, full-text Bible search, and the daily
 digest email. Everything else is Pro: reading plans, sermon/lesson outline
-mode, the compounding study memory (`search_study_history` and
-`search_my_notes`), and naming your AI agent. Future features get sorted
-into one tier or the other as
+mode and My Outlines, the compounding study memory (`search_study_history`
+and `search_my_notes`), and naming your AI agent. Future features get
+sorted into one tier or the other as
 they're built, not added to this list by default. `GET
 /api/preferences`'s `isPaid` field is what the frontend uses to decide
 whether to show Pro UI (the name-your-agent field, the unlocked Reading
@@ -735,7 +756,7 @@ display elsewhere in the app.
 | `lib/upstash.js` | Shared Upstash Redis REST client (`redisCommand()`, `isRedisConfigured()`) used by both `lib/session-store.js` and `lib/rate-limit.js`. |
 | `lib/daily-passage.js` | `getDailyPassage(date)` — the curated, date-rotating "today's passage" (with a short teaser tag) shown on the homepage. No external calls, no storage. |
 | `lib/bible-books.js` | Canonical 66-book Bible order (Genesis→Revelation, not alphabetical) + lookup helpers, used to sort the previous-conversations menu by book. |
-| `lib/supabase.js` | Server-side Supabase client for accounts: `verifyUser()` (Auth REST); `logStudyEntry()`/`searchStudyHistory()`, `appendToConversation()`/`listConversations()`/`getConversation()`, `createNote()`/`listNotes()`/`deleteNote()`, `getDigestOptIn()`/`setDigestOptIn()`/`listDigestOptedInUsers()`, and `getReadingPlanProgress()`/`listReadingPlanProgress()`/`setReadingPlanDayComplete()` (PostgREST). Plain fetch, no SDK — see Accounts & study memory below. |
+| `lib/supabase.js` | Server-side Supabase client for accounts: `verifyUser()` (Auth REST); `logStudyEntry()`/`searchStudyHistory()`, `appendToConversation()`/`listConversations()`/`getConversation()`, `createNote()`/`listNotes()`/`deleteNote()`/`searchMyNotes()`, `createOutline()`/`listOutlines()`/`deleteOutline()`, `getDigestOptIn()`/`setDigestOptIn()`/`listDigestOptedInUsers()`, and `getReadingPlanProgress()`/`listReadingPlanProgress()`/`setReadingPlanDayComplete()` (PostgREST). Plain fetch, no SDK — see Accounts & study memory below. |
 | `lib/daily-digest.js` | `sendDailyDigest(opts)` — emails today's featured passage to every opted-in user via Resend's HTTP API. Invoked by `scripts/send-daily-digest.js`, not by any request handler. |
 | `scripts/send-daily-digest.js` | CLI entry point (`npm run digest`) for the daily digest cron job — see `render.yaml`. |
 | `lib/reading-plans.js` | `READING_PLANS` — curated, named, multi-day single-verse reading sequences (with a per-user completion checklist, backed by `reading_plan_progress`), plus `getReadingPlan()`/`isValidPlanDay()` lookup helpers. No external calls, no storage — same pattern as `lib/daily-passage.js`. |

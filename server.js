@@ -75,9 +75,29 @@
 //   no Authorization header; 403 if signed in but not paid; 404 if :id
 //   isn't a real plan or :day isn't one of its real day numbers.
 //
-// GET /chat, /today, /plans, /subscription -> all serve the same index.html
-//   as GET / -- the frontend is a single-page app with five client-side
-//   views (home, conversation, today, plans, subscription — see
+// Saved outlines are also a Pro feature (see README -> Subscription / paid
+// tier) -- a user explicitly saving one specific chat reply (usually, but
+// not only, a sermon/lesson outline) to a durable "My Outlines" library,
+// rather than letting it live only in that one conversation's transcript.
+//
+// GET /api/outlines -> for a signed-in, paid account: { outlines: [{ id,
+//   reference, title, body, createdAt }], locked: false }, newest first.
+//   For anyone else (signed out, or signed in but free): { outlines: [],
+//   locked: true } -- same "still 200, upsell not an error" reasoning as
+//   GET /api/reading-plans.
+//
+// POST /api/outlines { title, body, reference? } -> the created outline
+//   ({ id, reference, title, body, createdAt }). 401 with no Authorization
+//   header; 403 if signed in but not paid.
+//
+// DELETE /api/outlines/:id -> 204 on success, 404 if the outline doesn't
+//   exist or isn't the signed-in user's own. Requires a valid Authorization
+//   header -- 401 without one (deleting your own saved outline doesn't
+//   require a paid account, only owning it, same as DELETE /api/notes/:id).
+//
+// GET /chat, /today, /plans, /outlines, /subscription -> all serve the same index.html
+//   as GET / -- the frontend is a single-page app with six client-side
+//   views (home, conversation, today, plans, outlines, subscription — see
 //   public/app.js's view system), and these routes exist purely so a hard
 //   refresh or a direct/bookmarked link to any of them still loads the app
 //   instead of 404ing. Which view actually renders is decided client-side
@@ -116,12 +136,15 @@ import { getReadingPlan, isValidPlanDay, READING_PLANS } from "./lib/reading-pla
 import { summarizePassage } from "./lib/summarize.js";
 import {
   createNote,
+  createOutline,
   deleteNote,
+  deleteOutline,
   getConversation,
   getDigestOptIn,
   getPaidProfile,
   listConversations,
   listNotes,
+  listOutlines,
   listReadingPlanProgress,
   setAgentName,
   setDigestOptIn,
@@ -231,6 +254,9 @@ const CONVERSATION_ID_PATTERN = /^\/api\/conversations\/([0-9a-f]{8}-[0-9a-f]{4}
 // not a uuid like conversations — so this pattern (and NOTE_ID_PATTERN's
 // use below) is deliberately simpler than CONVERSATION_ID_PATTERN.
 const NOTE_ID_PATTERN = /^\/api\/notes\/(\d+)$/;
+
+// Same bigint-identity shape as NOTE_ID_PATTERN, for the same reason.
+const OUTLINE_ID_PATTERN = /^\/api\/outlines\/(\d+)$/;
 
 // Plan ids are lib/reading-plans.js's own hand-picked kebab-case strings
 // (e.g. "gospel-in-six-verses"), not a generated id -- this pattern is just
@@ -446,6 +472,99 @@ async function handleSetReadingPlanDay(req, res, planId, dayParam) {
 
   const completedDays = await setReadingPlanDayComplete(user.id, planId, day, body.completed);
   sendJson(res, 200, { completedDays });
+}
+
+// Outlines are a Pro feature (see README -> Subscription / paid tier), same
+// gating shape as reading plans: GET is a 200 with `locked: true` and no
+// content for anyone who isn't signed-in-and-paid (an upsell to render, not
+// an error), while POST is a real 401/403 since creating one is an action,
+// not a page load.
+const MAX_OUTLINE_TITLE_LENGTH = 200;
+// Generous relative to a note's 4000-char cap -- an outline is meant to
+// hold a full sermon/lesson-length reply, not a short jotted thought.
+const MAX_OUTLINE_BODY_LENGTH = 8000;
+const MAX_OUTLINE_REFERENCE_LENGTH = 100;
+
+function toOutlineJson(row) {
+  return { id: row.id, reference: row.reference, title: row.title, body: row.body, createdAt: row.created_at };
+}
+
+async function handleListOutlines(req, res) {
+  let user = null;
+  try {
+    user = await authenticateRequest(req);
+  } catch (error) {
+    console.error("Supabase auth check failed, listing outlines without content:", error.message);
+  }
+
+  const isPaid = user ? (await getPaidProfile(user.id)).isPaid : false;
+  if (!isPaid) {
+    sendJson(res, 200, { outlines: [], locked: true });
+    return;
+  }
+
+  const rows = await listOutlines(user.id);
+  sendJson(res, 200, { outlines: rows.map(toOutlineJson), locked: false });
+}
+
+async function handleCreateOutline(req, res) {
+  const user = await requireUser(req, res);
+  if (!user) return;
+
+  const { isPaid } = await getPaidProfile(user.id);
+  if (!isPaid) {
+    sendJson(res, 403, { error: "Saving outlines is a Pro feature. See the Subscription page." });
+    return;
+  }
+
+  let body;
+  try {
+    body = await readJsonBody(req, { maxBytes: MAX_CHAT_BODY_BYTES });
+  } catch (error) {
+    sendJson(res, error.status ?? 400, { error: error.message });
+    return;
+  }
+
+  const title = typeof body.title === "string" ? body.title.trim() : "";
+  const outlineBody = typeof body.body === "string" ? body.body.trim() : "";
+  const reference = typeof body.reference === "string" ? body.reference.trim() : "";
+
+  if (!title) {
+    sendJson(res, 400, { error: "Missing required field: title." });
+    return;
+  }
+  if (title.length > MAX_OUTLINE_TITLE_LENGTH) {
+    sendJson(res, 400, { error: `title is too long (max ${MAX_OUTLINE_TITLE_LENGTH} characters).` });
+    return;
+  }
+  if (!outlineBody) {
+    sendJson(res, 400, { error: "Missing required field: body." });
+    return;
+  }
+  if (outlineBody.length > MAX_OUTLINE_BODY_LENGTH) {
+    sendJson(res, 400, { error: `body is too long (max ${MAX_OUTLINE_BODY_LENGTH} characters).` });
+    return;
+  }
+  if (reference.length > MAX_OUTLINE_REFERENCE_LENGTH) {
+    sendJson(res, 400, { error: `reference is too long (max ${MAX_OUTLINE_REFERENCE_LENGTH} characters).` });
+    return;
+  }
+
+  const row = await createOutline(user.id, { reference: reference || null, title, body: outlineBody });
+  sendJson(res, 201, toOutlineJson(row));
+}
+
+async function handleDeleteOutline(req, res, outlineId) {
+  const user = await requireUser(req, res);
+  if (!user) return;
+
+  const deleted = await deleteOutline(user.id, outlineId);
+  if (!deleted) {
+    sendJson(res, 404, { error: "Outline not found." });
+    return;
+  }
+  res.writeHead(204);
+  res.end();
 }
 
 // A cosmetic display name, not a real identity field -- generous but bounded
@@ -764,6 +883,19 @@ const server = createServer(async (req, res) => {
       await handleSetReadingPlanDay(req, res, planDayMatch[1], planDayMatch[2]);
       return;
     }
+    if (req.method === "GET" && url.pathname === "/api/outlines") {
+      await handleListOutlines(req, res);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/outlines") {
+      await handleCreateOutline(req, res);
+      return;
+    }
+    const outlineMatch = req.method === "DELETE" ? url.pathname.match(OUTLINE_ID_PATTERN) : null;
+    if (outlineMatch) {
+      await handleDeleteOutline(req, res, outlineMatch[1]);
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/api/preferences") {
       await handleGetPreferences(req, res);
       return;
@@ -776,7 +908,7 @@ const server = createServer(async (req, res) => {
       await handleChat(req, res);
       return;
     }
-    if (req.method === "GET" && ["/chat", "/today", "/plans", "/subscription"].includes(url.pathname)) {
+    if (req.method === "GET" && ["/chat", "/today", "/plans", "/outlines", "/subscription"].includes(url.pathname)) {
       await serveStatic(res, "/"); // same file as the homepage -- see the GET /chat doc comment above
       return;
     }

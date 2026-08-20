@@ -46,6 +46,7 @@
       <button type="button" id="menu-home-button" class="menu-nav-item">Home</button>
       <button type="button" id="menu-today-button" class="menu-nav-item">Today's Passage</button>
       <button type="button" id="menu-plans-button" class="menu-nav-item">Reading Plans</button>
+      <button type="button" id="menu-outlines-button" class="menu-nav-item">My Outlines</button>
 
       <!-- The conversations list (signed-in users, via GET /api/conversations)
            or, when there's nothing to show -- signed out, or signed in with
@@ -257,6 +258,27 @@
       </div>
     </div>
 
+    <!-- My Outlines -- its own page, reached from the top-left menu. A
+         library of outlines a paid user has explicitly saved from a chat
+         reply (see the "Save as outline" button under each assistant
+         message, wired in app.js) -- most often, but not only, a
+         sermon/lesson outline. A Pro feature (see README -> Subscription /
+         paid tier), same locked-upsell pattern as Reading Plans -- GET
+         /api/outlines's `locked` flag decides which panel shows. -->
+    <div id="page-outlines" class="page" hidden>
+      <div id="outlines-locked" class="page-locked" hidden>
+        <h2 class="page-heading">My outlines</h2>
+        <p>Save any reply -- a sermon outline, a lesson, a study you want to come back to -- to a library you can revisit any time. A Pro feature.</p>
+        <a href="/subscription" class="auth-primary-button page-locked-link">See Subscription plans</a>
+      </div>
+
+      <div id="outlines" class="outlines" hidden>
+        <h2 class="outlines-heading">My outlines</h2>
+        <p id="outlines-empty" class="page-subhead" hidden>Nothing saved yet -- look for "Save as outline" under a reply worth keeping.</p>
+        <ul id="outlines-list" class="outlines-list"></ul>
+      </div>
+    </div>
+
     <!-- Subscription -- its own page, reached from the top-left menu.
          Static content for now (see README -> Subscription / paid tier):
          no real checkout is wired up yet, so pricing is a placeholder and
@@ -281,8 +303,8 @@
           <ul>
             <li>Everything in Free</li>
             <li>Reading plans with progress tracking</li>
-            <li>Sermon &amp; lesson outlines</li>
-            <li>Compounding study memory — your agent recalls what you've studied across past conversations</li>
+            <li>Sermon &amp; lesson outlines, saved to your own library</li>
+            <li>Compounding study memory — your agent recalls what you've studied and written across past conversations</li>
             <li>Name your AI agent for a more personal conversation</li>
           </ul>
           <p class="subscription-note">Not open for signup yet — check back soon.</p>
