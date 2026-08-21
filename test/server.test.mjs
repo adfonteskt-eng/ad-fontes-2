@@ -268,6 +268,34 @@ test("DELETE /api/outlines/not-a-number doesn't match the outlines route (falls 
   assert.equal(response.status, 405);
 });
 
+test("GET /api/export/outline/1?format=pdf with no Authorization header returns 401", async () => {
+  // Study export is a Pro feature (see README -> Subscription / paid tier),
+  // same 401-before-403 gating shape as POST /api/outlines -- there's no
+  // "locked" 200 variant here (unlike the list endpoints), since a file
+  // download has no meaningful upsell response to send instead.
+  const response = await fetch(BASE_URL + "/api/export/outline/1?format=pdf");
+  assert.equal(response.status, 401);
+});
+
+test("GET /api/export/note/1?format=docx with no Authorization header returns 401", async () => {
+  const response = await fetch(BASE_URL + "/api/export/note/1?format=docx");
+  assert.equal(response.status, 401);
+});
+
+test("GET /api/export/conversation/<uuid>?format=txt with no Authorization header returns 401", async () => {
+  const response = await fetch(BASE_URL + "/api/export/conversation/11111111-1111-1111-1111-111111111111?format=txt");
+  assert.equal(response.status, 401);
+});
+
+test("GET /api/export/bogus-type/1?format=pdf doesn't match the export route (falls through to 404)", async () => {
+  // EXPORT_PATTERN only matches outline/note/conversation -- an
+  // unrecognized type never reaches handleExport's own 400 check at all,
+  // same "route pattern is the first gate" reasoning as the notes/outlines
+  // id-shape tests above.
+  const response = await fetch(BASE_URL + "/api/export/bogus-type/1?format=pdf");
+  assert.equal(response.status, 404);
+});
+
 test("GET /api/preferences with no Authorization header returns 401", async () => {
   const response = await fetch(BASE_URL + "/api/preferences");
   assert.equal(response.status, 401);

@@ -95,6 +95,20 @@
 //   header -- 401 without one (deleting your own saved outline doesn't
 //   require a paid account, only owning it, same as DELETE /api/notes/:id).
 //
+// Study export is also a Pro feature (see README -> Subscription / paid
+// tier) -- downloading an outline, a note, or a full saved conversation as a
+// file, rather than only ever reading it inside the app.
+//
+// GET /api/export/:type/:id?format=pdf|docx|md|txt -> the rendered file,
+//   with Content-Type set per format and Content-Disposition: attachment so
+//   the browser downloads it rather than trying to display it inline. :type
+//   is one of outline, note, conversation; :id is that row's own id (an
+//   outline/note id is a plain integer, a conversation id is a uuid --
+//   matching GET /api/conversations/:id and DELETE /api/outlines|notes/:id).
+//   401 with no Authorization header; 403 if signed in but not paid; 404 if
+//   :id doesn't exist or isn't the signed-in user's own; 400 for an
+//   unrecognized :type or format.
+//
 // GET /chat, /today, /plans, /outlines, /subscription -> all serve the same index.html
 //   as GET / -- the frontend is a single-page app with six client-side
 //   views (home, conversation, today, plans, outlines, subscription — see
@@ -132,6 +146,7 @@ import { chatTurn } from "./lib/chat.js";
 import { getDailyPassage } from "./lib/daily-passage.js";
 import { gatherPassage } from "./lib/gather.js";
 import { CHAT_DAILY_LIMIT, SUMMARY_DAILY_LIMIT, checkAndIncrement } from "./lib/rate-limit.js";
+import { EXPORT_FORMATS, conversationExportModel, exportModel, noteExportModel, outlineExportModel } from "./lib/export.js";
 import { getReadingPlan, isValidPlanDay, READING_PLANS } from "./lib/reading-plans.js";
 import { summarizePassage } from "./lib/summarize.js";
 import {
@@ -141,6 +156,8 @@ import {
   deleteOutline,
   getConversation,
   getDigestOptIn,
+  getNote,
+  getOutline,
   getPaidProfile,
   listConversations,
   listNotes,
@@ -257,6 +274,15 @@ const NOTE_ID_PATTERN = /^\/api\/notes\/(\d+)$/;
 
 // Same bigint-identity shape as NOTE_ID_PATTERN, for the same reason.
 const OUTLINE_ID_PATTERN = /^\/api\/outlines\/(\d+)$/;
+
+// :type is a fixed small set of words, not a lookup key -- see
+// handleExport() below for the actual outline/note/conversation branch. An
+// outline/note id is a plain bigint (matches OUTLINE_ID_PATTERN/
+// NOTE_ID_PATTERN's shape); a conversation id is a uuid (matches
+// CONVERSATION_ID_PATTERN's shape) -- this pattern accepts either shape and
+// lets handleExport sort out which one actually applies once it knows the
+// type, rather than needing three separate route patterns.
+const EXPORT_PATTERN = /^\/api\/export\/(outline|note|conversation)\/([0-9a-f-]+)$/i;
 
 // Plan ids are lib/reading-plans.js's own hand-picked kebab-case strings
 // (e.g. "gospel-in-six-verses"), not a generated id -- this pattern is just
@@ -565,6 +591,72 @@ async function handleDeleteOutline(req, res, outlineId) {
   }
   res.writeHead(204);
   res.end();
+}
+
+// Study export is a Pro feature (see README -> Subscription / paid tier),
+// same 401/403 gating shape as POST /api/outlines -- unlike the GET list
+// endpoints (which return a 200 upsell for a free/signed-out request),
+// there's no meaningful "locked" version of a file download, so this is a
+// real 403 like any other write-shaped Pro action.
+async function handleExport(req, res, type, id, searchParams) {
+  const user = await requireUser(req, res);
+  if (!user) return;
+
+  const { isPaid } = await getPaidProfile(user.id);
+  if (!isPaid) {
+    sendJson(res, 403, { error: "Exporting is a Pro feature. See the Subscription page." });
+    return;
+  }
+
+  const format = searchParams.get("format");
+  if (!EXPORT_FORMATS.includes(format)) {
+    sendJson(res, 400, { error: `Invalid or missing format. Choose one of: ${EXPORT_FORMATS.join(", ")}.` });
+    return;
+  }
+
+  // Each branch fetches its own row (ownership-scoped by user.id, same
+  // pattern as every other get*/delete* in lib/supabase.js) and builds the
+  // shared export model lib/export.js's renderers actually work from -- see
+  // that file's header comment for why the model is the boundary rather
+  // than each format knowing about outlines/notes/conversations directly.
+  let model;
+  if (type === "outline") {
+    const row = await getOutline(user.id, id);
+    if (!row) {
+      sendJson(res, 404, { error: "Outline not found." });
+      return;
+    }
+    model = outlineExportModel(toOutlineJson(row));
+  } else if (type === "note") {
+    const row = await getNote(user.id, id);
+    if (!row) {
+      sendJson(res, 404, { error: "Note not found." });
+      return;
+    }
+    model = noteExportModel(toNoteJson(row));
+  } else if (type === "conversation") {
+    const row = await getConversation(user.id, id);
+    if (!row) {
+      sendJson(res, 404, { error: "Conversation not found." });
+      return;
+    }
+    model = conversationExportModel({ title: row.title, updatedAt: row.updated_at, renderLog: row.render_log ?? [] });
+  } else {
+    sendJson(res, 400, { error: `Unknown export type "${type}".` });
+    return;
+  }
+
+  const { buffer, filename, contentType } = await exportModel(model, format);
+  res.writeHead(200, {
+    "content-type": contentType,
+    "content-length": buffer.length,
+    // Double quotes around filename, backslash-escaped, per RFC 6266 --
+    // slugify() (lib/export.js) already keeps the filename to safe
+    // word/hyphen characters, but escaping here is cheap, correct defense-
+    // in-depth rather than relying solely on that.
+    "content-disposition": `attachment; filename="${filename.replace(/"/g, '\\"')}"`,
+  });
+  res.end(buffer);
 }
 
 // A cosmetic display name, not a real identity field -- generous but bounded
@@ -894,6 +986,11 @@ const server = createServer(async (req, res) => {
     const outlineMatch = req.method === "DELETE" ? url.pathname.match(OUTLINE_ID_PATTERN) : null;
     if (outlineMatch) {
       await handleDeleteOutline(req, res, outlineMatch[1]);
+      return;
+    }
+    const exportMatch = req.method === "GET" ? url.pathname.match(EXPORT_PATTERN) : null;
+    if (exportMatch) {
+      await handleExport(req, res, exportMatch[1], exportMatch[2], url.searchParams);
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/preferences") {

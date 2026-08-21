@@ -979,9 +979,15 @@ table.interlinear th {
   color: var(--ink);
 }
 
+.outline-item-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin: 0 0.8rem 0.7rem;
+}
+
 .outline-item .outline-delete-button {
-  display: block;
-  margin: 0 0.8rem 0.7rem auto;
   padding: 0.25rem 0.6rem;
   font-size: 0.75rem;
   border: 1px solid var(--line);
@@ -999,6 +1005,56 @@ table.interlinear th {
 .outline-item .outline-delete-button:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* --- Study export (Pro) -- shared by note items, outline items, and the
+   whole-conversation control in .chat-heading-actions. See app.js's
+   exportControlHtml()/triggerExport(). -------------------------------- */
+
+.export-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.export-format-select {
+  padding: 0.2rem 0.4rem;
+  font-size: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink-soft);
+}
+
+.export-button {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.export-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.export-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.chat-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.conversation-export[hidden] {
+  display: none;
 }
 
 /* --- "Save as outline" (under each assistant chat message) -------------- */
@@ -1308,6 +1364,12 @@ table.interlinear th {
   justify-content: space-between;
   font-size: 0.72rem;
   color: var(--ink-soft);
+}
+
+.note-meta-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .note-delete-button {

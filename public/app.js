@@ -16,6 +16,92 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// --- Study export (a Pro feature -- see README -> Subscription / paid tier,
+// server.js's GET /api/export/:type/:id, lib/export.js) --------------------
+// Shared by the three places a piece of saved content can be exported: a
+// note (below, per .notes-section), a saved outline (the My Outlines
+// section further down), and a full conversation (the chat-heading-row
+// control, wired near the bottom of this file). Each gets the same little
+// "format select + Export button" control (exportControlHtml) so there's one
+// download implementation (triggerExport) instead of three.
+
+const EXPORT_FORMAT_OPTIONS = [
+  { value: "pdf", label: "PDF" },
+  { value: "docx", label: "Word" },
+  { value: "md", label: "Markdown" },
+  { value: "txt", label: "Text" },
+];
+
+function exportControlHtml(type, id) {
+  const options = EXPORT_FORMAT_OPTIONS.map((f) => `<option value="${f.value}">${f.label}</option>`).join("");
+  return `<span class="export-control" data-export-type="${type}" data-export-id="${id}">
+    <select class="export-format-select" aria-label="Export format">${options}</select>
+    <button type="button" class="export-button">Export</button>
+  </span>`;
+}
+
+// Downloads the requested file straight from the button click -- fetch (so
+// the Authorization header can be attached; a plain <a href> can't carry
+// one) into a Blob, then a throwaway <a download> to trigger the browser's
+// normal save behavior, same trick as any client-side file download without
+// a real navigation. Not paid/signed-in gated client-side beyond what
+// app.js's callers already do (an outline/reading-plan-style locked view, or
+// isPaid-hiding for notes -- see below) -- the 403 case is still handled
+// here defensively, since a note's Export control can be present for a
+// free signed-in user for a brief moment before window.adFontesAuth.isPaid
+// is known, or simply if something drifts out of sync.
+async function triggerExport(control) {
+  const { exportType, exportId } = control.dataset;
+  const format = control.querySelector(".export-format-select").value;
+  const button = control.querySelector(".export-button");
+
+  const accessToken = await window.adFontesAuth.getAccessToken();
+  if (!accessToken) return;
+
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = "Exporting…";
+  try {
+    const response = await fetch(`/api/export/${exportType}/${exportId}?format=${format}`, {
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) {
+      const { error } = await response.json().catch(() => ({ error: null }));
+      button.textContent = response.status === 403 ? "Pro feature" : error ? "Export failed" : "Export failed";
+      setTimeout(() => {
+        button.textContent = originalLabel;
+      }, 2500);
+      return;
+    }
+
+    // The filename lib/export.js chose is in Content-Disposition, not
+    // something worth re-deriving client-side -- a quick regex over the
+    // header is simpler and less error-prone than parsing it properly for
+    // what's always a plain quoted filename this server itself generated.
+    const disposition = response.headers.get("content-disposition") ?? "";
+    const match = disposition.match(/filename="([^"]+)"/);
+    const filename = match ? match[1] : `export.${format}`;
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    button.textContent = originalLabel;
+  } catch {
+    button.textContent = "Export failed";
+    setTimeout(() => {
+      button.textContent = originalLabel;
+    }, 2500);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function renderTranslations(translations) {
   if (!translations || translations.length === 0) return "";
   const rows = translations
@@ -151,6 +237,30 @@ const chatInput = document.getElementById("chat-input");
 const chatSendButton = chatForm.querySelector('button[type="submit"]');
 const homeButton = document.getElementById("nav-home-button");
 const homeLink = document.getElementById("home-link");
+const conversationExportContainer = document.getElementById("conversation-export");
+
+// Shows/hides the whole-conversation export control (see the Study export
+// section above) based on current state: there has to be a real, durable
+// conversationId (an anonymous chat, or one whose first reply hasn't come
+// back yet, has nothing a GET /api/export/conversation/:id could fetch) AND
+// the signed-in user has to be paid (window.adFontesAuth.isPaid -- see
+// auth.js's loadPreferences()). Called from every place chatConversationId
+// changes, and exposed for auth.js to call once isPaid itself becomes known
+// (sign-in/out can happen after a conversation's already on screen).
+function updateConversationExportControl() {
+  if (chatConversationId && window.adFontesAuth.isPaid) {
+    conversationExportContainer.innerHTML = exportControlHtml("conversation", chatConversationId);
+    conversationExportContainer.hidden = false;
+  } else {
+    conversationExportContainer.hidden = true;
+    conversationExportContainer.innerHTML = "";
+  }
+}
+
+conversationExportContainer.addEventListener("click", (event) => {
+  const exportButton = event.target.closest(".export-control .export-button");
+  if (exportButton) triggerExport(exportButton.closest(".export-control"));
+});
 
 // The "e.g. John 3:16, or..." hint is only useful before someone's typed
 // their first message — once a conversation is underway, the textarea
@@ -316,11 +426,22 @@ function renderNoteItem(note) {
     day: "numeric",
     year: "numeric",
   });
+  // Export is Pro (see the Study export section above), but notes
+  // themselves are free -- unlike outlines/reading plans, which hide their
+  // whole page behind a locked upsell, a free signed-in user genuinely has
+  // notes to look at here, just not the option to export one. isPaid is
+  // read synchronously off window.adFontesAuth (see auth.js's
+  // loadPreferences()), which is already populated by the time notes load
+  // (both kick off from the same sign-in-state-change handler).
+  const exportHtml = window.adFontesAuth.isPaid ? exportControlHtml("note", note.id) : "";
   return `<li class="note-item" data-note-id="${note.id}">
     <p class="note-body">${escapeHtml(note.body)}</p>
     <div class="note-meta">
       <span>${date}</span>
-      <button type="button" class="note-delete-button" aria-label="Delete note">&times;</button>
+      <span class="note-meta-actions">
+        ${exportHtml}
+        <button type="button" class="note-delete-button" aria-label="Delete note">&times;</button>
+      </span>
     </div>
   </li>`;
 }
@@ -478,6 +599,11 @@ chatLog.addEventListener("click", (event) => {
   const deleteButton = event.target.closest(".note-delete-button");
   if (deleteButton) {
     handleNoteDeleteClick(deleteButton.closest(".note-item"));
+    return;
+  }
+  const exportButton = event.target.closest(".export-control .export-button");
+  if (exportButton) {
+    triggerExport(exportButton.closest(".export-control"));
   }
 });
 
@@ -523,6 +649,7 @@ async function sendChatMessage(message) {
 
     chatSessionId = data.sessionId;
     chatConversationId = data.conversationId ?? null;
+    updateConversationExportControl();
     appendChatMessage("assistant", data.reply);
     appendSources(data.gathered);
     chatLogData.push({ role: "assistant", text: data.reply, gathered: data.gathered ?? null });
@@ -942,7 +1069,10 @@ function renderOutlineItem(outline) {
         <span class="outline-item-meta">${outline.reference ? `${escapeHtml(outline.reference)} &middot; ` : ""}${date}</span>
       </summary>
       <p class="outline-item-body">${escapeHtml(outline.body)}</p>
-      <button type="button" class="outline-delete-button">Delete</button>
+      <div class="outline-item-actions">
+        ${exportControlHtml("outline", outline.id)}
+        <button type="button" class="outline-delete-button">Delete</button>
+      </div>
     </details>
   </li>`;
 }
@@ -984,6 +1114,12 @@ async function loadOutlines() {
 window.adFontesOutlines = { refresh: loadOutlines };
 
 outlinesList.addEventListener("click", async (event) => {
+  const exportButton = event.target.closest(".export-control .export-button");
+  if (exportButton) {
+    triggerExport(exportButton.closest(".export-control"));
+    return;
+  }
+
   const deleteButton = event.target.closest(".outline-delete-button");
   if (!deleteButton) return;
 
@@ -1123,6 +1259,7 @@ function renderChatLog(entries) {
 function startNewConversation() {
   chatSessionId = null;
   chatConversationId = null;
+  updateConversationExportControl();
   chatLogData = [];
   clearChatState();
   chatLog.innerHTML = "";
@@ -1154,6 +1291,7 @@ function restoreChatState() {
 
   chatSessionId = saved.sessionId ?? null;
   chatConversationId = saved.conversationId ?? null;
+  updateConversationExportControl();
   chatLogData = saved.log;
   clearInputPlaceholder(); // restoring a conversation means this isn't a first visit
   renderChatLog(saved.log);
@@ -1180,6 +1318,7 @@ function loadConversation(conversation) {
   // happens with the live session.
   chatSessionId = conversation.id;
   chatConversationId = conversation.id;
+  updateConversationExportControl();
   chatLogData = conversation.renderLog ?? [];
   chatLog.innerHTML = "";
   clearInputPlaceholder();
@@ -1200,6 +1339,11 @@ window.adFontesChat = {
   goToPlans: () => goToPlansView(),
   goToOutlines: () => goToOutlinesView(),
   goToSubscription: () => goToSubscriptionView(),
+  // Called by auth.js once window.adFontesAuth.isPaid is (re-)known --
+  // signing in/out, or the initial page load's loadPreferences() call, can
+  // all happen after a conversation's already on screen (see
+  // restoreChatState(), which runs at load time before isPaid has loaded).
+  refreshConversationExport: updateConversationExportControl,
 };
 
 // IMPORTANT: this replaceState only ever rewrites the *pathname*, never

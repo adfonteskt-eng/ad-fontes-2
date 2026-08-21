@@ -27,6 +27,10 @@
 
 window.adFontesAuth = {
   getAccessToken: async () => null,
+  // Set for real by loadPreferences() once signed in -- see that function
+  // and showSignedOut() below. Defaults to false so a not-yet-loaded or
+  // signed-out state never shows a paid-only control by omission.
+  isPaid: false,
 };
 
 const menuButton = document.getElementById("site-menu-button");
@@ -239,6 +243,12 @@ function showSignedOut() {
   menuRecoverySection.hidden = true;
   resetSignedOutForms();
   maybeShowCallout(false);
+  // Export buttons (see app.js's Study export section) read this to decide
+  // whether to show at all -- signing out should hide them immediately,
+  // same as everything else paid-gated, rather than waiting on the next
+  // loadPreferences() call that will now never come.
+  window.adFontesAuth.isPaid = false;
+  window.adFontesChat?.refreshConversationExport?.();
 }
 
 function showSignedIn(email) {
@@ -381,6 +391,15 @@ async function loadPreferences() {
     });
     if (!response.ok) return;
     const { dailyDigestOptIn, isPaid, agentName } = await response.json();
+
+    // Exposed the same way getAccessToken() is -- app.js's Study export
+    // section (notes can be exported by any signed-in user only once paid,
+    // unlike outlines/reading plans which are hidden entirely behind their
+    // own locked view already) reads this synchronously to decide whether to
+    // show an Export control at all, rather than relying solely on the
+    // server's 403 as the only signal.
+    window.adFontesAuth.isPaid = Boolean(isPaid);
+    window.adFontesChat?.refreshConversationExport?.();
 
     if (digestToggle) {
       settingDigestToggleFromServer = true;

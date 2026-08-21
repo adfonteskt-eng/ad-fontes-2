@@ -9,7 +9,7 @@ A scripture-studying partner. Give it a Bible reference and it prints, in one go
 - A handful of public-domain commentaries on the passage
 - An AI-generated plain-language takeaway and study notes summarizing all of the above
 
-No npm dependencies — `package.json` has none, and every server-side integration (YouVersion, Anthropic, Upstash, Supabase) is plain `fetch` against documented REST APIs. The one exception is the browser: the optional sign-in flow loads the official Supabase client from a CDN (see Accounts & study memory) — the one place hand-rolling it wasn't the right call.
+Nearly no npm dependencies — every server-side *integration* (YouVersion, Anthropic, Upstash, Supabase, Resend) is still plain `fetch` against documented REST APIs, no SDKs. `package.json` has three real dependencies, each a deliberate, narrow exception: `pdfkit` and `docx` (see Study export) generate real PDF/Word files, and `web-push` (see Push notifications) speaks the Web Push protocol's VAPID signing correctly — hand-rolling a correct PDF writer, OOXML writer, or Web Push crypto layer from scratch would be a lot of fragile, security-adjacent code for a problem small, pure-JS, widely-used libraries already solve well. None need native compilation, so they deploy on Render exactly like everything else here. The browser has one more exception: the optional sign-in flow loads the official Supabase client from a CDN (see Accounts & study memory) — the one place hand-rolling it wasn't the right call either.
 
 ## Roadmap
 
@@ -369,8 +369,10 @@ codebase; they're project-level Supabase config.
 
 **Server-side, no SDK.** `lib/supabase.js` talks to Supabase's REST APIs
 directly (Auth REST for `verifyUser()`, PostgREST for everything else) with
-plain `fetch`, the same pattern as `lib/upstash.js` — so server-side code
-stays at zero npm dependencies even with accounts added. Two different
+plain `fetch`, the same pattern as `lib/upstash.js` — no Supabase SDK
+dependency, even with accounts added (see the intro above for the narrow set
+of dependencies this project does carry, none of them Supabase-related). Two
+different
 Supabase API keys are involved and are **not** interchangeable: the
 publishable key (safe to expose to a browser) verifies a user's own token;
 the secret key (server-only, bypasses Row Level Security by design) is what
@@ -497,6 +499,36 @@ instead of an error. `POST /api/outlines` (creating one) is a real
 being paid — the same "you can always clean up your own stuff" reasoning as
 `DELETE /api/notes/:id`.
 
+**Study export (Pro).** Download a saved outline, a note, or a full saved
+conversation as a real file — PDF, Word (`.docx`), Markdown, or plain text.
+`lib/export.js` is the one place any of the three content types turns into
+any of the four formats: `outlineExportModel()`/`noteExportModel()`/
+`conversationExportModel()` each reduce their row into one small shared shape
+(`{ title, meta, blocks }`, `blocks` optionally carrying a speaker `label`
+for a conversation transcript), and the four `render*()` functions only ever
+see that shape — adding a fifth format or a fourth content type never means
+touching the other axis. `GET /api/export/:type/:id?format=pdf|docx|md|txt`
+(`:type` one of `outline`, `note`, `conversation`) is the one route
+(`server.js`'s `handleExport()`) backing all twelve combinations: 401 with no
+`Authorization` header, 403 if signed in but not paid — a real 403, not the
+list endpoints' 200-with-`locked:true` upsell, since there's no meaningful
+"locked" version of a file download — 404 if the id doesn't exist or isn't
+the signed-in user's own (same ownership-via-query-filter pattern as every
+other `get*`/`delete*` in `lib/supabase.js`, via the new `getNote()`/
+`getOutline()` single-row getters that back this alongside the existing
+`getConversation()`). The response sets `Content-Disposition: attachment`
+with a filename slugified from the title, so the browser downloads rather
+than tries to display it inline. A conversation's export doesn't re-embed
+each gathered passage's full translations/original-language/commentary
+payload — just the transcript itself plus a short "Passages referenced: ..."
+line per reply, since that material is always one click away again in-app.
+On the frontend, a small shared "format select + Export button" control
+(`public/app.js`'s `exportControlHtml()`/`triggerExport()`) appears next to
+each outline in **My Outlines**, next to each note (only once
+`window.adFontesAuth.isPaid` is known true — notes themselves stay free, so
+unlike outlines this can't just hide behind an already-locked page), and in
+the heading row while viewing any durable, signed-in, paid conversation.
+
 **Subscription / paid tier.** A free/paid split with no real checkout wired
 up yet — `profiles.is_paid` is a plain boolean, flipped by hand in the
 Supabase dashboard's Table Editor, not by any code path in this app. The
@@ -506,9 +538,9 @@ button — it's a reference page today, not a billing flow. The free tier is
 deliberately narrow: full chat (translations, original-language interlinear,
 commentary), notes on any passage, full-text Bible search, and the daily
 digest email. Everything else is Pro: reading plans, sermon/lesson outline
-mode and My Outlines, the compounding study memory (`search_study_history`
-and `search_my_notes`), and naming your AI agent. Future features get
-sorted into one tier or the other as
+mode and My Outlines, study export, the compounding study memory
+(`search_study_history` and `search_my_notes`), and naming your AI agent.
+Future features get sorted into one tier or the other as
 they're built, not added to this list by default. `GET
 /api/preferences`'s `isPaid` field is what the frontend uses to decide
 whether to show Pro UI (the name-your-agent field, the unlocked Reading
@@ -529,7 +561,7 @@ clears it back to the default persona.
 
 **Setup** (run once): create a free Supabase project, open the SQL Editor,
 paste in and run `supabase/schema.sql` (creates `profiles`/`study_entries`/
-`conversations`/`notes`/`reading_plan_progress`, the
+`conversations`/`notes`/`outlines`/`reading_plan_progress`, the
 `profiles.daily_digest_opt_in`/`is_paid`/`agent_name` columns, and their RLS
 policies — idempotent, safe to re-run), then copy the three values from
 Settings -> API Keys into `.env`. Under **Authentication -> Sign In /
@@ -756,16 +788,17 @@ display elsewhere in the app.
 | `lib/upstash.js` | Shared Upstash Redis REST client (`redisCommand()`, `isRedisConfigured()`) used by both `lib/session-store.js` and `lib/rate-limit.js`. |
 | `lib/daily-passage.js` | `getDailyPassage(date)` — the curated, date-rotating "today's passage" (with a short teaser tag) shown on the homepage. No external calls, no storage. |
 | `lib/bible-books.js` | Canonical 66-book Bible order (Genesis→Revelation, not alphabetical) + lookup helpers, used to sort the previous-conversations menu by book. |
-| `lib/supabase.js` | Server-side Supabase client for accounts: `verifyUser()` (Auth REST); `logStudyEntry()`/`searchStudyHistory()`, `appendToConversation()`/`listConversations()`/`getConversation()`, `createNote()`/`listNotes()`/`deleteNote()`/`searchMyNotes()`, `createOutline()`/`listOutlines()`/`deleteOutline()`, `getDigestOptIn()`/`setDigestOptIn()`/`listDigestOptedInUsers()`, and `getReadingPlanProgress()`/`listReadingPlanProgress()`/`setReadingPlanDayComplete()` (PostgREST). Plain fetch, no SDK — see Accounts & study memory below. |
+| `lib/supabase.js` | Server-side Supabase client for accounts: `verifyUser()` (Auth REST); `logStudyEntry()`/`searchStudyHistory()`, `appendToConversation()`/`listConversations()`/`getConversation()`, `createNote()`/`listNotes()`/`getNote()`/`deleteNote()`/`searchMyNotes()`, `createOutline()`/`listOutlines()`/`getOutline()`/`deleteOutline()`, `getDigestOptIn()`/`setDigestOptIn()`/`listDigestOptedInUsers()`, and `getReadingPlanProgress()`/`listReadingPlanProgress()`/`setReadingPlanDayComplete()` (PostgREST). Plain fetch, no SDK — see Accounts & study memory below. |
+| `lib/export.js` | Study export (Pro): `outlineExportModel()`/`noteExportModel()`/`conversationExportModel()` reduce a row into one shared `{ title, meta, blocks }` shape, `renderAsText()`/`renderAsMarkdown()`/`renderAsPdf()`/`renderAsDocx()` render it, and `exportModel()` ties both together into `{ buffer, filename, contentType }`. See Study export below. One of this project's three real npm dependencies (`pdfkit`, `docx`). |
 | `lib/daily-digest.js` | `sendDailyDigest(opts)` — emails today's featured passage to every opted-in user via Resend's HTTP API. Invoked by `scripts/send-daily-digest.js`, not by any request handler. |
 | `scripts/send-daily-digest.js` | CLI entry point (`npm run digest`) for the daily digest cron job — see `render.yaml`. |
 | `lib/reading-plans.js` | `READING_PLANS` — curated, named, multi-day single-verse reading sequences (with a per-user completion checklist, backed by `reading_plan_progress`), plus `getReadingPlan()`/`isValidPlanDay()` lookup helpers. No external calls, no storage — same pattern as `lib/daily-passage.js`. |
 | `lib/bible-search.js` | `searchBibleText()`/`isBibleTextAvailable()` — full-text keyword search across the whole Bible, indexed from `data/bsb.txt`. See Full-text search below for the licensing reasoning behind sourcing that file independently rather than through the YouVersion API. |
-| `supabase/schema.sql` | The `profiles` (incl. `daily_digest_opt_in`)/`study_entries`/`conversations`/`notes`/`reading_plan_progress` tables + RLS policies. Run once in the Supabase SQL Editor. |
+| `supabase/schema.sql` | The `profiles` (incl. `daily_digest_opt_in`/`is_paid`/`agent_name`)/`study_entries`/`conversations`/`notes`/`outlines`/`reading_plan_progress` tables + RLS policies. Run once in the Supabase SQL Editor. |
 | `lib/interlinear.js` | Greek/Hebrew parsing against the STEPBible data files. Also exports `searchLexicon()` (keyword → Strong's numbers) and `findStrongsOccurrences()` (Strong's number → every tagged verse). |
 | `lib/commentary.js` | biblehub.com scraper. |
 | `lib/fetch-timeout.js` | `fetchWithTimeout()` — shared AbortController-based timeout wrapper used by every external call (YouVersion, biblehub, Anthropic, Upstash). |
 | `index.js` | CLI: calls `gatherPassage()`/`summarizePassage()` and prints the result. |
-| `server.js` | Web API: `/api/passage`, `/api/chat`, `/api/daily`, `/api/config`, `/api/conversations[/:id]`, `/api/notes[/:id]`, `/api/preferences`, `/api/reading-plans[/:id/days/:day]`, plus static file serving. |
+| `server.js` | Web API: `/api/passage`, `/api/chat`, `/api/daily`, `/api/config`, `/api/conversations[/:id]`, `/api/notes[/:id]`, `/api/outlines[/:id]`, `/api/reading-plans[/:id/days/:day]`, `/api/export/:type/:id`, `/api/preferences`, plus static file serving. |
 | `public/` | Website frontend — plain HTML/CSS/JS, no build step. `auth.js` is the one exception to "no dependencies": loads the official Supabase client from a CDN for the sign-in flow (server-side stays dependency-free — see `lib/supabase.js`), and also owns the top-left menu's previous-conversations list. |
 | `scripts/fetch-data.js` | Downloads the STEPBible data files and the Berean Standard Bible full text (`bsb.txt`, for `lib/bible-search.js`) into `data/`. |

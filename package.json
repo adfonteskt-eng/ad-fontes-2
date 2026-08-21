@@ -14,5 +14,10 @@
   },
   "engines": {
     "node": ">=20.12"
+  },
+  "dependencies": {
+    "docx": "^9.7.1",
+    "pdfkit": "^0.19.1",
+    "web-push": "^3.6.7"
   }
 }

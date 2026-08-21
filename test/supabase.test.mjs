@@ -16,10 +16,12 @@ import {
   getConversation,
   createNote,
   listNotes,
+  getNote,
   deleteNote,
   searchMyNotes,
   createOutline,
   listOutlines,
+  getOutline,
   deleteOutline,
   getDigestOptIn,
   setDigestOptIn,
@@ -171,6 +173,11 @@ function stubSupabase({ validToken = "valid-token", user = { id: "user-1", email
       let results = notes.filter((n) => `eq.${n.user_id}` === params.get("user_id"));
       const refFilter = params.get("reference");
       if (refFilter) results = results.filter((n) => `eq.${n.reference}` === refFilter);
+      // getNote (lib/supabase.js) filters by id too -- same shape as the
+      // outlines GET handler below, and same "match real PostgREST filter
+      // combining" reasoning.
+      const idFilter = params.get("id");
+      if (idFilter) results = results.filter((n) => `eq.${n.id}` === idFilter);
       // Same "or" filter shape as study_entries above -- used by
       // searchMyNotes (lib/chat.js's search_my_notes tool), which doesn't
       // pin to one reference the way listNotes does.
@@ -212,6 +219,9 @@ function stubSupabase({ validToken = "valid-token", user = { id: "user-1", email
 
       // GET
       let results = outlines.filter((o) => `eq.${o.user_id}` === params.get("user_id"));
+      // getOutline (lib/supabase.js) filters by id too.
+      const getIdFilter = params.get("id");
+      if (getIdFilter) results = results.filter((o) => `eq.${o.id}` === getIdFilter);
       results = [...results].sort((a, b) => b.created_at.localeCompare(a.created_at));
       return { ok: true, status: 200, text: async () => JSON.stringify(results) };
     }
@@ -563,6 +573,23 @@ test("listNotes scopes to the given user and exact reference, newest first", asy
   assert.ok(results.every((n) => n.body !== "different verse" && n.body !== "someone else's"));
 });
 
+test("getNote returns the row when it belongs to the given user", async () => {
+  const { notes } = stubSupabase();
+  notes.push({ id: 1, user_id: "user-1", reference: "JHN.3.16", body: "mine", created_at: "2026-01-01T00:00:00Z" });
+
+  const note = await getNote("user-1", 1);
+  assert.ok(note);
+  assert.equal(note.body, "mine");
+});
+
+test("getNote returns null for another user's note (ownership scoping) or a nonexistent id", async () => {
+  const { notes } = stubSupabase();
+  notes.push({ id: 1, user_id: "user-2", reference: "JHN.3.16", body: "not yours", created_at: "2026-01-01T00:00:00Z" });
+
+  assert.equal(await getNote("user-1", 1), null);
+  assert.equal(await getNote("user-1", 999), null);
+});
+
 test("deleteNote removes the row and returns true when it belongs to the given user", async () => {
   const { notes } = stubSupabase();
   notes.push({ id: 1, user_id: "user-1", reference: "JHN.3.16", body: "mine", created_at: "2026-01-01T00:00:00Z" });
@@ -672,6 +699,23 @@ test("listOutlines scopes to the given user, newest first, across every referenc
   assert.equal(results.length, 2);
   assert.equal(results[0].title, "newer", "should be newest-first");
   assert.ok(results.every((o) => o.title !== "someone else's"));
+});
+
+test("getOutline returns the row when it belongs to the given user", async () => {
+  const { outlines } = stubSupabase();
+  outlines.push({ id: 1, user_id: "user-1", reference: "JHN.3.16", title: "mine", body: "b", created_at: "2026-01-01T00:00:00Z" });
+
+  const outline = await getOutline("user-1", 1);
+  assert.ok(outline);
+  assert.equal(outline.title, "mine");
+});
+
+test("getOutline returns null for another user's outline (ownership scoping) or a nonexistent id", async () => {
+  const { outlines } = stubSupabase();
+  outlines.push({ id: 1, user_id: "user-2", reference: "JHN.3.16", title: "not yours", body: "b", created_at: "2026-01-01T00:00:00Z" });
+
+  assert.equal(await getOutline("user-1", 1), null);
+  assert.equal(await getOutline("user-1", 999), null);
 });
 
 test("deleteOutline removes the row and returns true when it belongs to the given user", async () => {
