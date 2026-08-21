@@ -59,6 +59,17 @@ services:
       - key: SUPABASE_SECRET_KEY
         sync: false
 
+      # Optional — enables push notifications (see README -> PWA & push
+      # notifications and lib/push.js). Only the public key is needed here
+      # (GET /api/config hands it to the browser to subscribe with) — the
+      # matching private key is only needed by the ad-fontes-daily-push cron
+      # service below, which is what actually sends. Without this, GET
+      # /api/config reports vapidPublicKey: null and the "Notify me on this
+      # device" toggle in the account menu stays hidden. Generate a pair
+      # with `npx web-push generate-vapid-keys` (see .env.example).
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+
       # Optional tuning — safe to leave unset and use the code defaults.
       # Uncomment (and remove sync: false) to pin a value here instead of
       # setting it in the dashboard.
@@ -122,5 +133,52 @@ services:
       # Optional — defaults to https://adfontes.site if unset (see
       # lib/daily-digest.js). Only needed if this ever runs against a
       # different deployment.
+      # - key: PUBLIC_SITE_URL
+      #   value: https://adfontes.site
+
+  # Sends push notifications (see README -> PWA & push notifications and
+  # lib/push.js): the daily-passage push to every device with notifications
+  # on, plus the reading-plan-reminder push to opted-in paid users with an
+  # unfinished plan. Same "separate cron service, same repo/build, own
+  # schedule" shape as ad-fontes-daily-digest above, and the same real-but-
+  # tiny Cron Job compute cost reasoning (see that service's own comment) —
+  # nothing here requires leaving the free Hobby workspace plan either.
+  - type: cron
+    name: ad-fontes-daily-push
+    runtime: node
+    plan: starter
+    region: oregon
+    branch: main
+    buildCommand: npm install
+    startCommand: npm run push
+    # Same time as the email digest — arbitrary, adjust to taste. There's no
+    # requirement these two cron services fire together; they're independent
+    # channels for (mostly) the same "today's passage" content.
+    schedule: "0 12 * * *"
+    envVars:
+      - key: NODE_VERSION
+        value: 20.12.0
+
+      # Required for this service specifically (see .env.example for how to
+      # generate these). Without them, `npm run push` exits nonzero.
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
+
+      # Required — this job needs Supabase to know who has push
+      # subscriptions and who's opted into reading-plan reminders, same
+      # values as the other services (Render doesn't share env vars between
+      # services, so these have to be entered again here too).
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+
+      # Optional — same default/override reasoning as the digest cron above.
       # - key: PUBLIC_SITE_URL
       #   value: https://adfontes.site

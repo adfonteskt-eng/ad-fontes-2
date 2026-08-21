@@ -10,6 +10,7 @@
     "web": "node server.js",
     "fetch-data": "node scripts/fetch-data.js",
     "digest": "node scripts/send-daily-digest.js",
+    "push": "node scripts/send-daily-push.js",
     "test": "node --test"
   },
   "engines": {

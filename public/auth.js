@@ -41,6 +41,10 @@ const menuRecoverySection = document.getElementById("menu-recovery");
 const userEmailLabel = document.getElementById("auth-user-email");
 const signoutButton = document.getElementById("auth-signout");
 const digestToggle = document.getElementById("auth-digest-optin");
+const pushToggle = document.getElementById("auth-push-optin");
+const pushUnsupportedNote = document.getElementById("auth-push-unsupported");
+const readingPlanRemindersRow = document.getElementById("auth-reading-plan-reminders-row");
+const readingPlanRemindersToggle = document.getElementById("auth-reading-plan-reminders-optin");
 
 // Signed-out: the initial choice, and the three forms it can reveal.
 const authChoiceButtons = document.getElementById("auth-choice-buttons");
@@ -380,6 +384,19 @@ async function loadConversation(id) {
 // look indistinguishable from the user unchecking it, and re-save the same
 // value right back (harmless, but a needless request every page load).
 let settingDigestToggleFromServer = false;
+// Same reasoning, for the reading-plan-reminders checkbox (see the Push
+// notifications section further down).
+let settingReadingPlanRemindersToggleFromServer = false;
+
+// The reading-plan-reminders row only makes sense once push is actually on
+// for this device AND the account is paid (reading plans are Pro) -- called
+// from loadPreferences() (isPaid just became known) and from the push
+// toggle's own change handler (push just turned on/off), since either one
+// changing can flip whether this row should show.
+function updateReadingPlanRemindersVisibility() {
+  if (!readingPlanRemindersRow) return;
+  readingPlanRemindersRow.hidden = !(pushToggle?.checked && window.adFontesAuth.isPaid);
+}
 
 async function loadPreferences() {
   const token = await window.adFontesAuth.getAccessToken();
@@ -390,7 +407,7 @@ async function loadPreferences() {
       headers: { authorization: `Bearer ${token}` },
     });
     if (!response.ok) return;
-    const { dailyDigestOptIn, isPaid, agentName } = await response.json();
+    const { dailyDigestOptIn, isPaid, agentName, readingPlanRemindersOptIn } = await response.json();
 
     // Exposed the same way getAccessToken() is -- app.js's Study export
     // section (notes can be exported by any signed-in user only once paid,
@@ -406,6 +423,13 @@ async function loadPreferences() {
       digestToggle.checked = Boolean(dailyDigestOptIn);
       settingDigestToggleFromServer = false;
     }
+
+    if (readingPlanRemindersToggle) {
+      settingReadingPlanRemindersToggleFromServer = true;
+      readingPlanRemindersToggle.checked = Boolean(readingPlanRemindersOptIn);
+      settingReadingPlanRemindersToggleFromServer = false;
+    }
+    updateReadingPlanRemindersVisibility();
 
     if (agentNameField && agentNameUpsell) {
       agentNameField.hidden = !isPaid;
@@ -438,6 +462,26 @@ if (digestToggle) {
       }
     } catch {
       digestToggle.checked = !desired;
+    }
+  });
+}
+
+if (readingPlanRemindersToggle) {
+  readingPlanRemindersToggle.addEventListener("change", async () => {
+    if (settingReadingPlanRemindersToggleFromServer) return;
+    const token = await window.adFontesAuth.getAccessToken();
+    if (!token) return;
+
+    const desired = readingPlanRemindersToggle.checked;
+    try {
+      const response = await fetch("/api/preferences", {
+        method: "PUT",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ readingPlanRemindersOptIn: desired }),
+      });
+      if (!response.ok) readingPlanRemindersToggle.checked = !desired;
+    } catch {
+      readingPlanRemindersToggle.checked = !desired;
     }
   });
 }
@@ -477,6 +521,142 @@ function setConversationsSort(sort) {
 sortRecentButton.addEventListener("click", () => setConversationsSort("recent"));
 sortBookButton.addEventListener("click", () => setConversationsSort("book"));
 
+// --- Push notifications (see README -> PWA & push notifications) -----------
+// Free for any signed-in account, one subscription per device/browser --
+// public/sw.js is the piece that actually receives a push and shows the
+// notification; this is just the subscribe/unsubscribe UI and the
+// GET/POST/DELETE calls that keep server.js's push_subscriptions table in
+// sync with what the browser's PushManager actually has. Wired from inside
+// initAuth() (below), once config.vapidPublicKey and getAccessToken are
+// both known, rather than at module load like the digest toggle -- unlike
+// dailyDigestOptIn, subscribing needs the VAPID public key from GET
+// /api/config, and there's a real "browser doesn't support this at all"
+// case (pushUnsupportedNote) that has nothing to do with sign-in.
+
+// A PushManager subscribe() call needs the VAPID public key as a raw
+// Uint8Array, not the base64url string GET /api/config hands back --
+// this is the standard conversion (see MDN's Web Push guide), not anything
+// specific to this app.
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+}
+
+// Guards the push toggle the same way settingDigestToggleFromServer guards
+// the digest one -- set while refreshPushToggleState() below reflects the
+// browser's actual subscription state into the checkbox, so that doesn't
+// itself trigger a subscribe/unsubscribe round trip.
+let settingPushToggleFromServer = false;
+
+async function setupPush(config) {
+  if (!pushToggle) return;
+
+  if (!config.vapidPublicKey) {
+    // Push isn't configured on the server at all (no VAPID_* env vars --
+    // see lib/push.js) -- hide the feature entirely rather than showing a
+    // toggle that could never actually do anything.
+    pushToggle.closest("label")?.setAttribute("hidden", "");
+    return;
+  }
+
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    pushToggle.closest("label")?.setAttribute("hidden", "");
+    if (pushUnsupportedNote) pushUnsupportedNote.hidden = false;
+    return;
+  }
+
+  let registration;
+  try {
+    registration = await navigator.serviceWorker.register("/sw.js");
+  } catch (error) {
+    console.warn("Service worker registration failed; push notifications are unavailable this session.", error.message);
+    pushToggle.closest("label")?.setAttribute("hidden", "");
+    return;
+  }
+
+  async function subscribe() {
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(config.vapidPublicKey),
+    });
+    const token = await window.adFontesAuth.getAccessToken();
+    if (!token) return false;
+    const response = await fetch("/api/push/subscribe", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ subscription: subscription.toJSON() }),
+    });
+    return response.ok;
+  }
+
+  async function unsubscribe() {
+    const subscription = await registration.pushManager.getSubscription();
+    if (!subscription) return;
+    const endpoint = subscription.endpoint;
+    await subscription.unsubscribe();
+    const token = await window.adFontesAuth.getAccessToken();
+    if (!token) return;
+    await fetch(`/api/push/subscribe?endpoint=${encodeURIComponent(endpoint)}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${token}` },
+    }).catch(() => {
+      // The subscription is already gone from the browser's own PushManager
+      // either way (unsubscribe() above already succeeded) -- a failure to
+      // also clean up the server-side row just means lib/push.js finds out
+      // the same way it would for any other dead subscription: the next
+      // send to it comes back 404/410 and gets deleted then (see
+      // lib/push.js's sendPushToSubscription).
+    });
+  }
+
+  // Reflects the browser's real subscription state into the checkbox --
+  // called on load (below) and whenever sign-in state changes, since
+  // "signed in on this device" and "subscribed to push" are independent
+  // facts that can each change without the other (e.g. signing out doesn't
+  // itself unsubscribe this device).
+  async function refreshPushToggleState() {
+    try {
+      const subscription = await registration.pushManager.getSubscription();
+      settingPushToggleFromServer = true;
+      pushToggle.checked = Boolean(subscription);
+      settingPushToggleFromServer = false;
+    } catch {
+      // Leave the checkbox as-is -- same "fail silently" spirit as
+      // loadPreferences().
+    }
+    updateReadingPlanRemindersVisibility();
+  }
+
+  pushToggle.addEventListener("change", async () => {
+    if (settingPushToggleFromServer) return;
+    const desired = pushToggle.checked;
+    pushToggle.disabled = true;
+    try {
+      if (desired) {
+        if (Notification.permission === "denied") {
+          alert("Notifications are blocked for this site in your browser's settings.");
+          pushToggle.checked = false;
+        } else {
+          const permission = await Notification.requestPermission();
+          pushToggle.checked = permission === "granted" && (await subscribe());
+        }
+      } else {
+        await unsubscribe();
+      }
+    } catch (error) {
+      console.error("Push subscribe/unsubscribe failed:", error.message);
+      pushToggle.checked = !desired;
+    } finally {
+      pushToggle.disabled = false;
+      updateReadingPlanRemindersVisibility();
+    }
+  });
+
+  await refreshPushToggleState();
+}
+
 // --- Setup ------------------------------------------------------------------
 
 async function initAuth() {
@@ -505,6 +685,8 @@ async function initAuth() {
     } = await client.auth.getSession();
     return session?.access_token ?? null;
   };
+
+  setupPush(config); // not awaited -- registering the service worker and reading the browser's current subscription shouldn't hold up the rest of sign-in setup below
 
   // True from the moment a recovery link is detected (either the upfront
   // URL check below, or Supabase's own PASSWORD_RECOVERY event) until the

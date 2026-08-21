@@ -55,6 +55,10 @@ test("GET /api/config echoes the public Supabase URL and publishable key when co
   assert.deepEqual(data, {
     supabaseUrl: "https://fake-project.supabase.co",
     supabasePublishableKey: "sb_publishable_fake",
+    // No VAPID_* env vars set for this spawned instance -- see the "before"
+    // hook above -- so push stays unconfigured here same as it does for
+    // every other server.test.mjs-family instance.
+    vapidPublicKey: null,
   });
 });
 

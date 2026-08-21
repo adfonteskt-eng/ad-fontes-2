@@ -10,6 +10,10 @@
   <meta property="og:type" content="website" />
   <meta name="theme-color" content="#f3ebd6" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <!-- Makes the site installable as a PWA (see public/manifest.json,
+       public/sw.js, and README -> PWA & push notifications). -->
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -130,6 +134,31 @@
           <label class="menu-digest-toggle">
             <input type="checkbox" id="auth-digest-optin" />
             Email me today's passage
+          </label>
+
+          <!-- Push notifications (see README -> PWA & push notifications) --
+               free for any signed-in account, one subscription per device.
+               Checking this requests the browser's notification permission
+               and subscribes this device; unchecking removes that
+               subscription. Having one at all is what makes this account
+               eligible for the daily-passage push -- no separate opt-in for
+               that one, unlike the reading-plan-reminders checkbox below,
+               which only ever shows once this is on. -->
+          <label class="menu-digest-toggle">
+            <input type="checkbox" id="auth-push-optin" />
+            Notify me on this device
+          </label>
+          <p id="auth-push-unsupported" class="menu-note" hidden>
+            This browser doesn't support push notifications.
+          </p>
+
+          <!-- Paid-only, and only shown once push is actually on above --
+               reading plans are Pro (see README -> Subscription / paid
+               tier), and a reminder push is meaningless without a device
+               subscribed to receive it. -->
+          <label class="menu-digest-toggle" id="auth-reading-plan-reminders-row" hidden>
+            <input type="checkbox" id="auth-reading-plan-reminders-optin" />
+            Remind me about unfinished reading plans
           </label>
 
           <!-- Paid-only: name your agent (see README -> Subscription /
@@ -306,6 +335,7 @@
             <li>Notes on any passage</li>
             <li>Full-text Bible search</li>
             <li>Daily passage email</li>
+            <li>Install as an app, with push notifications</li>
           </ul>
         </div>
         <div class="subscription-plan subscription-plan-paid">
@@ -313,7 +343,7 @@
           <p class="subscription-price">Pricing coming soon</p>
           <ul>
             <li>Everything in Free</li>
-            <li>Reading plans with progress tracking</li>
+            <li>Reading plans with progress tracking, plus optional reminder notifications</li>
             <li>Sermon &amp; lesson outlines, saved to your own library</li>
             <li>Export any outline, note, or conversation as PDF, Word, Markdown, or text</li>
             <li>Compounding study memory — your agent recalls what you've studied and written across past conversations</li>

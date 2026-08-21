@@ -536,9 +536,10 @@ Supabase dashboard's Table Editor, not by any code path in this app. The
 tiers, with a "pricing coming soon" placeholder and no working "upgrade"
 button — it's a reference page today, not a billing flow. The free tier is
 deliberately narrow: full chat (translations, original-language interlinear,
-commentary), notes on any passage, full-text Bible search, and the daily
-digest email. Everything else is Pro: reading plans, sermon/lesson outline
-mode and My Outlines, study export, the compounding study memory
+commentary), notes on any passage, full-text Bible search, the daily digest
+email, and installing the site as a PWA with push notifications. Everything
+else is Pro: reading plans (plus their optional reminder push), sermon/lesson
+outline mode and My Outlines, study export, the compounding study memory
 (`search_study_history` and `search_my_notes`), and naming your AI agent.
 Future features get sorted into one tier or the other as
 they're built, not added to this list by default. `GET
@@ -559,11 +560,59 @@ returns 403 — enforced server-side in `server.js`, not just hidden in the
 UI, so it can't be set by a direct API request either. An empty string
 clears it back to the default persona.
 
+**PWA & push notifications (free tier).** The site installs like a native
+app (`public/manifest.json`, `public/sw.js`, registered unconditionally in
+`public/app.js` so this works even for a signed-out visitor or without
+Supabase configured at all) and, for a signed-in account, can send real
+push notifications through the browser's Push API. Requires being signed
+in — same "just requires an account, not a paid one" bar as notes — because
+a push subscription is tied to `push_subscriptions.user_id`
+(`supabase/schema.sql`), one row per device (a phone and a laptop with
+notifications on are two separate rows). There are two kinds of push,
+deliberately collapsed from three in the original feature list (a daily-
+passage reminder and a "check in" digest push would have been identical
+content on the same schedule in this app today, so they're sent as one):
+
+- **Daily-passage push** — non-opt-in: having a `push_subscriptions` row at
+  all (from checking "Notify me on this device" in the account menu, which
+  requests the browser's notification permission and calls
+  `pushManager.subscribe()`) is what makes an account eligible, no separate
+  toggle. Sent to every subscription across every user by
+  `lib/push.js`'s `sendDailyPassagePush()`.
+- **Reading-plan-reminder push** — opt-in, and Pro-gated (reading plans
+  themselves are Pro): a second checkbox, "Remind me about unfinished
+  reading plans," only shown once push is on *and* the account is paid,
+  backed by `profiles.reading_plan_reminders_opt_in` and
+  `PUT /api/preferences { readingPlanRemindersOptIn }` (403 on a non-paid
+  account, same pattern as `agentName`). `lib/push.js`'s
+  `sendReadingPlanReminderPush()` sends only to opted-in users who have a
+  started-but-unfinished plan and at least one subscribed device, reminding
+  about the first unfinished plan found (`READING_PLANS`'s own order) so
+  it's at most one push per user per day even with multiple plans in
+  progress.
+
+Both are sent once a day by `scripts/send-daily-push.js` (`npm run push`),
+its own Render Cron Job (`ad-fontes-daily-push` in `render.yaml`) — a
+separate service from `ad-fontes-daily-digest`, since push and email are
+independent channels for mostly the same content, not because they're
+related jobs. Uses the `web-push` package (see the README intro's
+dependencies paragraph) for VAPID request signing and RFC 8291 payload
+encryption; `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT`
+(generate a pair with `npx web-push generate-vapid-keys` — see
+`.env.example`) configure it. The public key alone also needs to be set on
+the *web* service (`GET /api/config`'s `vapidPublicKey` field is what the
+browser subscribes with) — the private key only needs to live where
+`npm run push` actually runs. A subscription that comes back 404/410 from
+a send (the browser unsubscribed, uninstalled, or the endpoint otherwise
+expired) is deleted automatically rather than retried forever — see
+`lib/push.js`'s `sendPushToSubscription()`.
+
 **Setup** (run once): create a free Supabase project, open the SQL Editor,
 paste in and run `supabase/schema.sql` (creates `profiles`/`study_entries`/
-`conversations`/`notes`/`outlines`/`reading_plan_progress`, the
-`profiles.daily_digest_opt_in`/`is_paid`/`agent_name` columns, and their RLS
-policies — idempotent, safe to re-run), then copy the three values from
+`conversations`/`notes`/`outlines`/`reading_plan_progress`/`push_subscriptions`,
+the `profiles.daily_digest_opt_in`/`is_paid`/`agent_name`/
+`reading_plan_reminders_opt_in` columns, and their RLS policies —
+idempotent, safe to re-run), then copy the three values from
 Settings -> API Keys into `.env`. Under **Authentication -> Sign In /
 Providers -> Email**, make sure **Confirm email** is switched on.
 
@@ -790,6 +839,9 @@ display elsewhere in the app.
 | `lib/bible-books.js` | Canonical 66-book Bible order (Genesis→Revelation, not alphabetical) + lookup helpers, used to sort the previous-conversations menu by book. |
 | `lib/supabase.js` | Server-side Supabase client for accounts: `verifyUser()` (Auth REST); `logStudyEntry()`/`searchStudyHistory()`, `appendToConversation()`/`listConversations()`/`getConversation()`, `createNote()`/`listNotes()`/`getNote()`/`deleteNote()`/`searchMyNotes()`, `createOutline()`/`listOutlines()`/`getOutline()`/`deleteOutline()`, `getDigestOptIn()`/`setDigestOptIn()`/`listDigestOptedInUsers()`, and `getReadingPlanProgress()`/`listReadingPlanProgress()`/`setReadingPlanDayComplete()` (PostgREST). Plain fetch, no SDK — see Accounts & study memory below. |
 | `lib/export.js` | Study export (Pro): `outlineExportModel()`/`noteExportModel()`/`conversationExportModel()` reduce a row into one shared `{ title, meta, blocks }` shape, `renderAsText()`/`renderAsMarkdown()`/`renderAsPdf()`/`renderAsDocx()` render it, and `exportModel()` ties both together into `{ buffer, filename, contentType }`. See Study export below. One of this project's three real npm dependencies (`pdfkit`, `docx`). |
+| `lib/push.js` | Push notifications (free tier): `sendPushToSubscription()` (one device), `sendDailyPassagePush()`/`sendReadingPlanReminderPush()` (a scheduled job's worth of orchestration, mirroring lib/daily-digest.js's shape). Invoked by `scripts/send-daily-push.js`, not by any request handler. Uses the `web-push` package — the third of this project's three real npm dependencies. See PWA & push notifications below. |
+| `scripts/send-daily-push.js` | CLI entry point (`npm run push`) for the daily push cron job — see `render.yaml`. |
+| `public/manifest.json`, `public/sw.js` | PWA install support + the push/notificationclick service worker handlers. See PWA & push notifications below. |
 | `lib/daily-digest.js` | `sendDailyDigest(opts)` — emails today's featured passage to every opted-in user via Resend's HTTP API. Invoked by `scripts/send-daily-digest.js`, not by any request handler. |
 | `scripts/send-daily-digest.js` | CLI entry point (`npm run digest`) for the daily digest cron job — see `render.yaml`. |
 | `lib/reading-plans.js` | `READING_PLANS` — curated, named, multi-day single-verse reading sequences (with a per-user completion checklist, backed by `reading_plan_progress`), plus `getReadingPlan()`/`isValidPlanDay()` lookup helpers. No external calls, no storage — same pattern as `lib/daily-passage.js`. |
@@ -799,6 +851,6 @@ display elsewhere in the app.
 | `lib/commentary.js` | biblehub.com scraper. |
 | `lib/fetch-timeout.js` | `fetchWithTimeout()` — shared AbortController-based timeout wrapper used by every external call (YouVersion, biblehub, Anthropic, Upstash). |
 | `index.js` | CLI: calls `gatherPassage()`/`summarizePassage()` and prints the result. |
-| `server.js` | Web API: `/api/passage`, `/api/chat`, `/api/daily`, `/api/config`, `/api/conversations[/:id]`, `/api/notes[/:id]`, `/api/outlines[/:id]`, `/api/reading-plans[/:id/days/:day]`, `/api/export/:type/:id`, `/api/preferences`, plus static file serving. |
+| `server.js` | Web API: `/api/passage`, `/api/chat`, `/api/daily`, `/api/config`, `/api/conversations[/:id]`, `/api/notes[/:id]`, `/api/outlines[/:id]`, `/api/reading-plans[/:id/days/:day]`, `/api/export/:type/:id`, `/api/push/subscribe`, `/api/preferences`, plus static file serving. |
 | `public/` | Website frontend — plain HTML/CSS/JS, no build step. `auth.js` is the one exception to "no dependencies": loads the official Supabase client from a CDN for the sign-in flow (server-side stays dependency-free — see `lib/supabase.js`), and also owns the top-left menu's previous-conversations list. |
 | `scripts/fetch-data.js` | Downloads the STEPBible data files and the Berean Standard Bible full text (`bsb.txt`, for `lib/bible-search.js`) into `data/`. |

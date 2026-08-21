@@ -1,0 +1,14 @@
+{
+  "name": "ad fontes — a scripture study partner",
+  "short_name": "ad fontes",
+  "description": "Ask about any Bible passage and get translations, the original Greek or Hebrew word-by-word, and public-domain commentary alongside a conversational answer.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f3ebd6",
+  "theme_color": "#f3ebd6",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

@@ -10,6 +10,20 @@
 // pages — there's nothing here that needs a real server round-trip to
 // switch between them.
 
+// PWA install support (see README -> PWA & push notifications,
+// public/manifest.json, public/sw.js) -- registered here, unconditionally,
+// independent of whether Supabase is even configured, so the site stays
+// installable for a signed-out visitor too. auth.js's setupPush() also
+// registers the same script URL once push-specific setup runs (only
+// possible once Supabase is configured and it knows the VAPID public key) --
+// calling register() twice for the same script is harmless and idempotent,
+// the browser just returns the existing registration the second time.
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch((error) => {
+    console.warn("Service worker registration failed; the site will still work, just not as an installable app.", error.message);
+  });
+}
+
 function escapeHtml(text) {
   const div = document.createElement("div");
   div.textContent = text ?? "";

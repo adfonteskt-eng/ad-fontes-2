@@ -117,7 +117,7 @@ test("GET /api/config reports Supabase as unconfigured when no env vars are set"
   const response = await fetch(BASE_URL + "/api/config");
   assert.equal(response.status, 200);
   const data = await response.json();
-  assert.deepEqual(data, { supabaseUrl: null, supabasePublishableKey: null });
+  assert.deepEqual(data, { supabaseUrl: null, supabasePublishableKey: null, vapidPublicKey: null });
 });
 
 test("POST /api/chat with a garbage Authorization header still behaves like an anonymous request", async () => {
@@ -294,6 +294,22 @@ test("GET /api/export/bogus-type/1?format=pdf doesn't match the export route (fa
   // id-shape tests above.
   const response = await fetch(BASE_URL + "/api/export/bogus-type/1?format=pdf");
   assert.equal(response.status, 404);
+});
+
+test("POST /api/push/subscribe with no Authorization header returns 401", async () => {
+  const response = await fetch(BASE_URL + "/api/push/subscribe", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ subscription: { endpoint: "https://push.example.com/x", keys: { p256dh: "k", auth: "a" } } }),
+  });
+  assert.equal(response.status, 401);
+});
+
+test("DELETE /api/push/subscribe with no Authorization header returns 401", async () => {
+  const response = await fetch(BASE_URL + "/api/push/subscribe?endpoint=https://push.example.com/x", {
+    method: "DELETE",
+  });
+  assert.equal(response.status, 401);
 });
 
 test("GET /api/preferences with no Authorization header returns 401", async () => {

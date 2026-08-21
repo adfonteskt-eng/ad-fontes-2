@@ -55,11 +55,29 @@
 //   to show the "name your agent" field or its upsell. Requires a valid
 //   Authorization header — 401 without one.
 //
-// PUT /api/preferences { dailyDigestOptIn?: boolean, agentName?: string } ->
-//   the full preferences object, same shape as GET. Provide either or both
-//   fields — each present field is saved, absent ones are left alone (a
-//   400 if neither is present). Setting agentName on a non-paid account
-//   returns 403. Requires a valid Authorization header — 401 without one.
+// PUT /api/preferences { dailyDigestOptIn?: boolean, agentName?: string,
+//   readingPlanRemindersOptIn?: boolean } -> the full preferences object,
+//   same shape as GET. Provide any subset of fields — each present field is
+//   saved, absent ones are left alone (a 400 if none are present). Setting
+//   agentName or readingPlanRemindersOptIn on a non-paid account returns
+//   403 (dailyDigestOptIn has no such restriction — the email digest is
+//   free). Requires a valid Authorization header — 401 without one.
+//
+// Push notifications are a free-tier feature (see README -> PWA & push
+// notifications) -- the daily-passage push goes to anyone with an active
+// subscription (subscribing at all is the opt-in); a separate, explicit
+// preference (readingPlanRemindersOptIn above) gates the reading-plan
+// reminder push, since reading plans themselves are Pro.
+//
+// POST /api/push/subscribe { subscription: { endpoint, keys: { p256dh,
+//   auth } } } -> 201 with { id, endpoint, createdAt } once stored (an
+//   upsert -- re-subscribing the same device updates its keys rather than
+//   erroring). Requires a valid Authorization header -- 401 without one;
+//   push, like notes, doesn't require being paid, just signed in.
+//
+// DELETE /api/push/subscribe?endpoint=<url> -> 204 on success, 404 if that
+//   endpoint isn't one of the signed-in user's own subscriptions. Requires
+//   a valid Authorization header -- 401 without one.
 //
 // Reading plans are a Pro feature (see README -> Subscription / paid tier).
 //
@@ -152,13 +170,16 @@ import { summarizePassage } from "./lib/summarize.js";
 import {
   createNote,
   createOutline,
+  createPushSubscription,
   deleteNote,
   deleteOutline,
+  deletePushSubscription,
   getConversation,
   getDigestOptIn,
   getNote,
   getOutline,
   getPaidProfile,
+  getReadingPlanReminderOptIn,
   listConversations,
   listNotes,
   listOutlines,
@@ -166,6 +187,7 @@ import {
   setAgentName,
   setDigestOptIn,
   setReadingPlanDayComplete,
+  setReadingPlanReminderOptIn,
   verifyUser,
 } from "./lib/supabase.js";
 
@@ -249,6 +271,11 @@ function handleConfig(res) {
     // an empty string as falsy via Boolean(...).
     supabaseUrl: process.env.SUPABASE_URL || null,
     supabasePublishableKey: process.env.SUPABASE_PUBLISHABLE_KEY || null,
+    // Safe to expose -- a VAPID public key is, by design, the one half of
+    // the pair meant to travel to the browser (pushManager.subscribe()'s
+    // applicationServerKey). The matching private key never leaves the
+    // server -- see lib/push.js.
+    vapidPublicKey: process.env.VAPID_PUBLIC_KEY || null,
   });
 }
 
@@ -659,6 +686,56 @@ async function handleExport(req, res, type, id, searchParams) {
   res.end(buffer);
 }
 
+// Push notifications (see README -> PWA & push notifications). Free tier --
+// unlike outlines/export, there's no paid check here at all: subscribing is
+// the same "just requires being signed in" bar as creating a note.
+async function handleSubscribePush(req, res) {
+  const user = await requireUser(req, res);
+  if (!user) return;
+
+  let body;
+  try {
+    body = await readJsonBody(req, { maxBytes: MAX_CHAT_BODY_BYTES });
+  } catch (error) {
+    sendJson(res, error.status ?? 400, { error: error.message });
+    return;
+  }
+
+  const subscription = body.subscription;
+  const endpoint = typeof subscription?.endpoint === "string" ? subscription.endpoint.trim() : "";
+  const p256dh = typeof subscription?.keys?.p256dh === "string" ? subscription.keys.p256dh : "";
+  const auth = typeof subscription?.keys?.auth === "string" ? subscription.keys.auth : "";
+
+  if (!endpoint || !p256dh || !auth) {
+    sendJson(res, 400, {
+      error: "Missing required field: subscription.{endpoint, keys.p256dh, keys.auth} (the object PushSubscription.toJSON() returns).",
+    });
+    return;
+  }
+
+  const row = await createPushSubscription(user.id, { endpoint, p256dh, auth });
+  sendJson(res, 201, { id: row.id, endpoint: row.endpoint, createdAt: row.created_at });
+}
+
+async function handleUnsubscribePush(req, res, searchParams) {
+  const user = await requireUser(req, res);
+  if (!user) return;
+
+  const endpoint = searchParams.get("endpoint");
+  if (!endpoint) {
+    sendJson(res, 400, { error: "Missing required query param: endpoint." });
+    return;
+  }
+
+  const deleted = await deletePushSubscription(user.id, endpoint);
+  if (!deleted) {
+    sendJson(res, 404, { error: "Push subscription not found." });
+    return;
+  }
+  res.writeHead(204);
+  res.end();
+}
+
 // A cosmetic display name, not a real identity field -- generous but bounded
 // (matches the frontend's own maxlength=40 on the input -- see
 // public/index.html -- this is the server-side backstop, not the primary
@@ -669,11 +746,12 @@ async function handleGetPreferences(req, res) {
   const user = await requireUser(req, res);
   if (!user) return;
 
-  const [dailyDigestOptIn, { isPaid, agentName }] = await Promise.all([
+  const [dailyDigestOptIn, { isPaid, agentName }, readingPlanRemindersOptIn] = await Promise.all([
     getDigestOptIn(user.id),
     getPaidProfile(user.id),
+    getReadingPlanReminderOptIn(user.id),
   ]);
-  sendJson(res, 200, { dailyDigestOptIn, isPaid, agentName });
+  sendJson(res, 200, { dailyDigestOptIn, isPaid, agentName, readingPlanRemindersOptIn });
 }
 
 // PUT replaces whichever of the known preference fields are present in the
@@ -699,8 +777,9 @@ async function handleSetPreferences(req, res) {
 
   const hasDigestField = Object.prototype.hasOwnProperty.call(body, "dailyDigestOptIn");
   const hasAgentNameField = Object.prototype.hasOwnProperty.call(body, "agentName");
-  if (!hasDigestField && !hasAgentNameField) {
-    sendJson(res, 400, { error: "Provide at least one of: dailyDigestOptIn, agentName." });
+  const hasReadingPlanRemindersField = Object.prototype.hasOwnProperty.call(body, "readingPlanRemindersOptIn");
+  if (!hasDigestField && !hasAgentNameField && !hasReadingPlanRemindersField) {
+    sendJson(res, 400, { error: "Provide at least one of: dailyDigestOptIn, agentName, readingPlanRemindersOptIn." });
     return;
   }
 
@@ -733,11 +812,31 @@ async function handleSetPreferences(req, res) {
     await setAgentName(user.id, agentName);
   }
 
-  const [dailyDigestOptIn, { isPaid, agentName }] = await Promise.all([
+  if (hasReadingPlanRemindersField) {
+    if (typeof body.readingPlanRemindersOptIn !== "boolean") {
+      sendJson(res, 400, { error: "Invalid field: readingPlanRemindersOptIn (must be true or false)." });
+      return;
+    }
+    // Reading plans themselves are Pro (see README -> Subscription / paid
+    // tier) -- gating the reminder toggle the same way as agentName keeps a
+    // free account from being able to flip on a preference that could never
+    // actually fire (lib/push.js's sendReadingPlanReminderPush only ever
+    // finds candidates among paid accounts to begin with, but there's no
+    // reason to let the toggle itself pretend otherwise).
+    const { isPaid: isPaidForReminders } = await getPaidProfile(user.id);
+    if (!isPaidForReminders) {
+      sendJson(res, 403, { error: "Reading plan reminders are a Pro feature. See the Subscription page." });
+      return;
+    }
+    await setReadingPlanReminderOptIn(user.id, body.readingPlanRemindersOptIn);
+  }
+
+  const [dailyDigestOptIn, { isPaid, agentName }, readingPlanRemindersOptIn] = await Promise.all([
     getDigestOptIn(user.id),
     getPaidProfile(user.id),
+    getReadingPlanReminderOptIn(user.id),
   ]);
-  sendJson(res, 200, { dailyDigestOptIn, isPaid, agentName });
+  sendJson(res, 200, { dailyDigestOptIn, isPaid, agentName, readingPlanRemindersOptIn });
 }
 
 async function handlePassage(req, res, searchParams) {
@@ -999,6 +1098,14 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "PUT" && url.pathname === "/api/preferences") {
       await handleSetPreferences(req, res);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/push/subscribe") {
+      await handleSubscribePush(req, res);
+      return;
+    }
+    if (req.method === "DELETE" && url.pathname === "/api/push/subscribe") {
+      await handleUnsubscribePush(req, res, url.searchParams);
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/chat") {

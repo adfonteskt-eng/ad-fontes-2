@@ -28,9 +28,16 @@ import {
   listDigestOptedInUsers,
   getPaidProfile,
   setAgentName,
+  getReadingPlanReminderOptIn,
+  setReadingPlanReminderOptIn,
+  listReadingPlanReminderOptedInUsers,
   getReadingPlanProgress,
   listReadingPlanProgress,
   setReadingPlanDayComplete,
+  createPushSubscription,
+  deletePushSubscription,
+  listPushSubscriptionsForUser,
+  listAllPushSubscriptions,
   isSupabaseConfigured,
 } from "../lib/supabase.js";
 
@@ -73,6 +80,8 @@ function stubSupabase({ validToken = "valid-token", user = { id: "user-1", email
   let nextOutlineId = 1;
   const profiles = new Map(); // id -> row, same "mirrors a real table" spirit as conversations
   const readingPlanProgress = new Map(); // `${user_id}:${plan_id}` -> row
+  const pushSubscriptions = [];
+  let nextPushSubId = 1;
 
   globalThis.fetch = async (requestUrl, opts = {}) => {
     const url = new URL(requestUrl);
@@ -247,6 +256,48 @@ function stubSupabase({ validToken = "valid-token", user = { id: "user-1", email
       if (idFilter) results = results.filter((p) => `eq.${p.id}` === idFilter);
       const optInFilter = params.get("daily_digest_opt_in");
       if (optInFilter) results = results.filter((p) => `eq.${String(Boolean(p.daily_digest_opt_in))}` === optInFilter);
+      const reminderOptInFilter = params.get("reading_plan_reminders_opt_in");
+      if (reminderOptInFilter) {
+        results = results.filter((p) => `eq.${String(Boolean(p.reading_plan_reminders_opt_in))}` === reminderOptInFilter);
+      }
+      const isPaidFilter = params.get("is_paid");
+      if (isPaidFilter) results = results.filter((p) => `eq.${String(Boolean(p.is_paid))}` === isPaidFilter);
+      return { ok: true, status: 200, text: async () => JSON.stringify(results) };
+    }
+
+    if (url.pathname === "/rest/v1/push_subscriptions") {
+      assert.equal(headers.apikey, SECRET_KEY, "push_subscriptions access should use the secret key");
+      assert.equal(headers.Authorization, undefined, "should not send an Authorization header for secret-key requests");
+
+      const params = url.searchParams;
+
+      if (opts.method === "POST") {
+        // Upsert on (user_id, endpoint) -- same "replace the row on
+        // conflict" fake as reading_plan_progress above.
+        const [row] = JSON.parse(opts.body);
+        const existingIndex = pushSubscriptions.findIndex(
+          (s) => s.user_id === row.user_id && s.endpoint === row.endpoint,
+        );
+        const full = { id: existingIndex >= 0 ? pushSubscriptions[existingIndex].id : nextPushSubId++, created_at: new Date().toISOString(), ...row };
+        if (existingIndex >= 0) pushSubscriptions[existingIndex] = full;
+        else pushSubscriptions.push(full);
+        return { ok: true, status: 201, text: async () => JSON.stringify([full]) };
+      }
+
+      if (opts.method === "DELETE") {
+        const userFilter = params.get("user_id");
+        const endpointFilter = params.get("endpoint");
+        const toDelete = pushSubscriptions.filter(
+          (s) => `eq.${s.user_id}` === userFilter && `eq.${s.endpoint}` === endpointFilter,
+        );
+        for (const row of toDelete) pushSubscriptions.splice(pushSubscriptions.indexOf(row), 1);
+        return { ok: true, status: 200, text: async () => JSON.stringify(toDelete) };
+      }
+
+      // GET
+      let results = pushSubscriptions;
+      const userFilter = params.get("user_id");
+      if (userFilter) results = results.filter((s) => `eq.${s.user_id}` === userFilter);
       return { ok: true, status: 200, text: async () => JSON.stringify(results) };
     }
 
@@ -283,7 +334,7 @@ function stubSupabase({ validToken = "valid-token", user = { id: "user-1", email
     return { ok: false, status: 404, statusText: "Not Found", text: async () => "unknown path" };
   };
 
-  return { requests, studyEntries, conversations, notes, outlines, profiles, readingPlanProgress };
+  return { requests, studyEntries, conversations, notes, outlines, profiles, readingPlanProgress, pushSubscriptions };
 }
 
 // --- verifyUser --------------------------------------------------------
@@ -964,4 +1015,102 @@ test("setReadingPlanDayComplete keeps different users' progress on the same plan
 
   assert.deepEqual(readingPlanProgress.get("user-1:gospel-in-six-verses").completed_days, [1]);
   assert.deepEqual(readingPlanProgress.get("user-2:gospel-in-six-verses").completed_days, [5]);
+});
+
+// --- Reading plan reminder push preference ----------------------------------
+
+test("getReadingPlanReminderOptIn defaults to false when there's no profiles row yet", async () => {
+  const { profiles } = stubSupabase();
+  profiles.set("user-1", { id: "user-1" });
+  assert.equal(await getReadingPlanReminderOptIn("user-1"), false);
+});
+
+test("setReadingPlanReminderOptIn then getReadingPlanReminderOptIn round-trips", async () => {
+  const { profiles } = stubSupabase();
+  profiles.set("user-1", { id: "user-1", reading_plan_reminders_opt_in: false });
+
+  await setReadingPlanReminderOptIn("user-1", true);
+  assert.equal(await getReadingPlanReminderOptIn("user-1"), true);
+
+  await setReadingPlanReminderOptIn("user-1", false);
+  assert.equal(await getReadingPlanReminderOptIn("user-1"), false);
+});
+
+test("listReadingPlanReminderOptedInUsers returns only paid, opted-in users", async () => {
+  const { profiles } = stubSupabase();
+  profiles.set("user-1", { id: "user-1", email: "opted-in-paid@example.com", is_paid: true, reading_plan_reminders_opt_in: true });
+  profiles.set("user-2", { id: "user-2", email: "opted-in-free@example.com", is_paid: false, reading_plan_reminders_opt_in: true });
+  profiles.set("user-3", { id: "user-3", email: "paid-not-opted-in@example.com", is_paid: true, reading_plan_reminders_opt_in: false });
+
+  const results = await listReadingPlanReminderOptedInUsers();
+  assert.deepEqual(
+    results.map((u) => u.email),
+    ["opted-in-paid@example.com"],
+  );
+});
+
+test("listReadingPlanReminderOptedInUsers returns [] when Supabase isn't configured, without calling fetch", async () => {
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    return { ok: true, status: 200, text: async () => "[]" };
+  };
+  assert.deepEqual(await listReadingPlanReminderOptedInUsers(), []);
+  assert.equal(called, false);
+});
+
+// --- Push subscriptions ------------------------------------------------------
+
+test("createPushSubscription stores a new subscription and returns the created row", async () => {
+  const { pushSubscriptions } = stubSupabase();
+  const row = await createPushSubscription("user-1", { endpoint: "https://push.example.com/1", p256dh: "key", auth: "secret" });
+  assert.equal(row.endpoint, "https://push.example.com/1");
+  assert.ok(row.id);
+  assert.equal(pushSubscriptions.length, 1);
+});
+
+test("createPushSubscription upserts on (user_id, endpoint) rather than duplicating on a resubscribe", async () => {
+  const { pushSubscriptions } = stubSupabase();
+  await createPushSubscription("user-1", { endpoint: "https://push.example.com/1", p256dh: "old-key", auth: "old-secret" });
+  const second = await createPushSubscription("user-1", { endpoint: "https://push.example.com/1", p256dh: "new-key", auth: "new-secret" });
+
+  assert.equal(pushSubscriptions.length, 1, "should update the existing row, not add a second one");
+  assert.equal(second.p256dh, "new-key");
+});
+
+test("listPushSubscriptionsForUser scopes to the given user only", async () => {
+  const stub = stubSupabase();
+  await createPushSubscription("user-1", { endpoint: "https://push.example.com/mine", p256dh: "k", auth: "a" });
+  await createPushSubscription("user-2", { endpoint: "https://push.example.com/not-mine", p256dh: "k", auth: "a" });
+
+  const results = await listPushSubscriptionsForUser("user-1");
+  assert.equal(results.length, 1);
+  assert.equal(results[0].endpoint, "https://push.example.com/mine");
+});
+
+test("listAllPushSubscriptions returns every subscription across every user", async () => {
+  const stub = stubSupabase();
+  await createPushSubscription("user-1", { endpoint: "https://push.example.com/1", p256dh: "k", auth: "a" });
+  await createPushSubscription("user-2", { endpoint: "https://push.example.com/2", p256dh: "k", auth: "a" });
+
+  const results = await listAllPushSubscriptions();
+  assert.equal(results.length, 2);
+});
+
+test("deletePushSubscription removes the row and returns true when it belongs to the given user", async () => {
+  const { pushSubscriptions } = stubSupabase();
+  await createPushSubscription("user-1", { endpoint: "https://push.example.com/1", p256dh: "k", auth: "a" });
+
+  const deleted = await deletePushSubscription("user-1", "https://push.example.com/1");
+  assert.equal(deleted, true);
+  assert.equal(pushSubscriptions.length, 0);
+});
+
+test("deletePushSubscription returns false and deletes nothing for another user's subscription", async () => {
+  const { pushSubscriptions } = stubSupabase();
+  await createPushSubscription("user-2", { endpoint: "https://push.example.com/1", p256dh: "k", auth: "a" });
+
+  const deleted = await deletePushSubscription("user-1", "https://push.example.com/1");
+  assert.equal(deleted, false);
+  assert.equal(pushSubscriptions.length, 1, "the other user's row should be untouched");
 });
