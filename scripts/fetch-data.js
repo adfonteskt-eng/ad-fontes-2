@@ -16,9 +16,19 @@
 // local search index built from cached YouVersion API output risks
 // reading as "replicating" YouVersion's own Bible App under their Platform
 // Terms of Use; an independently-sourced public-domain copy doesn't).
+//
+// Cross-references: openbible.info's cross-reference dataset — CC BY 4.0,
+// drawn primarily from the public-domain Treasury of Scripture Knowledge
+// plus other sources, ~345,000 verse-pair connections each with a "votes"
+// relevance score. Backs lib/cross-references.js's find_cross_references
+// chat tool (real, curated connections between passages — not something
+// Claude invents on its own). Distributed as a small .zip; see
+// downloadCrossReferences() below for why this hand-rolls the extraction
+// instead of adding an unzip dependency.
 
 import { mkdir, stat } from "node:fs/promises";
 import { writeFile } from "node:fs/promises";
+import { inflateRawSync } from "node:zlib";
 
 const RAW_BASE =
   "https://raw.githubusercontent.com/STEPBible/STEPBible-Data/master";
@@ -135,6 +145,64 @@ async function downloadBsb() {
   console.log(`  ${BSB_FILE} — ${mb} MB (Berean Standard Bible, full text, public domain / CC0)`);
 }
 
+// Cross-references dataset (see header comment) is distributed as a small
+// single-entry .zip, not a plain text file like BSB above — a single
+// dependency (a real zip library) felt like overkill for extracting one
+// known file, so this reads the ZIP local-file-header format directly: for
+// an archive with no data-descriptor bit set (true here), the compressed/
+// uncompressed sizes and filename length sit right in that 30-byte header,
+// so the compressed bytes can be sliced out and passed straight to
+// node:zlib's inflateRawSync (ZIP's DEFLATE entries are raw, unwrapped
+// deflate streams — exactly what inflateRawSync expects, as opposed to
+// inflateSync which wants a zlib header). Verified against the real
+// downloaded file: local file header reports compression method 8
+// (deflate), general-purpose flag 0 (sizes are trustworthy up front).
+// This is intentionally narrow — it only handles the single-entry, no-
+// data-descriptor case this one file actually uses, not arbitrary zips.
+const ZIP_LOCAL_HEADER_SIGNATURE = 0x04034b50;
+
+function extractSingleZipEntry(zipBuffer) {
+  if (zipBuffer.readUInt32LE(0) !== ZIP_LOCAL_HEADER_SIGNATURE) {
+    throw new Error("Not a zip file (unexpected local file header signature).");
+  }
+  const compressionMethod = zipBuffer.readUInt16LE(8);
+  const compressedSize = zipBuffer.readUInt32LE(18);
+  const nameLength = zipBuffer.readUInt16LE(26);
+  const extraLength = zipBuffer.readUInt16LE(28);
+  const dataStart = 30 + nameLength + extraLength;
+  const compressed = zipBuffer.subarray(dataStart, dataStart + compressedSize);
+
+  if (compressionMethod === 0) return Buffer.from(compressed); // stored, no compression
+  if (compressionMethod === 8) return inflateRawSync(compressed);
+  throw new Error(`Unsupported zip compression method ${compressionMethod} (expected 0=stored or 8=deflate).`);
+}
+
+const CROSS_REFS_URL = "https://a.openbible.info/data/cross-references.zip";
+const CROSS_REFS_FILE = "cross-references.txt";
+
+async function downloadCrossReferences() {
+  const target = dataFile(CROSS_REFS_FILE);
+
+  if (await exists(target)) {
+    console.log(`  ${CROSS_REFS_FILE} — already present, skipping`);
+    return;
+  }
+
+  const response = await fetch(CROSS_REFS_URL);
+  if (!response.ok) {
+    throw new Error(
+      `Failed to download cross-references: ${response.status} ${response.statusText}\n  ${CROSS_REFS_URL}`,
+    );
+  }
+
+  const zipBuffer = Buffer.from(await response.arrayBuffer());
+  const body = extractSingleZipEntry(zipBuffer);
+  await writeFile(target, body);
+
+  const mb = (body.byteLength / 1024 / 1024).toFixed(1);
+  console.log(`  ${CROSS_REFS_FILE} — ${mb} MB (openbible.info cross-references, CC BY 4.0)`);
+}
+
 async function main() {
   await mkdir(DATA_DIR, { recursive: true });
   console.log("Fetching STEPBible data (CC BY 4.0, Tyndale House Cambridge):");
@@ -146,7 +214,10 @@ async function main() {
   console.log("Fetching Berean Standard Bible full text (public domain / CC0):");
   await downloadBsb();
 
-  console.log("Done. Sources: https://github.com/STEPBible/STEPBible-Data, https://berean.bible");
+  console.log("Fetching cross-references dataset (CC BY 4.0, openbible.info):");
+  await downloadCrossReferences();
+
+  console.log("Done. Sources: https://github.com/STEPBible/STEPBible-Data, https://berean.bible, https://www.openbible.info/labs/cross-references/");
 }
 
 // Only run when invoked directly, so index.js can import FILES/dataFile.

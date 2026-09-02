@@ -1285,6 +1285,102 @@ table.interlinear th {
   border-top: 1px solid var(--line);
 }
 
+/* --- Cross-reference diagrams (find_cross_references tool) --------------- */
+
+.cross-ref-diagram-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 0.4rem 0 0.6rem;
+}
+
+.cross-ref-svg {
+  width: 100%;
+  max-width: 360px;
+  height: auto;
+}
+
+.cross-ref-edge {
+  stroke: var(--accent);
+}
+
+.cross-ref-node {
+  cursor: pointer;
+}
+
+.cross-ref-node .cross-ref-dot,
+.cross-ref-center-node circle {
+  fill: var(--panel);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  transition: fill 0.15s ease, stroke-width 0.15s ease;
+}
+
+.cross-ref-center-node circle {
+  fill: var(--accent-soft);
+  stroke-width: 2;
+}
+
+.cross-ref-node:hover .cross-ref-dot,
+.cross-ref-node:focus-visible .cross-ref-dot,
+.cross-ref-center-node:hover circle,
+.cross-ref-center-node:focus-visible circle {
+  fill: var(--accent-soft);
+  stroke-width: 2.5;
+}
+
+.cross-ref-node:focus-visible {
+  outline: none;
+}
+
+.cross-ref-label,
+.cross-ref-center-node text {
+  font-family: var(--mono);
+  font-size: 8px;
+  fill: var(--ink-soft);
+}
+
+.cross-ref-center-node text {
+  font-size: 9px;
+  font-weight: 600;
+  fill: var(--ink);
+}
+
+.cross-ref-node:hover .cross-ref-label,
+.cross-ref-node:focus-visible .cross-ref-label {
+  fill: var(--ink);
+}
+
+.cross-ref-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.6rem;
+}
+
+.cross-ref-list-item {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
+  padding: 0.1rem 0.4rem;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.cross-ref-list-item:hover,
+.cross-ref-list-item:focus-visible {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.cross-ref-votes {
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+}
+
 /* --- Notes (signed-in users' own notes on a passage) --------------------- */
 
 .notes-section {

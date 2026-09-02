@@ -243,6 +243,108 @@ function renderSources(gatheredList) {
   return `<div class="chat-sources">${gatheredList.map(renderSourcePassage).join("")}</div>`;
 }
 
+// --- Cross-reference diagrams (find_cross_references tool — see
+// lib/cross-references.js) -----------------------------------------------
+// A small radial diagram: the focus verse in the center, its cross-
+// references as dots around it, each connected by a line whose thickness/
+// opacity reflects the dataset's "votes" relevance score — so a verse like
+// John 3:16 with dozens of strong connections visually reads as more
+// densely cross-referenced than one with only a couple of weak ones.
+// Clicking any node fills the chat input with that reference (same raw
+// USFM-style notation already shown elsewhere in this UI, e.g. the source-
+// passage summary above) rather than auto-asking — a click should offer a
+// next question, not silently fire one off on the user's behalf.
+
+const CROSS_REF_SIZE = 320;
+const CROSS_REF_CENTER = CROSS_REF_SIZE / 2;
+const CROSS_REF_ORBIT_RADIUS = 112;
+const CROSS_REF_CENTER_RADIUS = 24;
+const CROSS_REF_DOT_RADIUS = 7;
+const CROSS_REF_LABEL_GAP = 8;
+
+function renderCrossReferenceSvg({ reference, results }) {
+  const maxVotes = Math.max(...results.map((r) => r.votes), 1);
+  const n = results.length;
+
+  const nodes = results.map((r, i) => {
+    const angle = (2 * Math.PI * i) / n - Math.PI / 2;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const x = CROSS_REF_CENTER + CROSS_REF_ORBIT_RADIUS * cos;
+    const y = CROSS_REF_CENTER + CROSS_REF_ORBIT_RADIUS * sin;
+
+    // Label anchor/offset chosen from which side of the circle the node
+    // sits on, so text grows outward (away from the diagram's center)
+    // instead of overlapping the dot or the edges converging on it.
+    let anchor = "middle";
+    let labelX = x;
+    let labelY = y + (sin >= 0 ? CROSS_REF_DOT_RADIUS + CROSS_REF_LABEL_GAP + 8 : -(CROSS_REF_DOT_RADIUS + CROSS_REF_LABEL_GAP));
+    if (cos > 0.35) {
+      anchor = "start";
+      labelX = x + CROSS_REF_DOT_RADIUS + CROSS_REF_LABEL_GAP;
+      labelY = y + 3;
+    } else if (cos < -0.35) {
+      anchor = "end";
+      labelX = x - CROSS_REF_DOT_RADIUS - CROSS_REF_LABEL_GAP;
+      labelY = y + 3;
+    }
+
+    return { ...r, x, y, anchor, labelX, labelY, weight: r.votes / maxVotes };
+  });
+
+  const edges = nodes
+    .map(
+      (node) => `<line class="cross-ref-edge" x1="${CROSS_REF_CENTER}" y1="${CROSS_REF_CENTER}" x2="${node.x.toFixed(1)}" y2="${node.y.toFixed(1)}" style="stroke-width:${(1 + node.weight * 2.5).toFixed(2)};opacity:${(0.25 + node.weight * 0.55).toFixed(2)}"></line>`,
+    )
+    .join("");
+
+  const nodeEls = nodes
+    .map(
+      (node) => `<g class="cross-ref-node" tabindex="0" role="button" aria-label="Ask about ${escapeHtml(node.reference)}" data-reference="${escapeHtml(node.reference)}">
+        <circle class="cross-ref-dot" cx="${node.x.toFixed(1)}" cy="${node.y.toFixed(1)}" r="${CROSS_REF_DOT_RADIUS}"></circle>
+        <text class="cross-ref-label" x="${node.labelX.toFixed(1)}" y="${node.labelY.toFixed(1)}" text-anchor="${node.anchor}">${escapeHtml(node.reference)}</text>
+      </g>`,
+    )
+    .join("");
+
+  return `<svg class="cross-ref-svg" viewBox="0 0 ${CROSS_REF_SIZE} ${CROSS_REF_SIZE}" role="img" aria-label="Cross-references for ${escapeHtml(reference)}">
+    ${edges}
+    <g class="cross-ref-node cross-ref-center-node" tabindex="0" role="button" aria-label="Ask about ${escapeHtml(reference)}" data-reference="${escapeHtml(reference)}">
+      <circle cx="${CROSS_REF_CENTER}" cy="${CROSS_REF_CENTER}" r="${CROSS_REF_CENTER_RADIUS}"></circle>
+      <text x="${CROSS_REF_CENTER}" y="${CROSS_REF_CENTER}" text-anchor="middle" dominant-baseline="middle">${escapeHtml(reference)}</text>
+    </g>
+    ${nodeEls}
+  </svg>`;
+}
+
+function renderCrossReferenceDiagram(diagram) {
+  const { reference, results, totalCount } = diagram;
+  if (!results || results.length === 0) return "";
+
+  const listItems = results
+    .map((r) => `<li><button type="button" class="cross-ref-list-item" data-reference="${escapeHtml(r.reference)}">${escapeHtml(r.reference)}</button> <span class="cross-ref-votes">(${r.votes})</span></li>`)
+    .join("");
+  const truncatedNote =
+    totalCount > results.length
+      ? `<p class="section-note">${totalCount} total connections; showing the ${results.length} most-cited.</p>`
+      : "";
+
+  return `<details class="source-passage cross-ref-diagram" open>
+    <summary>Cross-references for ${escapeHtml(reference)}</summary>
+    <div class="source-body">
+      <p class="section-note">From a curated scholarly dataset (chiefly the Treasury of Scripture Knowledge), ranked by how often each connection is drawn. Click a verse to ask about it.</p>
+      <div class="cross-ref-diagram-wrap">${renderCrossReferenceSvg(diagram)}</div>
+      <ul class="cross-ref-list">${listItems}</ul>
+      ${truncatedNote}
+    </div>
+  </details>`;
+}
+
+function renderCrossReferenceDiagrams(diagramList) {
+  if (!diagramList || diagramList.length === 0) return "";
+  return `<div class="chat-sources">${diagramList.map(renderCrossReferenceDiagram).join("")}</div>`;
+}
+
 // --- Chat ---------------------------------------------------------------
 
 const chatLog = document.getElementById("chat-log");
@@ -424,6 +526,38 @@ function appendSources(gatheredList) {
   chatLog.scrollTop = chatLog.scrollHeight;
   initNotesSections(inserted);
 }
+
+function appendCrossReferenceDiagrams(diagramList) {
+  const html = renderCrossReferenceDiagrams(diagramList);
+  if (!html) return;
+  const el = document.createElement("div");
+  el.innerHTML = html;
+  chatLog.appendChild(el.firstElementChild);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+// Clicking any cross-reference node (SVG dot+label, or its plain-list
+// counterpart) fills the chat input with that reference rather than
+// submitting it automatically — see this section's header comment above
+// for why. Delegated on #chat-log, same reasoning as the notes/outline
+// delegation below: these blocks are inserted via innerHTML after render,
+// for both a live reply and a restored/resumed conversation.
+chatLog.addEventListener("click", (event) => {
+  const node = event.target.closest(".cross-ref-node, .cross-ref-list-item");
+  if (!node) return;
+  chatInput.value = node.dataset.reference;
+  clearInputPlaceholder();
+  chatInput.focus();
+});
+chatLog.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const node = event.target.closest(".cross-ref-node");
+  if (!node) return;
+  event.preventDefault();
+  chatInput.value = node.dataset.reference;
+  clearInputPlaceholder();
+  chatInput.focus();
+});
 
 // --- Notes (signed-in users can save their own notes on a passage) --------
 // One .notes-section per gathered passage (see renderNotesSection above),
@@ -666,7 +800,13 @@ async function sendChatMessage(message) {
     updateConversationExportControl();
     appendChatMessage("assistant", data.reply);
     appendSources(data.gathered);
-    chatLogData.push({ role: "assistant", text: data.reply, gathered: data.gathered ?? null });
+    appendCrossReferenceDiagrams(data.crossReferences);
+    chatLogData.push({
+      role: "assistant",
+      text: data.reply,
+      gathered: data.gathered ?? null,
+      crossReferences: data.crossReferences ?? null,
+    });
     saveChatState();
   } catch (error) {
     pending.remove();
@@ -1246,11 +1386,11 @@ chatLog.addEventListener("click", (event) => {
   }
 });
 
-// Replays a { role, text, gathered? } log through the same render functions
-// a live turn uses — shared by restoreChatState() (from localStorage) and
-// loadConversation() (from the server, via the top-left menu's "previous
-// conversations" list) so a restored/resumed log looks pixel-identical to
-// one that just arrived, in either case.
+// Replays a { role, text, gathered?, crossReferences? } log through the
+// same render functions a live turn uses — shared by restoreChatState()
+// (from localStorage) and loadConversation() (from the server, via the
+// top-left menu's "previous conversations" list) so a restored/resumed log
+// looks pixel-identical to one that just arrived, in either case.
 function renderChatLog(entries) {
   for (const entry of entries) {
     if (entry.role === "user") {
@@ -1258,6 +1398,7 @@ function renderChatLog(entries) {
     } else if (entry.role === "assistant") {
       appendChatMessage("assistant", entry.text);
       if (entry.gathered) appendSources(entry.gathered);
+      if (entry.crossReferences) appendCrossReferenceDiagrams(entry.crossReferences);
     } else if (entry.role === "error") {
       appendChatMessage("error", entry.text);
     }

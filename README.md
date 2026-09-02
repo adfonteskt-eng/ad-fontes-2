@@ -170,8 +170,8 @@ as typing a reference by hand — no separate rendering path to keep in sync.
 
 This works because the chat box isn't a second, separate question-answering
 path bolted onto search — there is no separate search anymore. Every
-message goes through `lib/chat.js`, which gives Claude three tools, all
-backed by real local STEPBible data (no guessing from memory):
+message goes through `lib/chat.js`, which gives Claude five tools, all
+backed by real local data (no guessing from memory):
 
 - `gather_passage` — the same `gatherPassage()` Phase 1 pipeline the CLI
   uses: translations, original-language interlinear, commentary for one
@@ -188,6 +188,10 @@ backed by real local STEPBible data (no guessing from memory):
   passage from a remembered phrase or wording) rather than a concept/word
   study. See Full-text search below for how this is indexed and why it's
   built the way it is.
+- `find_cross_references` — real, curated connections between passages from
+  a licensed scholarly dataset, ranked by relevance. Its results also drive
+  a visual diagram shown alongside the reply. See Cross-reference diagrams
+  below.
 
 Claude decides what to call and when, mid-conversation, chaining tools for
 topical questions ("what does Scripture say about love?" → search_lexicon →
@@ -756,6 +760,44 @@ approach. Without it, `search_bible_text` returns a clear, catchable error
 turn crashing — same "friendly message instead of a raw error" pattern as
 a missing Greek/Hebrew data file in `gatherPassage()`.
 
+## Cross-reference diagrams
+
+`find_cross_references` (`lib/cross-references.js`, another of `lib/chat.js`'s
+chat tools) looks up real, curated connections between a verse and the rest
+of Scripture — deliberately a second, independent source from whatever
+cross-references Claude might think of on its own via `gather_passage`.
+The frontend draws its results as a small radial diagram alongside the
+reply (the focus verse in the center, connected verses around it, edge
+thickness/opacity scaled by relevance) rather than just a text list, and
+clicking any verse in it fills the chat box with that reference so digging
+deeper is one click away.
+
+**Data source**: [openbible.info's cross-reference
+dataset](https://www.openbible.info/labs/cross-references/) — CC BY 4.0,
+~345,000 verse-pair connections drawn primarily from the public-domain
+Treasury of Scripture Knowledge, each with a "votes" relevance score.
+Distributed as a small `.zip`; `scripts/fetch-data.js` extracts it with a
+hand-rolled ~30-line ZIP reader (`node:zlib`'s `inflateRawSync` on the
+single entry's raw deflate stream) rather than adding a zip-parsing
+dependency for one known file — see that file's comments for the format
+details this relies on.
+
+**Setup**: covered by the same `npm run fetch-data` as everything else —
+downloads `data/cross-references.txt` alongside BSB and the STEPBible
+files. Without it, `find_cross_references` returns a clear, catchable error
+(`CROSS_REFERENCES_NOT_DOWNLOADED`), same pattern as `search_bible_text`'s
+missing-file handling above.
+
+**Why a separate dataset instead of just Claude's own citations**: Claude
+already surfaces cross-references it thinks of in its prose, via
+`gather_passage` on a verse it recalls being related. That's useful but
+unverifiable — it's the model's own recall, not a source. This tool
+grounds the diagram in something else entirely: a licensed, scholarly
+dataset someone else compiled, so "verses connected to this one" reflects
+real curation (chiefly 19th-century Treasury of Scripture Knowledge
+scholarship) rather than risking a fabricated-sounding connection presented
+with unwarranted confidence.
+
 ## Summary (Phase 2)
 
 If `ANTHROPIC_API_KEY` is set, ad-fontes sends everything gathered above —
@@ -825,13 +867,19 @@ this is sourced independently rather than from the YouVersion API, even
 though BSB is also fetched live from YouVersion for on-screen translation
 display elsewhere in the app.
 
+Cross-reference diagrams (`lib/cross-references.js`) are backed by
+[openbible.info's cross-reference dataset](https://www.openbible.info/labs/cross-references/),
+CC BY 4.0 — downloaded by the same `npm run fetch-data` into
+`data/cross-references.txt`, gitignored the same way. See Cross-reference
+diagrams above.
+
 ## Project layout
 
 | File | Role |
 | ---- | ---- |
 | `lib/gather.js` | Phase 1. `gatherPassage(usfm, opts)` → structured object, no printing. Results cached in-memory for 15 min (`clearGatherCache()` to force-clear). |
 | `lib/summarize.js` | Phase 2. `summarizePassage(gathered, opts)` → `{ shortSummary, studyNotes }`. Also exports `formatGatheredPassage()`, the plain-text formatter shared with `lib/chat.js`. |
-| `lib/chat.js` | Phase 3 chat. `chatTurn(opts)` → `{ sessionId, conversationId, reply, gathered }`, looping Claude tool calls (`gather_passage`, `search_lexicon`, `find_occurrences`, `search_bible_text`, and for a signed-in, paid user `search_study_history` + `search_my_notes`) as needed. Live session storage delegated to `lib/session-store.js`; durable per-conversation persistence (signed-in only) delegated to `lib/supabase.js`. |
+| `lib/chat.js` | Phase 3 chat. `chatTurn(opts)` → `{ sessionId, conversationId, reply, gathered, crossReferences }`, looping Claude tool calls (`gather_passage`, `search_lexicon`, `find_occurrences`, `search_bible_text`, `find_cross_references`, and for a signed-in, paid user `search_study_history` + `search_my_notes`) as needed. Live session storage delegated to `lib/session-store.js`; durable per-conversation persistence (signed-in only) delegated to `lib/supabase.js`. |
 | `lib/session-store.js` | Pluggable session storage: Upstash Redis when configured, in-memory Map fallback otherwise. |
 | `lib/rate-limit.js` | Per-IP daily usage caps (`checkAndIncrement()`) protecting the Anthropic bill during the free beta. Same Redis/in-memory split as session storage. |
 | `lib/upstash.js` | Shared Upstash Redis REST client (`redisCommand()`, `isRedisConfigured()`) used by both `lib/session-store.js` and `lib/rate-limit.js`. |
@@ -846,6 +894,7 @@ display elsewhere in the app.
 | `scripts/send-daily-digest.js` | CLI entry point (`npm run digest`) for the daily digest cron job — see `render.yaml`. |
 | `lib/reading-plans.js` | `READING_PLANS` — curated, named, multi-day single-verse reading sequences (with a per-user completion checklist, backed by `reading_plan_progress`), plus `getReadingPlan()`/`isValidPlanDay()` lookup helpers. No external calls, no storage — same pattern as `lib/daily-passage.js`. |
 | `lib/bible-search.js` | `searchBibleText()`/`isBibleTextAvailable()` — full-text keyword search across the whole Bible, indexed from `data/bsb.txt`. See Full-text search below for the licensing reasoning behind sourcing that file independently rather than through the YouVersion API. |
+| `lib/cross-references.js` | `findCrossReferences()`/`isCrossReferencesAvailable()` — real, curated verse-to-verse connections indexed from `data/cross-references.txt`. See Cross-reference diagrams below. |
 | `supabase/schema.sql` | The `profiles` (incl. `daily_digest_opt_in`/`is_paid`/`agent_name`)/`study_entries`/`conversations`/`notes`/`outlines`/`reading_plan_progress` tables + RLS policies. Run once in the Supabase SQL Editor. |
 | `lib/interlinear.js` | Greek/Hebrew parsing against the STEPBible data files. Also exports `searchLexicon()` (keyword → Strong's numbers) and `findStrongsOccurrences()` (Strong's number → every tagged verse). |
 | `lib/commentary.js` | biblehub.com scraper. |
