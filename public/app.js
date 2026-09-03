@@ -345,6 +345,105 @@ function renderCrossReferenceDiagrams(diagramList) {
   return `<div class="chat-sources">${diagramList.map(renderCrossReferenceDiagram).join("")}</div>`;
 }
 
+// --- Maps (generate_map tool — see lib/geography.js) ----------------------
+// A real base map (see map-data.js's header comment: a Natural Earth
+// coastline, public domain, projected once and shipped as static art) with
+// markers plotted from real, server-resolved coordinates — never a point
+// this file invents. projectGeoPoint/MAP_COASTLINE_PATH/MAP_VIEW_WIDTH/
+// MAP_VIEW_HEIGHT come from map-data.js (loaded before this script — see
+// index.html). A route's waypoints are numbered and connected by a line
+// (the journey, in order); ad-hoc extra locations are unnumbered dots.
+// Certainty (see lib/geography.js's resolvePlaceName()) is shown visually
+// (a disputed site's marker is visually distinct — see style.css) and
+// spelled out in the stop list, rather than presenting every point with the
+// same unearned confidence.
+
+function renderMapMarker(point, order) {
+  const { x, y } = projectGeoPoint(point.lon, point.lat);
+  const certaintyClass = point.certainty === "disputed" ? "map-marker-disputed" : "map-marker-identified";
+  const radius = order != null ? 8 : 6;
+  const orderBadge =
+    order != null
+      ? `<text class="map-marker-order" x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle" dominant-baseline="middle">${order}</text>`
+      : "";
+  const modernNameNote = point.modernName && point.modernName !== point.name ? ` — modern ${point.modernName}` : "";
+  return `<g class="map-marker ${certaintyClass}" tabindex="0" role="button" aria-label="Ask about ${escapeHtml(point.name)}" data-reference="${escapeHtml(point.name)}">
+    <title>${escapeHtml(point.name)}${modernNameNote} (${point.certainty})</title>
+    <circle class="map-marker-dot" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${radius}"></circle>
+    ${orderBadge}
+    <text class="map-marker-label" x="${(x + radius + 4).toFixed(1)}" y="${(y + 3).toFixed(1)}">${escapeHtml(point.name)}</text>
+  </g>`;
+}
+
+function renderMapRouteLine(waypoints) {
+  if (!waypoints || waypoints.length < 2) return "";
+  const coords = waypoints.map((p) => projectGeoPoint(p.lon, p.lat));
+  const d = `M ${coords.map((c) => `${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(" L ")}`;
+  return `<path class="map-route-line" d="${d}"></path>`;
+}
+
+function renderMapSvg(map) {
+  const routeLine = renderMapRouteLine(map.waypoints);
+  const waypointMarkers = (map.waypoints ?? []).map((p, i) => renderMapMarker(p, i + 1)).join("");
+  const extraMarkers = (map.extraPoints ?? []).map((p) => renderMapMarker(p, null)).join("");
+  return `<svg class="map-svg" viewBox="0 0 ${MAP_VIEW_WIDTH} ${MAP_VIEW_HEIGHT}" role="img" aria-label="${escapeHtml(map.title)}">
+    <path class="map-coastline" d="${MAP_COASTLINE_PATH}"></path>
+    ${routeLine}
+    ${waypointMarkers}
+    ${extraMarkers}
+  </svg>`;
+}
+
+function renderMapDiagram(map) {
+  const route = map.route;
+  const introNote = route
+    ? `<p class="section-note">${escapeHtml(route.description)}</p><p class="section-note">${escapeHtml(route.certaintyNote)}</p>`
+    : `<p class="section-note">Locations resolved against a real, scholarly-sourced geography dataset — a hollow, dashed marker means the site is genuinely disputed among scholars, not a settled location.</p>`;
+
+  const stopsList =
+    map.waypoints && map.waypoints.length > 0
+      ? `<ol class="map-stops-list">${map.waypoints
+          .map(
+            (p) =>
+              `<li><button type="button" class="map-list-item" title="modern ${escapeHtml(p.modernName)}" data-reference="${escapeHtml(p.name)}">${escapeHtml(p.name)}</button> <span class="map-certainty-tag ${p.certainty}">${p.certainty}</span></li>`,
+          )
+          .join("")}</ol>`
+      : "";
+  const extraList =
+    map.extraPoints && map.extraPoints.length > 0
+      ? `<p class="section-note">Also shown: ${map.extraPoints
+          .map((p) => `<button type="button" class="map-list-item" title="modern ${escapeHtml(p.modernName)}" data-reference="${escapeHtml(p.name)}">${escapeHtml(p.name)}</button>`)
+          .join(", ")}</p>`
+      : "";
+  const unresolvedNote =
+    map.unresolved && map.unresolved.length > 0
+      ? `<p class="section-note">Not plotted — ${map.unresolved
+          .map((u) =>
+            u.reason === "ambiguous"
+              ? `${escapeHtml(u.name)} (ambiguous: could mean ${u.options.map((o) => escapeHtml(o)).join(" or ")})`
+              : `${escapeHtml(u.name)} (not in the geography dataset)`,
+          )
+          .join("; ")}.</p>`
+      : "";
+
+  return `<details class="source-passage map-diagram" open>
+    <summary>${escapeHtml(map.title)}</summary>
+    <div class="source-body">
+      ${introNote}
+      <div class="map-svg-wrap">${renderMapSvg(map)}</div>
+      ${stopsList}
+      ${extraList}
+      ${unresolvedNote}
+      <p class="section-note">Base map: <a href="https://www.naturalearthdata.com" target="_blank" rel="noopener">Natural Earth</a> (public domain). Places: <a href="https://github.com/openbibleinfo/Bible-Geocoding-Data" target="_blank" rel="noopener">openbible.info Bible-Geocoding-Data</a> (CC BY 4.0).</p>
+    </div>
+  </details>`;
+}
+
+function renderMapDiagrams(mapList) {
+  if (!mapList || mapList.length === 0) return "";
+  return `<div class="chat-sources">${mapList.map(renderMapDiagram).join("")}</div>`;
+}
+
 // --- Chat ---------------------------------------------------------------
 
 const chatLog = document.getElementById("chat-log");
@@ -536,14 +635,24 @@ function appendCrossReferenceDiagrams(diagramList) {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-// Clicking any cross-reference node (SVG dot+label, or its plain-list
-// counterpart) fills the chat input with that reference rather than
-// submitting it automatically — see this section's header comment above
-// for why. Delegated on #chat-log, same reasoning as the notes/outline
-// delegation below: these blocks are inserted via innerHTML after render,
-// for both a live reply and a restored/resumed conversation.
+function appendMapDiagrams(mapList) {
+  const html = renderMapDiagrams(mapList);
+  if (!html) return;
+  const el = document.createElement("div");
+  el.innerHTML = html;
+  chatLog.appendChild(el.firstElementChild);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+// Clicking any cross-reference node/map marker (SVG dot+label, or its
+// plain-list counterpart) fills the chat input with that reference/place
+// rather than submitting it automatically — see this section's header
+// comment above for why. Delegated on #chat-log, same reasoning as the
+// notes/outline delegation below: these blocks are inserted via innerHTML
+// after render, for both a live reply and a restored/resumed conversation.
+const CLICK_TO_ASK_SELECTOR = ".cross-ref-node, .cross-ref-list-item, .map-marker, .map-list-item";
 chatLog.addEventListener("click", (event) => {
-  const node = event.target.closest(".cross-ref-node, .cross-ref-list-item");
+  const node = event.target.closest(CLICK_TO_ASK_SELECTOR);
   if (!node) return;
   chatInput.value = node.dataset.reference;
   clearInputPlaceholder();
@@ -551,7 +660,7 @@ chatLog.addEventListener("click", (event) => {
 });
 chatLog.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
-  const node = event.target.closest(".cross-ref-node");
+  const node = event.target.closest(".cross-ref-node, .map-marker");
   if (!node) return;
   event.preventDefault();
   chatInput.value = node.dataset.reference;
@@ -801,11 +910,13 @@ async function sendChatMessage(message) {
     appendChatMessage("assistant", data.reply);
     appendSources(data.gathered);
     appendCrossReferenceDiagrams(data.crossReferences);
+    appendMapDiagrams(data.maps);
     chatLogData.push({
       role: "assistant",
       text: data.reply,
       gathered: data.gathered ?? null,
       crossReferences: data.crossReferences ?? null,
+      maps: data.maps ?? null,
     });
     saveChatState();
   } catch (error) {
@@ -1386,11 +1497,12 @@ chatLog.addEventListener("click", (event) => {
   }
 });
 
-// Replays a { role, text, gathered?, crossReferences? } log through the
-// same render functions a live turn uses — shared by restoreChatState()
-// (from localStorage) and loadConversation() (from the server, via the
-// top-left menu's "previous conversations" list) so a restored/resumed log
-// looks pixel-identical to one that just arrived, in either case.
+// Replays a { role, text, gathered?, crossReferences?, maps? } log through
+// the same render functions a live turn uses — shared by
+// restoreChatState() (from localStorage) and loadConversation() (from the
+// server, via the top-left menu's "previous conversations" list) so a
+// restored/resumed log looks pixel-identical to one that just arrived, in
+// either case.
 function renderChatLog(entries) {
   for (const entry of entries) {
     if (entry.role === "user") {
@@ -1399,6 +1511,7 @@ function renderChatLog(entries) {
       appendChatMessage("assistant", entry.text);
       if (entry.gathered) appendSources(entry.gathered);
       if (entry.crossReferences) appendCrossReferenceDiagrams(entry.crossReferences);
+      if (entry.maps) appendMapDiagrams(entry.maps);
     } else if (entry.role === "error") {
       appendChatMessage("error", entry.text);
     }

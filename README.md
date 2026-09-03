@@ -170,7 +170,7 @@ as typing a reference by hand — no separate rendering path to keep in sync.
 
 This works because the chat box isn't a second, separate question-answering
 path bolted onto search — there is no separate search anymore. Every
-message goes through `lib/chat.js`, which gives Claude five tools, all
+message goes through `lib/chat.js`, which gives Claude six tools, all
 backed by real local data (no guessing from memory):
 
 - `gather_passage` — the same `gatherPassage()` Phase 1 pipeline the CLI
@@ -192,6 +192,11 @@ backed by real local data (no guessing from memory):
   a licensed scholarly dataset, ranked by relevance. Its results also drive
   a visual diagram shown alongside the reply. See Cross-reference diagrams
   below.
+- `generate_map` — plots a curated named journey (Paul's missionary
+  journeys, the Exodus, Abraham's journey from Ur) and/or specific places
+  on a real map, every location resolved against a scholarly-sourced
+  geography dataset rather than a coordinate anyone has to guess. See Map
+  diagrams below.
 
 Claude decides what to call and when, mid-conversation, chaining tools for
 topical questions ("what does Scripture say about love?" → search_lexicon →
@@ -798,6 +803,52 @@ real curation (chiefly 19th-century Treasury of Scripture Knowledge
 scholarship) rather than risking a fabricated-sounding connection presented
 with unwarranted confidence.
 
+## Map diagrams
+
+`generate_map` (`lib/geography.js`, another of `lib/chat.js`'s chat tools)
+plots real biblical geography: a curated named journey (Paul's four
+missionary journeys/voyage to Rome, the Exodus, Abraham's journey from Ur)
+and/or specific places Claude names. The frontend draws the result as an
+SVG map — a real coastline, route waypoints numbered and connected in
+order, ad-hoc extra places as unnumbered dots — rather than a generic chart
+widget, and clicking any place fills the chat box with it.
+
+**The one hard rule this is built around: never plot a coordinate Claude
+invents.** Every point traces back to `resolvePlace()`, which resolves a
+place name against openbible.info's [Bible-Geocoding-Data
+project](https://github.com/openbibleinfo/Bible-Geocoding-Data) — CC BY
+4.0, real coordinates for every place mentioned in the Bible, each with a
+confidence score per candidate modern identification. Some places have one
+dominant, well-attested site (Jerusalem, Rome, Damascus); others have
+several genuinely disputed candidates with no clear winner (Mount Sinai,
+Sodom, most of the Exodus wilderness stations) — the map marks a place
+"identified" or "disputed" from that real score distribution (see
+`resolvePlaceName()`'s own comment for the exact thresholds), rather than
+asserting false certainty either way. A name the dataset doesn't recognize,
+or one that's genuinely ambiguous between two real distinct places (there
+really are two biblical Antiochs, and two biblical Bethlehems), is reported
+back rather than silently guessed — `resolvePlaceName()`'s own comment
+covers the numbered-variant convention (`"Antioch 1"`/`"Antioch 2"`) this
+relies on to tell "same place, disambiguated" apart from "different real
+places, same name" without guessing which is which.
+
+**Base map**: a real coastline (Eastern Mediterranean/Near East, roughly
+10°E–48°E by 27°N–43°N), not a hand-drawn approximation — derived once from
+[Natural Earth](https://www.naturalearthdata.com)'s 1:50m physical vector
+land data (public domain, no attribution required) and shipped as a static,
+pre-projected SVG path in `public/map-data.js`. Place markers use the exact
+same equirectangular projection (standard parallel at 35°N) computed at
+render time from each place's real lon/lat, so they land in the correct
+position relative to the coastline.
+
+**Setup**: covered by the same `npm run fetch-data` as everything else —
+downloads `data/bible-geocoding-modern.jsonl`. Without it, `generate_map`
+returns a clear, catchable error (`GEOGRAPHY_DATA_NOT_DOWNLOADED`), same
+pattern as `search_bible_text` and `find_cross_references` above. (The base
+map coastline itself needs no download — it's static, committed data, not
+subject to the "fetch fresh, don't redistribute" licensing terms the
+STEPBible/openbible.info datasets carry.)
+
 ## Summary (Phase 2)
 
 If `ANTHROPIC_API_KEY` is set, ad-fontes sends everything gathered above —
@@ -873,13 +924,21 @@ CC BY 4.0 — downloaded by the same `npm run fetch-data` into
 `data/cross-references.txt`, gitignored the same way. See Cross-reference
 diagrams above.
 
+Map diagrams (`lib/geography.js`) are backed by
+[openbible.info's Bible-Geocoding-Data project](https://github.com/openbibleinfo/Bible-Geocoding-Data),
+CC BY 4.0 — downloaded by the same `npm run fetch-data` into
+`data/bible-geocoding-modern.jsonl`, gitignored the same way. The base map's
+coastline art is a one-time derivation from [Natural Earth](https://www.naturalearthdata.com)'s
+public-domain vector data, committed directly in `public/map-data.js` (not
+subject to the "redistribute" restriction above — see Map diagrams above).
+
 ## Project layout
 
 | File | Role |
 | ---- | ---- |
 | `lib/gather.js` | Phase 1. `gatherPassage(usfm, opts)` → structured object, no printing. Results cached in-memory for 15 min (`clearGatherCache()` to force-clear). |
 | `lib/summarize.js` | Phase 2. `summarizePassage(gathered, opts)` → `{ shortSummary, studyNotes }`. Also exports `formatGatheredPassage()`, the plain-text formatter shared with `lib/chat.js`. |
-| `lib/chat.js` | Phase 3 chat. `chatTurn(opts)` → `{ sessionId, conversationId, reply, gathered, crossReferences }`, looping Claude tool calls (`gather_passage`, `search_lexicon`, `find_occurrences`, `search_bible_text`, `find_cross_references`, and for a signed-in, paid user `search_study_history` + `search_my_notes`) as needed. Live session storage delegated to `lib/session-store.js`; durable per-conversation persistence (signed-in only) delegated to `lib/supabase.js`. |
+| `lib/chat.js` | Phase 3 chat. `chatTurn(opts)` → `{ sessionId, conversationId, reply, gathered, crossReferences, maps }`, looping Claude tool calls (`gather_passage`, `search_lexicon`, `find_occurrences`, `search_bible_text`, `find_cross_references`, `generate_map`, and for a signed-in, paid user `search_study_history` + `search_my_notes`) as needed. Live session storage delegated to `lib/session-store.js`; durable per-conversation persistence (signed-in only) delegated to `lib/supabase.js`. |
 | `lib/session-store.js` | Pluggable session storage: Upstash Redis when configured, in-memory Map fallback otherwise. |
 | `lib/rate-limit.js` | Per-IP daily usage caps (`checkAndIncrement()`) protecting the Anthropic bill during the free beta. Same Redis/in-memory split as session storage. |
 | `lib/upstash.js` | Shared Upstash Redis REST client (`redisCommand()`, `isRedisConfigured()`) used by both `lib/session-store.js` and `lib/rate-limit.js`. |
@@ -890,11 +949,13 @@ diagrams above.
 | `lib/push.js` | Push notifications (free tier): `sendPushToSubscription()` (one device), `sendDailyPassagePush()`/`sendReadingPlanReminderPush()` (a scheduled job's worth of orchestration, mirroring lib/daily-digest.js's shape). Invoked by `scripts/send-daily-push.js`, not by any request handler. Uses the `web-push` package — the third of this project's three real npm dependencies. See PWA & push notifications below. |
 | `scripts/send-daily-push.js` | CLI entry point (`npm run push`) for the daily push cron job — see `render.yaml`. |
 | `public/manifest.json`, `public/sw.js` | PWA install support + the push/notificationclick service worker handlers. See PWA & push notifications below. |
+| `public/map-data.js` | Static base-map art for `generate_map` diagrams: a real, pre-projected coastline SVG path plus the matching `projectGeoPoint()` projection, loaded before `public/app.js`. See Map diagrams below. |
 | `lib/daily-digest.js` | `sendDailyDigest(opts)` — emails today's featured passage to every opted-in user via Resend's HTTP API. Invoked by `scripts/send-daily-digest.js`, not by any request handler. |
 | `scripts/send-daily-digest.js` | CLI entry point (`npm run digest`) for the daily digest cron job — see `render.yaml`. |
 | `lib/reading-plans.js` | `READING_PLANS` — curated, named, multi-day single-verse reading sequences (with a per-user completion checklist, backed by `reading_plan_progress`), plus `getReadingPlan()`/`isValidPlanDay()` lookup helpers. No external calls, no storage — same pattern as `lib/daily-passage.js`. |
 | `lib/bible-search.js` | `searchBibleText()`/`isBibleTextAvailable()` — full-text keyword search across the whole Bible, indexed from `data/bsb.txt`. See Full-text search below for the licensing reasoning behind sourcing that file independently rather than through the YouVersion API. |
 | `lib/cross-references.js` | `findCrossReferences()`/`isCrossReferencesAvailable()` — real, curated verse-to-verse connections indexed from `data/cross-references.txt`. See Cross-reference diagrams below. |
+| `lib/geography.js` | `resolvePlace()`/`isGeographyDataAvailable()` — resolves a place name to a real coordinate (with an "identified"/"disputed" confidence, never invented) indexed from `data/bible-geocoding-modern.jsonl`, plus `ROUTES`, the curated named journeys. See Map diagrams below. |
 | `supabase/schema.sql` | The `profiles` (incl. `daily_digest_opt_in`/`is_paid`/`agent_name`)/`study_entries`/`conversations`/`notes`/`outlines`/`reading_plan_progress` tables + RLS policies. Run once in the Supabase SQL Editor. |
 | `lib/interlinear.js` | Greek/Hebrew parsing against the STEPBible data files. Also exports `searchLexicon()` (keyword → Strong's numbers) and `findStrongsOccurrences()` (Strong's number → every tagged verse). |
 | `lib/commentary.js` | biblehub.com scraper. |

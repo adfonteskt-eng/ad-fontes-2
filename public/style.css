@@ -1359,7 +1359,8 @@ table.interlinear th {
   gap: 0.3rem 0.6rem;
 }
 
-.cross-ref-list-item {
+.cross-ref-list-item,
+.map-list-item {
   font-family: var(--mono);
   font-size: 0.8rem;
   background: none;
@@ -1371,7 +1372,9 @@ table.interlinear th {
 }
 
 .cross-ref-list-item:hover,
-.cross-ref-list-item:focus-visible {
+.cross-ref-list-item:focus-visible,
+.map-list-item:hover,
+.map-list-item:focus-visible {
   background: var(--accent-soft);
   color: var(--ink);
 }
@@ -1379,6 +1382,102 @@ table.interlinear th {
 .cross-ref-votes {
   font-size: 0.75rem;
   color: var(--ink-soft);
+}
+
+/* --- Maps (generate_map tool) --------------------------------------------- */
+
+.map-svg-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 0.4rem 0 0.6rem;
+}
+
+.map-svg {
+  width: 100%;
+  max-width: 720px;
+  height: auto;
+}
+
+.map-coastline {
+  fill: var(--accent-soft);
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.map-route-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 5 4;
+  opacity: 0.85;
+}
+
+.map-marker {
+  cursor: pointer;
+}
+
+.map-marker-dot {
+  fill: var(--panel);
+  stroke: var(--accent);
+  stroke-width: 1.75;
+  transition: fill 0.15s ease, stroke-width 0.15s ease;
+}
+
+.map-marker-disputed .map-marker-dot {
+  stroke-dasharray: 2.5 2;
+}
+
+.map-marker:hover .map-marker-dot,
+.map-marker:focus-visible .map-marker-dot {
+  fill: var(--accent-soft);
+  stroke-width: 2.5;
+}
+
+.map-marker:focus-visible {
+  outline: none;
+}
+
+.map-marker-order {
+  font-family: var(--mono);
+  font-size: 8px;
+  fill: var(--ink);
+  pointer-events: none;
+}
+
+.map-marker-label {
+  font-family: var(--mono);
+  font-size: 8px;
+  fill: var(--ink-soft);
+}
+
+.map-marker:hover .map-marker-label,
+.map-marker:focus-visible .map-marker-label {
+  fill: var(--ink);
+}
+
+.map-stops-list {
+  margin: 0.4rem 0;
+  padding-left: 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.map-certainty-tag {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.map-certainty-tag.identified {
+  color: var(--ink-soft);
+}
+
+.map-certainty-tag.disputed {
+  color: var(--error);
+  font-style: italic;
 }
 
 /* --- Notes (signed-in users' own notes on a passage) --------------------- */

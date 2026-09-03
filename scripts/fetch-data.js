@@ -25,6 +25,16 @@
 // Claude invents on its own). Distributed as a small .zip; see
 // downloadCrossReferences() below for why this hand-rolls the extraction
 // instead of adding an unzip dependency.
+//
+// Bible geocoding: openbible.info's separate Bible-Geocoding-Data project —
+// CC BY 4.0, real coordinates for every place mentioned in the Bible, each
+// with a scholarly-source-backed confidence score per candidate modern
+// identification (some places have one dominant, well-attested site; others
+// have several disputed candidates — the data says which, rather than this
+// app guessing). Backs lib/geography.js's generate_map chat tool. Only
+// `data/modern.jsonl` is fetched — the project's ancient-place metadata
+// (verse references, spelling variants) isn't needed here, since the modern
+// side already carries each candidate's ancient place name inline.
 
 import { mkdir, stat } from "node:fs/promises";
 import { writeFile } from "node:fs/promises";
@@ -203,6 +213,31 @@ async function downloadCrossReferences() {
   console.log(`  ${CROSS_REFS_FILE} — ${mb} MB (openbible.info cross-references, CC BY 4.0)`);
 }
 
+const GEOCODING_URL = "https://raw.githubusercontent.com/openbibleinfo/Bible-Geocoding-Data/main/data/modern.jsonl";
+const GEOCODING_FILE = "bible-geocoding-modern.jsonl";
+
+async function downloadBibleGeocoding() {
+  const target = dataFile(GEOCODING_FILE);
+
+  if (await exists(target)) {
+    console.log(`  ${GEOCODING_FILE} — already present, skipping`);
+    return;
+  }
+
+  const response = await fetch(GEOCODING_URL);
+  if (!response.ok) {
+    throw new Error(
+      `Failed to download Bible geocoding data: ${response.status} ${response.statusText}\n  ${GEOCODING_URL}`,
+    );
+  }
+
+  const body = Buffer.from(await response.arrayBuffer());
+  await writeFile(target, body);
+
+  const mb = (body.byteLength / 1024 / 1024).toFixed(1);
+  console.log(`  ${GEOCODING_FILE} — ${mb} MB (openbible.info Bible geocoding data, CC BY 4.0)`);
+}
+
 async function main() {
   await mkdir(DATA_DIR, { recursive: true });
   console.log("Fetching STEPBible data (CC BY 4.0, Tyndale House Cambridge):");
@@ -217,7 +252,10 @@ async function main() {
   console.log("Fetching cross-references dataset (CC BY 4.0, openbible.info):");
   await downloadCrossReferences();
 
-  console.log("Done. Sources: https://github.com/STEPBible/STEPBible-Data, https://berean.bible, https://www.openbible.info/labs/cross-references/");
+  console.log("Fetching Bible geocoding dataset (CC BY 4.0, openbible.info):");
+  await downloadBibleGeocoding();
+
+  console.log("Done. Sources: https://github.com/STEPBible/STEPBible-Data, https://berean.bible, https://www.openbible.info/labs/cross-references/, https://github.com/openbibleinfo/Bible-Geocoding-Data");
 }
 
 // Only run when invoked directly, so index.js can import FILES/dataFile.

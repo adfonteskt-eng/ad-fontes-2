@@ -384,6 +384,10 @@
        today. -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="/auth.js"></script>
+  <!-- Static base-map art + projection for generate_map diagrams (see
+       app.js's Maps section) -- its own file since it's one large,
+       unchanging asset (a real coastline path), not code. -->
+  <script src="/map-data.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

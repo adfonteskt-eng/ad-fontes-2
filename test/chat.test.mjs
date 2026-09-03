@@ -172,7 +172,7 @@ test("callAnthropic requests automatic prompt caching with a 1h TTL", async () =
   // cache_control") — system and tools must both be present for there to be
   // anything worth caching.
   assert.ok(capturedBody.system, "system prompt must be present for caching to have any effect");
-  assert.ok(Array.isArray(capturedBody.tools) && capturedBody.tools.length === 5);
+  assert.ok(Array.isArray(capturedBody.tools) && capturedBody.tools.length === 6);
 });
 
 // --- Compounding study memory (userId) --------------------------------
@@ -202,7 +202,7 @@ test("anonymous chat (no userId) never touches Supabase, even if it's configured
         throw new Error(`unexpected fetch to ${href} for an anonymous request`);
       }
       const body = JSON.parse(opts.body);
-      assert.equal(body.tools.length, 5, "no userId means no search_study_history tool, but the 5 base tools are always present");
+      assert.equal(body.tools.length, 6, "no userId means no search_study_history tool, but the 6 base tools are always present");
       return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
     };
     await chatTurn({ message: "What does Psalm 23:1 mean?", appKey: "k", apiKey: "fake" });
@@ -211,7 +211,7 @@ test("anonymous chat (no userId) never touches Supabase, even if it's configured
   }
 });
 
-test("a signed-in, PAID user gets a 6th and 7th tool (search_study_history, search_my_notes), and calling search_study_history hits PostgREST", async () => {
+test("a signed-in, PAID user gets a 7th and 8th tool (search_study_history, search_my_notes), and calling search_study_history hits PostgREST", async () => {
   stubSupabaseEnv();
   try {
     let step = 0;
@@ -221,7 +221,7 @@ test("a signed-in, PAID user gets a 6th and 7th tool (search_study_history, sear
       const href = url.toString();
       if (href === "https://api.anthropic.com/v1/messages") {
         const body = JSON.parse(opts.body);
-        assert.equal(body.tools.length, 7, "a signed-in, paid user should see all seven tools");
+        assert.equal(body.tools.length, 8, "a signed-in, paid user should see all eight tools");
         assert.ok(
           body.tools.some((t) => t.name === "search_study_history"),
           "search_study_history should be in the tools list",
@@ -273,7 +273,7 @@ test("a signed-in but FREE user does not get search_study_history or search_my_n
       const href = url.toString();
       if (href === "https://api.anthropic.com/v1/messages") {
         const body = JSON.parse(opts.body);
-        assert.equal(body.tools.length, 5, "a free account should see only the five base tools");
+        assert.equal(body.tools.length, 6, "a free account should see only the six base tools");
         assert.ok(
           !body.tools.some((t) => t.name === "search_study_history"),
           "search_study_history should NOT be offered to a free account",
