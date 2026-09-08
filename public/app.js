@@ -1549,10 +1549,16 @@ homeLink.addEventListener("click", (event) => {
   startNewConversation();
 });
 
-// Restore a previous conversation from localStorage, if there is one. Does
-// NOT touch the URL itself -- the caller (the init sequence at the bottom
-// of this file) decides push vs. replace, since this also runs on plain
-// page load where neither is quite right on its own.
+// Restore a previous conversation from localStorage, if there is one, into
+// memory and onto the DOM -- but deliberately does NOT decide which view is
+// visible or touch the URL itself; the init sequence at the bottom of this
+// file does that, since landing directly on a specific linkable page
+// (/today, /plans, /outlines, /subscription) should show THAT page even
+// when a conversation happens to be saved (see the init sequence's own
+// comment on this). Loading the data here regardless means a plain "/" or
+// "/chat" load (or a page refresh) still shows the resumed conversation
+// exactly as before -- clicking the Home button/logo is a separate,
+// deliberate "start fresh" action (see startNewConversation()), not this.
 function restoreChatState() {
   const saved = loadChatState();
   if (!saved || saved.log.length === 0) return false;
@@ -1563,7 +1569,6 @@ function restoreChatState() {
   chatLogData = saved.log;
   clearInputPlaceholder(); // restoring a conversation means this isn't a first visit
   renderChatLog(saved.log);
-  renderView("conversation");
   return true;
 }
 
@@ -1633,17 +1638,30 @@ window.adFontesChat = {
 const CURRENT_SEARCH_AND_HASH = location.search + location.hash;
 
 renderExamples();
-if (restoreChatState()) {
-  history.replaceState({ view: "conversation" }, "", CONVERSATION_PATH + CURRENT_SEARCH_AND_HASH);
-} else {
-  // A saved chat log always wins (matching the previous home-vs-chat
-  // behavior), but absent one, honor whatever path was actually loaded --
-  // /today, /plans, and /subscription are real, linkable/refreshable pages
-  // now, not just menu-only states (see server.js's routes for each).
-  const initialView = PATH_VIEWS[location.pathname] ?? "home";
-  renderView(initialView);
-  history.replaceState({ view: initialView }, "", VIEW_PATHS[initialView] + CURRENT_SEARCH_AND_HASH);
-}
+const hasSavedConversation = restoreChatState();
+// /today, /plans, /outlines, and /subscription are real, linkable/
+// refreshable pages (see server.js's routes for each), not just menu-only
+// states -- landing directly on one (a fresh tab, a bookmark, or clicking
+// a link to it, like the Reading Plans lock screen's "See Subscription
+// plans") should show THAT page, full stop. A saved conversation only wins
+// the initial view when the path itself doesn't name one of those more
+// specific pages (plain "/" or "/chat") -- restoreChatState() above still
+// loaded its data into memory either way, so a plain reload or revisit
+// still resumes it exactly as before. This used to always prefer the
+// saved conversation regardless of path, from before those other pages
+// existed as real routes -- a real bug, since it silently bounced someone
+// who'd just clicked "See Subscription plans" (or any other of those
+// links) back to their conversation instead, with no indication anything
+// had gone wrong.
+const requestedView = PATH_VIEWS[location.pathname];
+const initialView =
+  requestedView && requestedView !== "home" && requestedView !== "conversation"
+    ? requestedView
+    : hasSavedConversation
+      ? "conversation"
+      : "home";
+renderView(initialView);
+history.replaceState({ view: initialView }, "", VIEW_PATHS[initialView] + CURRENT_SEARCH_AND_HASH);
 loadDailyPassage();
 loadReadingPlans();
 loadOutlines();
