@@ -28,6 +28,16 @@ body {
   line-height: 1.5;
 }
 
+/* A browser's default placeholder gray (Chrome's is #757575) measures only
+   ~3.9:1 against this site's --panel background -- under the 4.5:1 AA
+   threshold, and every input/textarea on the site (chat, notes, outline
+   titles, every auth field) relies on --panel or --paper behind it. One
+   global override beats fixing each input individually. */
+::placeholder {
+  color: var(--ink-soft);
+  opacity: 1;
+}
+
 /* --- Top-left site menu: accounts + previous conversations -------------- */
 
 .site-menu {
