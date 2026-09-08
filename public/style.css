@@ -28,6 +28,15 @@ body {
   line-height: 1.5;
 }
 
+/* Every checkbox on the site (the menu's digest/push/reminder toggles, each
+   reading-plan day) was rendering with the browser's default blue -- the
+   one interactive element that hadn't been brought into the warm parchment
+   palette everywhere else. accent-color recolors the native control
+   (check mark, focus ring, and all) without reimplementing it. */
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
 /* A browser's default placeholder gray (Chrome's is #757575) measures only
    ~3.9:1 against this site's --panel background -- under the 4.5:1 AA
    threshold, and every input/textarea on the site (chat, notes, outline
