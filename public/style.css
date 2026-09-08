@@ -65,7 +65,11 @@ body {
   position: absolute;
   top: calc(100% + 0.5rem);
   left: 0;
-  width: 19rem;
+  /* 19rem flush against the button's own 1rem left offset reaches exactly
+     the right edge of a 320px viewport with zero margin -- not clipped,
+     but tight enough to look unfinished. Shrinking to fit with a matching
+     1rem margin on that edge too, on anything narrower than needs it. */
+  width: min(19rem, calc(100vw - 2rem));
   max-height: min(70vh, 32rem);
   overflow-y: auto;
   padding: 1rem;
@@ -691,7 +695,11 @@ table.interlinear th {
   border: 1px solid var(--accent);
   border-radius: 999px;
   background: var(--accent-soft);
-  color: var(--accent);
+  /* --accent text directly on --accent-soft measures ~4.4:1 -- just under
+     the 4.5:1 AA threshold for this text's size. --ink-soft clears it
+     (4.6:1) while staying close in hue; the accent border/hover keep this
+     reading as an accent-styled pill. */
+  color: var(--ink-soft);
   cursor: pointer;
 }
 
