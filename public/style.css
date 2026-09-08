@@ -1842,4 +1842,16 @@ footer a {
   .chat-message.error {
     max-width: 95%;
   }
+  /* At this width the textarea only gets ~55% of the viewport (the Send
+     button takes the rest), so the full placeholder wraps to more lines
+     than the 2-row box shows -- clipping its last line with no visual hint
+     there's more, which reads as broken rather than just "a bit long." A
+     smaller placeholder-only font (the real value the user types keeps the
+     normal 1rem) is enough for it to fit without touching the layout. */
+  #chat-input {
+    min-height: 4.5rem;
+  }
+  #chat-input::placeholder {
+    font-size: 0.78rem;
+  }
 }

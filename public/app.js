@@ -1662,6 +1662,17 @@ const initialView =
       : "home";
 renderView(initialView);
 history.replaceState({ view: initialView }, "", VIEW_PATHS[initialView] + CURRENT_SEARCH_AND_HASH);
+// Focusing chat-input here (rather than a plain HTML `autofocus` attribute
+// on it) is deliberate: `autofocus` fires the moment the browser parses
+// the element, before this script has decided which view to actually
+// show -- so it would focus (and, worse, scroll the page to) the input
+// even when landing on /today, /plans, /outlines, or /subscription, where
+// it's about to be hidden entirely. Only doing it here, only for "home",
+// and with `preventScroll` means a first-time visitor on a short or narrow
+// viewport (where the page is taller than the screen) doesn't get dropped
+// straight past the "ad fontes" heading and welcome copy before they've
+// even seen it.
+if (initialView === "home") chatInput.focus({ preventScroll: true });
 loadDailyPassage();
 loadReadingPlans();
 loadOutlines();
