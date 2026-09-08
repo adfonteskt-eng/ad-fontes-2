@@ -1328,8 +1328,21 @@ table.interlinear th {
   stroke-width: 2.5;
 }
 
+/* The default focus ring on an SVG <g> tends to hug the whole group's
+   bounding box, which here includes the offset text label -- a fine
+   result on some nodes but an oddly large, off-center rectangle on
+   others. Drawing a real outline on just the dot itself (not "outline:
+   none" with only the hover-shared fill/stroke change above, which reads
+   as too subtle a focus indicator on its own) keeps a clearly visible,
+   consistently-sized focus indicator regardless of label position. */
 .cross-ref-node:focus-visible {
   outline: none;
+}
+
+.cross-ref-node:focus-visible .cross-ref-dot,
+.cross-ref-center-node:focus-visible circle {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .cross-ref-label,
@@ -1435,8 +1448,16 @@ table.interlinear th {
   stroke-width: 2.5;
 }
 
+/* Same reasoning as .cross-ref-node:focus-visible above: a real outline on
+   just the dot, not the whole <g> (whose bounding box also includes the
+   offset label) and not just the subtle hover-shared fill change alone. */
 .map-marker:focus-visible {
   outline: none;
+}
+
+.map-marker:focus-visible .map-marker-dot {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .map-marker-order {
