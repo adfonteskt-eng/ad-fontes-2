@@ -749,15 +749,12 @@ async function initAuth() {
   // that meant a slow or briefly-unreachable Supabase could make the whole
   // menu vanish for as long as the retry takes, not just sign-in.
   menuButton.hidden = false;
+  // Not refreshing reading plans/outlines here too -- app.js's own init
+  // sequence already calls both once unconditionally on page load, and
+  // onAuthStateChange's immediate INITIAL_SESSION firing (just below) calls
+  // them again once the signed-in-or-not answer is actually known; a third
+  // call here would just be a redundant fetch for no benefit.
   if (!inRecoveryFlow) showSignedOut();
-  // Reading plans' progress and the outlines library both depend on who's
-  // signed in (or isn't), unlike conversations/preferences which have
-  // nothing to show at all when signed out. window.adFontesReadingPlans/
-  // adFontesOutlines are both defined unconditionally by app.js (even
-  // before this file's async setup finishes), same "always safe to call"
-  // contract as window.adFontesAuth.
-  window.adFontesReadingPlans?.refresh();
-  window.adFontesOutlines?.refresh();
 
   signupForm.addEventListener("submit", async (event) => {
     event.preventDefault();
