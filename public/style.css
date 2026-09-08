@@ -1114,8 +1114,13 @@ table.interlinear th {
 }
 
 .outline-title-input {
-  flex: 1 1 12rem;
-  min-width: 8rem;
+  /* A 12rem flex-basis, plus Cancel/Save, is wider than a 320px viewport
+     can hold on one line -- which wraps "Save" alone onto its own row
+     rather than keeping it grouped with Cancel. A smaller basis (still
+     free to grow via flex-grow when there's room) keeps all three on one
+     row down to the narrowest common phone width. */
+  flex: 1 1 6rem;
+  min-width: 5rem;
   padding: 0.4rem 0.6rem;
   font-size: 0.85rem;
   font-family: var(--sans);
