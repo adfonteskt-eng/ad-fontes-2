@@ -216,6 +216,21 @@ function showAuthError(message) {
   authErrorNote.hidden = false;
 }
 
+// A raw network-level failure surfaces from the Supabase client as a bare
+// "Failed to fetch" (or "NetworkError...", in Firefox) -- technically
+// accurate but meaningless to someone who just clicked "Sign in": it reads
+// like the site is broken, not like "try again in a moment." Every
+// catch block below that can see this kind of error (as opposed to a real
+// Supabase-returned error like "Invalid login credentials", which is
+// already a fine message on its own) runs it through this first.
+function friendlyAuthErrorMessage(error) {
+  const message = error?.message ?? "";
+  if (/failed to fetch|networkerror|load failed/i.test(message)) {
+    return "Couldn't reach the sign-in service — check your connection and try again in a moment.";
+  }
+  return message || "Something went wrong.";
+}
+
 showSignupButton.addEventListener("click", () => {
   authErrorNote.hidden = true;
   authChoiceButtons.hidden = true;
@@ -680,10 +695,17 @@ async function initAuth() {
   const client = window.supabase.createClient(config.supabaseUrl, config.supabasePublishableKey);
 
   window.adFontesAuth.getAccessToken = async () => {
-    const {
-      data: { session },
-    } = await client.auth.getSession();
-    return session?.access_token ?? null;
+    try {
+      const {
+        data: { session },
+      } = await client.auth.getSession();
+      return session?.access_token ?? null;
+    } catch {
+      // Supabase unreachable -- treat exactly like "no session" rather than
+      // letting this reject and break whatever called it (e.g. attaching a
+      // token to a /api/chat request, which should still work anonymously).
+      return null;
+    }
   };
 
   setupPush(config); // not awaited -- registering the service worker and reading the browser's current subscription shouldn't hold up the rest of sign-in setup below
@@ -715,27 +737,27 @@ async function initAuth() {
     window.adFontesOutlines?.refresh();
   });
 
-  const {
-    data: { session: initialSession },
-  } = await client.auth.getSession();
-  if (!inRecoveryFlow) {
-    if (initialSession) {
-      showSignedIn(initialSession.user?.email);
-      loadConversations();
-      loadPreferences();
-    } else {
-      showSignedOut();
-    }
-  }
+  // Reveal the menu and wire up every form now, rather than waiting on the
+  // initial session check below to resolve first. None of this actually
+  // needs to know whether a previous session exists yet -- default to
+  // "signed out" and let that check upgrade it to "signed in" once/if it
+  // resolves. This matters because supabase-js's own client retries a
+  // transient network failure internally before giving up on
+  // getSession(), which can take a good while (minutes, in a real outage)
+  // -- gating the ENTIRE menu (including things that have nothing to do
+  // with accounts, like Reading Plans or plain in-page navigation) behind
+  // that meant a slow or briefly-unreachable Supabase could make the whole
+  // menu vanish for as long as the retry takes, not just sign-in.
+  menuButton.hidden = false;
+  if (!inRecoveryFlow) showSignedOut();
   // Reading plans' progress and the outlines library both depend on who's
   // signed in (or isn't), unlike conversations/preferences which have
-  // nothing to show at all when signed out -- so both refresh regardless of
-  // the branch above. window.adFontesReadingPlans/adFontesOutlines are both
-  // defined unconditionally by app.js (even before this file's async setup
-  // finishes), same "always safe to call" contract as window.adFontesAuth.
+  // nothing to show at all when signed out. window.adFontesReadingPlans/
+  // adFontesOutlines are both defined unconditionally by app.js (even
+  // before this file's async setup finishes), same "always safe to call"
+  // contract as window.adFontesAuth.
   window.adFontesReadingPlans?.refresh();
   window.adFontesOutlines?.refresh();
-  menuButton.hidden = false;
 
   signupForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -772,7 +794,7 @@ async function initAuth() {
       signupForm.hidden = true;
       signupSentNote.hidden = false;
     } catch (error) {
-      showAuthError(error.message ?? "Something went wrong.");
+      showAuthError(friendlyAuthErrorMessage(error));
     } finally {
       submitButton.disabled = false;
     }
@@ -795,7 +817,7 @@ async function initAuth() {
       }
       // onAuthStateChange's SIGNED_IN handler above takes it from here.
     } catch (error) {
-      showAuthError(error.message ?? "Something went wrong.");
+      showAuthError(friendlyAuthErrorMessage(error));
     } finally {
       submitButton.disabled = false;
     }
@@ -820,7 +842,7 @@ async function initAuth() {
       forgotForm.hidden = true;
       forgotSentNote.hidden = false;
     } catch (error) {
-      showAuthError(error.message ?? "Something went wrong.");
+      showAuthError(friendlyAuthErrorMessage(error));
     } finally {
       submitButton.disabled = false;
     }
@@ -863,7 +885,7 @@ async function initAuth() {
         showSignedOut();
       }
     } catch (error) {
-      recoveryErrorNote.textContent = error.message ?? "Something went wrong.";
+      recoveryErrorNote.textContent = friendlyAuthErrorMessage(error);
       recoveryErrorNote.hidden = false;
     } finally {
       submitButton.disabled = false;
@@ -875,6 +897,29 @@ async function initAuth() {
     showSignedOut();
     window.adFontesChat?.startNewConversation();
   });
+
+  // The actual "is there already a session" check -- deferred to here (see
+  // the menuButton.hidden = false comment above for why) so a slow or
+  // failed lookup only delays upgrading from the default signed-out view,
+  // rather than blocking the menu and every form's listeners from existing
+  // at all. A failure here (Supabase unreachable) is left as signed-out
+  // rather than surfaced as an error -- indistinguishable, from the user's
+  // side, from genuinely not having a session, and no worse than what
+  // happened before this file even loaded.
+  try {
+    const {
+      data: { session: initialSession },
+    } = await client.auth.getSession();
+    if (!inRecoveryFlow && initialSession) {
+      showSignedIn(initialSession.user?.email);
+      loadConversations();
+      loadPreferences();
+      window.adFontesReadingPlans?.refresh();
+      window.adFontesOutlines?.refresh();
+    }
+  } catch (error) {
+    console.warn("Couldn't check for an existing Supabase session; staying signed out.", error.message);
+  }
 }
 
 initAuth();
