@@ -34,6 +34,7 @@
       aria-haspopup="true"
       aria-expanded="false"
       aria-controls="site-menu-panel"
+      aria-label="Menu"
       title="Menu"
       hidden
     >
@@ -82,15 +83,15 @@
           </div>
 
           <form id="auth-signup-form" class="auth-form" hidden>
-            <input type="email" id="auth-signup-email" placeholder="you@example.com" autocomplete="email" required />
-            <input type="password" id="auth-signup-password" placeholder="Password (min 8 characters)" autocomplete="new-password" minlength="8" required />
+            <input type="email" id="auth-signup-email" placeholder="you@example.com" aria-label="Email address" autocomplete="email" required />
+            <input type="password" id="auth-signup-password" placeholder="Password (min 8 characters)" aria-label="Password" autocomplete="new-password" minlength="8" required />
             <button type="submit">Create account</button>
             <button type="button" class="auth-back-button" data-auth-back>&larr; Back</button>
           </form>
 
           <form id="auth-signin-form" class="auth-form" hidden>
-            <input type="email" id="auth-signin-email" placeholder="you@example.com" autocomplete="email" required />
-            <input type="password" id="auth-signin-password" placeholder="Password" autocomplete="current-password" required />
+            <input type="email" id="auth-signin-email" placeholder="you@example.com" aria-label="Email address" autocomplete="email" required />
+            <input type="password" id="auth-signin-password" placeholder="Password" aria-label="Password" autocomplete="current-password" required />
             <button type="submit">Sign in</button>
             <div class="auth-form-footer">
               <button type="button" id="auth-show-forgot" class="auth-link-button">Forgot password?</button>
@@ -100,7 +101,7 @@
 
           <form id="auth-forgot-form" class="auth-form" hidden>
             <p class="menu-note">We'll email you a link to reset your password.</p>
-            <input type="email" id="auth-forgot-email" placeholder="you@example.com" autocomplete="email" required />
+            <input type="email" id="auth-forgot-email" placeholder="you@example.com" aria-label="Email address" autocomplete="email" required />
             <button type="submit">Send reset link</button>
             <button type="button" class="auth-back-button" data-auth-back>&larr; Back</button>
           </form>
@@ -119,7 +120,7 @@
         <div id="menu-recovery" hidden>
           <p class="menu-note">Set a new password for your account.</p>
           <form id="auth-recovery-form" class="auth-form">
-            <input type="password" id="auth-recovery-password" placeholder="New password (min 8 characters)" autocomplete="new-password" minlength="8" required />
+            <input type="password" id="auth-recovery-password" placeholder="New password (min 8 characters)" aria-label="New password" autocomplete="new-password" minlength="8" required />
             <button type="submit">Set new password</button>
           </form>
           <p id="auth-recovery-error" class="auth-error" hidden></p>
