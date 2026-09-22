@@ -27,12 +27,12 @@ Nearly no npm dependencies — every server-side *integration* (YouVersion, Anth
   from a top-left menu) unlock notes on any passage, a daily digest email,
   and a durable "previous conversations" list (filterable by most-recent or
   by canonical book order) — all free. A paid tier (see Subscription / paid
-  tier — no real checkout wired up yet, `is_paid` is set by hand for now)
-  adds reading plans with progress tracking, a sermon/lesson outline mode, a
-  compounding study memory across past conversations, and naming your AI
-  agent. See Accounts & study memory. Not yet done: real billing (the free
-  beta has per-IP usage caps instead, see Configuration) and an app or
-  browser extension if still wanted later.
+  tier — real Stripe Checkout/Customer Portal billing, test mode; `is_paid`
+  is driven by Stripe's webhook, not set by hand) adds reading plans with
+  progress tracking, a sermon/lesson outline mode, a compounding study
+  memory across past conversations, and naming your AI agent. See Accounts
+  & study memory. Not yet done: an app or browser extension if still
+  wanted later.
 
 ## Setup
 
@@ -538,12 +538,18 @@ each outline in **My Outlines**, next to each note (only once
 unlike outlines this can't just hide behind an already-locked page), and in
 the heading row while viewing any durable, signed-in, paid conversation.
 
-**Subscription / paid tier.** A free/paid split with no real checkout wired
-up yet — `profiles.is_paid` is a plain boolean, flipped by hand in the
-Supabase dashboard's Table Editor, not by any code path in this app. The
-**Subscription** page (top-left menu) lists what's in the Free and Pro
-tiers, with a "pricing coming soon" placeholder and no working "upgrade"
-button — it's a reference page today, not a billing flow. The free tier is
+**Subscription / paid tier.** A free/paid split billed through real Stripe
+Checkout and Customer Portal sessions (`lib/stripe.js`, test mode — plain
+`fetch` against Stripe's REST API, no `stripe` npm SDK, same "no dependency
+unless it's genuinely fiddly to hand-roll" reasoning as everywhere else in
+this project). `profiles.is_paid` is driven entirely by
+`POST /api/webhooks/stripe` reacting to subscription events — never set by
+hand, and never by the checkout redirect itself (a customer can abandon or
+close the tab before landing back on the success page, so only the
+webhook is authoritative). The **Subscription** page (top-left menu) lists
+what's in the Free and Pro tiers and is where checkout/portal are reached
+from. See `lib/stripe.js`'s own header comment for the full flow
+(`TRIAL_PERIOD_DAYS` = 14, card-on-file). The free tier is
 deliberately narrow: full chat (translations, original-language interlinear,
 commentary), notes on any passage, full-text Bible search, the daily digest
 email, and installing the site as a PWA with push notifications. Everything
