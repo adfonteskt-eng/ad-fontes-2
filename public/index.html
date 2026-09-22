@@ -321,12 +321,15 @@
     </div>
 
     <!-- Subscription -- its own page, reached from the top-left menu.
-         Static content for now (see README -> Subscription / paid tier):
-         no real checkout is wired up yet, so pricing is a placeholder and
-         there's no working "upgrade" action -- this is a plans/features
-         reference page, not a billing flow, until that's built. -->
+         Checkout/portal are wired to Stripe (see README -> Subscription /
+         paid tier, lib/stripe.js, public/auth.js's billing section) -- the
+         actual monthly/annual choice and the Upgrade/Manage billing
+         buttons below are shown/hidden by auth.js based on sign-in state
+         and isPaid, since a signed-out visitor has no account for Stripe
+         to attach a subscription to yet. -->
     <div id="page-subscription" class="page" hidden>
       <h2 class="page-heading">Subscription</h2>
+      <p id="billing-status-note" class="subscription-note" hidden></p>
       <div class="subscription-plans">
         <div class="subscription-plan">
           <h3>Free</h3>
@@ -341,7 +344,10 @@
         </div>
         <div class="subscription-plan subscription-plan-paid">
           <h3>Pro</h3>
-          <p class="subscription-price">Pricing coming soon</p>
+          <p class="subscription-price">
+            $7.99<span class="subscription-price-period">/month</span>
+            <br /><span class="subscription-price-annual">or $79.99/year (save ~17%)</span>
+          </p>
           <ul>
             <li>Everything in Free</li>
             <li>Reading plans with progress tracking, plus optional reminder notifications</li>
@@ -350,7 +356,25 @@
             <li>Compounding study memory — your agent recalls what you've studied and written across past conversations</li>
             <li>Name your AI agent for a more personal conversation</li>
           </ul>
-          <p class="subscription-note">Not open for signup yet — check back soon.</p>
+          <p class="subscription-note">14-day free trial, cancel anytime.</p>
+
+          <!-- Signed out: prompt to sign in/up first (Stripe checkout needs
+               an account to attach the subscription to). -->
+          <p id="subscription-signed-out-note" class="subscription-note">
+            <a href="#" id="subscription-signin-link">Sign in or create a free account</a> to subscribe.
+          </p>
+
+          <!-- Signed in, free: the actual checkout actions. -->
+          <div id="subscription-checkout-actions" hidden>
+            <button type="button" id="subscribe-monthly-button" class="subscription-cta">Subscribe monthly</button>
+            <button type="button" id="subscribe-annual-button" class="subscription-cta subscription-cta-secondary">Subscribe annually</button>
+          </div>
+
+          <!-- Signed in, already paid. -->
+          <div id="subscription-manage-actions" hidden>
+            <p class="subscription-note">You're on Pro.</p>
+            <button type="button" id="manage-billing-button" class="subscription-cta">Manage billing</button>
+          </div>
         </div>
       </div>
     </div>

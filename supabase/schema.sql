@@ -66,6 +66,27 @@ alter table public.profiles
 alter table public.profiles
   add column if not exists reading_plan_reminders_opt_in boolean not null default false;
 
+-- Stripe billing (see README -> Subscription / paid tier, lib/stripe.js).
+-- is_paid above used to be set by hand in the dashboard; it's now driven by
+-- server.js's POST /api/webhooks/stripe handler via lib/supabase.js's
+-- setBillingProfile(), keyed on these two ids. Both nullable/text: a
+-- free account that's never started checkout has neither, and there's no
+-- foreign-key relationship to enforce (Stripe, not Postgres, owns these
+-- ids' lifecycle).
+alter table public.profiles
+  add column if not exists stripe_customer_id text;
+
+alter table public.profiles
+  add column if not exists stripe_subscription_id text;
+
+-- The webhook handler's actual lookup: "which profile does this Stripe
+-- customer id belong to" (see getProfileByStripeCustomerId in
+-- lib/supabase.js). Unique, not just indexed -- a customer id maps to at
+-- most one profile the moment it's ever assigned.
+create unique index if not exists profiles_stripe_customer_id_idx
+  on public.profiles (stripe_customer_id)
+  where stripe_customer_id is not null;
+
 alter table public.profiles enable row level security;
 
 drop policy if exists "profiles: users can read their own row" on public.profiles;

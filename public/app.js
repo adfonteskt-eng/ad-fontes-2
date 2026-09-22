@@ -1378,6 +1378,131 @@ async function loadOutlines() {
 
 window.adFontesOutlines = { refresh: loadOutlines };
 
+// --- Subscription (Stripe Checkout/Portal) ----------------------------------
+// See README -> Subscription / paid tier and lib/stripe.js for the server
+// side. This page has three states, mutually exclusive: signed out (prompt
+// to sign in -- Checkout needs an account to attach a subscription to),
+// signed in and free (the two Subscribe buttons), signed in and paid (a
+// Manage billing button, which hands off to Stripe's own Customer Portal --
+// no custom upgrade/downgrade/cancel UI here, per the implementation plan's
+// Lifecycle Management choice).
+
+const billingStatusNote = document.getElementById("billing-status-note");
+const subscriptionSignedOutNote = document.getElementById("subscription-signed-out-note");
+const subscriptionSigninLink = document.getElementById("subscription-signin-link");
+const subscriptionCheckoutActions = document.getElementById("subscription-checkout-actions");
+const subscriptionManageActions = document.getElementById("subscription-manage-actions");
+const subscribeMonthlyButton = document.getElementById("subscribe-monthly-button");
+const subscribeAnnualButton = document.getElementById("subscribe-annual-button");
+const manageBillingButton = document.getElementById("manage-billing-button");
+
+subscriptionSigninLink?.addEventListener("click", (event) => {
+  event.preventDefault();
+  window.adFontesAuth.promptSignIn?.();
+});
+
+// Landing back on this page after Stripe Checkout (success_url/cancel_url
+// in lib/stripe.js both point here with a ?checkout= marker). The webhook,
+// not this redirect, is what actually flips is_paid (see server.js's POST
+// /api/webhooks/stripe) -- a customer can close the tab before landing back
+// here at all -- so "success" just means "you're on your way," not
+// confirmation the account is upgraded yet; loadSubscriptionState() below
+// re-checks the real state regardless. Read once at module init, same
+// reasoning as CURRENT_SEARCH_AND_HASH above (the URL gets cleaned up
+// immediately after, so a later read would find nothing).
+const CHECKOUT_RESULT = new URLSearchParams(location.search).get("checkout");
+if (CHECKOUT_RESULT === "success" || CHECKOUT_RESULT === "cancelled") {
+  billingStatusNote.textContent =
+    CHECKOUT_RESULT === "success"
+      ? "Thanks! Finishing setup -- this updates automatically within a few seconds."
+      : "Checkout cancelled -- no charge was made.";
+  billingStatusNote.hidden = false;
+  // Drop the marker so a later reload of /subscription doesn't keep
+  // re-showing a stale result -- same "clean up after consuming it" pattern
+  // as auth.js's recovery-link handling.
+  history.replaceState(history.state, "", VIEW_PATHS.subscription);
+}
+
+// Called on initial page load and again whenever sign-in state changes
+// (auth.js calls window.adFontesSubscription.refresh() alongside its own
+// loadReadingPlans()/loadOutlines() refreshes) -- same "always re-fetch the
+// authoritative state, don't trust a possibly-stale isPaid" reasoning as
+// loadReadingPlans().
+async function loadSubscriptionState() {
+  try {
+    const accessToken = await window.adFontesAuth.getAccessToken();
+    if (!accessToken) {
+      subscriptionSignedOutNote.hidden = false;
+      subscriptionCheckoutActions.hidden = true;
+      subscriptionManageActions.hidden = true;
+      return;
+    }
+
+    const response = await fetch("/api/preferences", { headers: { authorization: `Bearer ${accessToken}` } });
+    if (!response.ok) return;
+    const { isPaid } = await response.json();
+
+    subscriptionSignedOutNote.hidden = true;
+    subscriptionCheckoutActions.hidden = Boolean(isPaid);
+    subscriptionManageActions.hidden = !isPaid;
+  } catch {
+    // Network hiccup shouldn't block or clutter the rest of the page -- same
+    // reasoning as loadReadingPlans()/loadDailyPassage().
+  }
+}
+
+async function startCheckout(plan, button) {
+  const accessToken = await window.adFontesAuth.getAccessToken();
+  if (!accessToken) return;
+
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/billing/checkout", {
+      method: "POST",
+      headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ plan }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      alert(data.error ?? "Could not start checkout.");
+      return;
+    }
+    location.href = data.url; // hands off to Stripe's hosted Checkout page
+  } catch (error) {
+    alert(`Network error: ${error.message}`);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+subscribeMonthlyButton?.addEventListener("click", () => startCheckout("monthly", subscribeMonthlyButton));
+subscribeAnnualButton?.addEventListener("click", () => startCheckout("annual", subscribeAnnualButton));
+
+manageBillingButton?.addEventListener("click", async () => {
+  const accessToken = await window.adFontesAuth.getAccessToken();
+  if (!accessToken) return;
+
+  manageBillingButton.disabled = true;
+  try {
+    const response = await fetch("/api/billing/portal", {
+      method: "POST",
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      alert(data.error ?? "Could not open the billing portal.");
+      return;
+    }
+    location.href = data.url; // hands off to Stripe's hosted Customer Portal
+  } catch (error) {
+    alert(`Network error: ${error.message}`);
+  } finally {
+    manageBillingButton.disabled = false;
+  }
+});
+
+window.adFontesSubscription = { refresh: loadSubscriptionState };
+
 outlinesList.addEventListener("click", async (event) => {
   const exportButton = event.target.closest(".export-control .export-button");
   if (exportButton) {
@@ -1676,3 +1801,4 @@ if (initialView === "home") chatInput.focus({ preventScroll: true });
 loadDailyPassage();
 loadReadingPlans();
 loadOutlines();
+loadSubscriptionState();

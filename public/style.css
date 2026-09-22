@@ -1823,6 +1823,58 @@ table.interlinear th {
   color: var(--ink-soft);
 }
 
+.subscription-price-period {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+.subscription-price-annual {
+  font-weight: 400;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
+#subscription-checkout-actions,
+#subscription-manage-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.subscription-cta {
+  padding: 0.5rem 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: 1px solid var(--accent);
+  border-radius: 0.4rem;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+}
+
+.subscription-cta:hover {
+  opacity: 0.9;
+}
+
+.subscription-cta:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.subscription-cta-secondary {
+  background: none;
+  color: var(--accent);
+}
+
+#billing-status-note {
+  max-width: 34rem;
+  margin: 0 auto 1rem;
+  text-align: center;
+  font-style: normal;
+}
+
 #chat-form {
   display: flex;
   gap: 0.5rem;

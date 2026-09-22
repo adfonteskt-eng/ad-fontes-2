@@ -63,6 +63,33 @@
 //   403 (dailyDigestOptIn has no such restriction — the email digest is
 //   free). Requires a valid Authorization header — 401 without one.
 //
+// Stripe billing (see README -> Subscription / paid tier, lib/stripe.js).
+// is_paid is now driven entirely by the webhook handler below -- GET/PUT
+// /api/preferences above never sets it, same as before.
+//
+// POST /api/billing/checkout { plan: "monthly" | "annual" } -> { url } --
+// creates a Stripe Checkout Session (hosted page, 14-day trial) and hands
+// back its URL for the browser to redirect to. Requires a valid
+// Authorization header -- 401 without one; 400 for an unrecognized plan;
+// 500 if Stripe isn't configured (STRIPE_SECRET_KEY unset) or the matching
+// STRIPE_PRICE_MONTHLY/STRIPE_PRICE_ANNUAL env var is unset.
+//
+// POST /api/billing/portal -> { url } -- creates a Stripe Customer Portal
+// session (self-serve upgrade/downgrade/cancel/payment-method update, no
+// custom UI needed here) and hands back its URL. Requires a valid
+// Authorization header -- 401 without one; 400 if this account has never
+// started checkout (no stripe_customer_id yet -- the Portal has nothing to
+// manage); 500 if Stripe isn't configured.
+//
+// POST /api/webhooks/stripe -- Stripe's own callback, not called by the
+// frontend. Verifies the Stripe-Signature header against the raw request
+// body (STRIPE_WEBHOOK_SECRET), then on customer.subscription.created/
+// updated/deleted flips the matching profile's is_paid (true for status
+// trialing/active, false otherwise) and stores stripe_customer_id/
+// stripe_subscription_id. 400 on a missing/invalid signature; 500 if
+// STRIPE_WEBHOOK_SECRET isn't configured; 200 for any other event type
+// (acknowledged, not acted on) so Stripe doesn't keep retrying it.
+
 // Push notifications are a free-tier feature (see README -> PWA & push
 // notifications) -- the daily-passage push goes to anyone with an active
 // subscription (subscribing at all is the opt-in); a separate, explicit
@@ -167,6 +194,7 @@ import { CHAT_DAILY_LIMIT, SUMMARY_DAILY_LIMIT, checkAndIncrement } from "./lib/
 import { EXPORT_FORMATS, conversationExportModel, exportModel, noteExportModel, outlineExportModel } from "./lib/export.js";
 import { getReadingPlan, isValidPlanDay, READING_PLANS } from "./lib/reading-plans.js";
 import { summarizePassage } from "./lib/summarize.js";
+import { createCheckoutSession, createPortalSession, isStripeConfigured, verifyWebhookEvent } from "./lib/stripe.js";
 import {
   createNote,
   createOutline,
@@ -179,12 +207,15 @@ import {
   getNote,
   getOutline,
   getPaidProfile,
+  getProfileByStripeCustomerId,
   getReadingPlanReminderOptIn,
+  getStripeCustomerId,
   listConversations,
   listNotes,
   listOutlines,
   listReadingPlanProgress,
   setAgentName,
+  setBillingProfile,
   setDigestOptIn,
   setReadingPlanDayComplete,
   setReadingPlanReminderOptIn,
@@ -839,6 +870,175 @@ async function handleSetPreferences(req, res) {
   sendJson(res, 200, { dailyDigestOptIn, isPaid, agentName, readingPlanRemindersOptIn });
 }
 
+// Same reasoning as lib/daily-digest.js's DEFAULT_SITE_URL -- a sensible
+// default so checkout/portal redirects work without a redundant env var,
+// overridable (e.g. to http://localhost:3000 for local testing) via the
+// same PUBLIC_SITE_URL the digest email already reads.
+const DEFAULT_SITE_URL = "https://adfontes.site";
+
+function siteUrl(path) {
+  return `${process.env.PUBLIC_SITE_URL || DEFAULT_SITE_URL}${path}`;
+}
+
+const CHECKOUT_PLANS = {
+  monthly: () => process.env.STRIPE_PRICE_MONTHLY,
+  annual: () => process.env.STRIPE_PRICE_ANNUAL,
+};
+
+async function handleCreateCheckout(req, res) {
+  const user = await requireUser(req, res);
+  if (!user) return;
+
+  if (!isStripeConfigured()) {
+    sendJson(res, 500, { error: "Stripe is not configured on the server." });
+    return;
+  }
+
+  let body;
+  try {
+    body = await readJsonBody(req, { maxBytes: MAX_CHAT_BODY_BYTES });
+  } catch (error) {
+    sendJson(res, error.status ?? 400, { error: error.message });
+    return;
+  }
+
+  const getPriceId = CHECKOUT_PLANS[body.plan];
+  if (!getPriceId) {
+    sendJson(res, 400, { error: `Invalid or missing field: plan (must be one of: ${Object.keys(CHECKOUT_PLANS).join(", ")}).` });
+    return;
+  }
+  const priceId = getPriceId();
+  if (!priceId) {
+    sendJson(res, 500, { error: `Stripe price id for plan "${body.plan}" is not configured on the server.` });
+    return;
+  }
+
+  const stripeCustomerId = await getStripeCustomerId(user.id);
+
+  let session;
+  try {
+    session = await createCheckoutSession({
+      userId: user.id,
+      userEmail: user.email,
+      priceId,
+      stripeCustomerId,
+      successUrl: siteUrl("/subscription?checkout=success"),
+      cancelUrl: siteUrl("/subscription?checkout=cancelled"),
+    });
+  } catch (error) {
+    sendJson(res, 502, { error: error.message });
+    return;
+  }
+
+  sendJson(res, 200, { url: session.url });
+}
+
+async function handleCreatePortalSession(req, res) {
+  const user = await requireUser(req, res);
+  if (!user) return;
+
+  if (!isStripeConfigured()) {
+    sendJson(res, 500, { error: "Stripe is not configured on the server." });
+    return;
+  }
+
+  const stripeCustomerId = await getStripeCustomerId(user.id);
+  if (!stripeCustomerId) {
+    sendJson(res, 400, { error: "No billing account yet -- start a subscription first." });
+    return;
+  }
+
+  let session;
+  try {
+    session = await createPortalSession({ stripeCustomerId, returnUrl: siteUrl("/subscription") });
+  } catch (error) {
+    sendJson(res, 502, { error: error.message });
+    return;
+  }
+
+  sendJson(res, 200, { url: session.url });
+}
+
+// Stripe subscription statuses that should grant Pro access. `trialing` is
+// included since the trial is card-on-file (access starts immediately, see
+// lib/stripe.js's TRIAL_PERIOD_DAYS) -- `past_due` deliberately is NOT
+// included: Smart Retries (the implementation plan's Revenue Recovery
+// choice) keeps attempting the charge and Stripe fires another
+// subscription.updated back to `active` if one succeeds, so there's no need
+// to keep access alive here through a payment that's already failing.
+const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["trialing", "active"]);
+
+// A Stripe request body no larger than a chat message needs to be -- same
+// ceiling reasoning as MAX_CHAT_BODY_BYTES, just for the webhook's raw body
+// instead of a parsed one. Stripe's actual event payloads run a few KB;
+// this is generous headroom, not a real expectation of hitting it.
+const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
+
+async function readRawBody(req, { maxBytes }) {
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > maxBytes) {
+      const error = new Error(`Request body too large (max ${maxBytes} bytes).`);
+      error.status = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+async function handleStripeWebhook(req, res) {
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    sendJson(res, 500, { error: "STRIPE_WEBHOOK_SECRET is not configured on the server." });
+    return;
+  }
+
+  let rawBody;
+  try {
+    rawBody = await readRawBody(req, { maxBytes: MAX_WEBHOOK_BODY_BYTES });
+  } catch (error) {
+    sendJson(res, error.status ?? 400, { error: error.message });
+    return;
+  }
+
+  let event;
+  try {
+    event = verifyWebhookEvent(rawBody, req.headers["stripe-signature"], webhookSecret);
+  } catch (error) {
+    sendJson(res, 400, { error: error.message });
+    return;
+  }
+
+  if (event.type.startsWith("customer.subscription.")) {
+    const subscription = event.data.object;
+    // Set on subscription_data.metadata when the Checkout Session was
+    // created (see lib/stripe.js's createCheckoutSession) -- the reliable
+    // path. Falling back to a customer-id lookup covers a subscription
+    // created some other way (e.g. by hand in the Stripe dashboard) that
+    // never had this app's metadata attached.
+    let userId = subscription.metadata?.user_id ?? null;
+    if (!userId) {
+      const profile = await getProfileByStripeCustomerId(subscription.customer);
+      userId = profile?.id ?? null;
+    }
+
+    if (userId) {
+      await setBillingProfile(userId, {
+        stripeCustomerId: subscription.customer,
+        stripeSubscriptionId: subscription.id,
+        isPaid: ACTIVE_SUBSCRIPTION_STATUSES.has(subscription.status),
+      });
+    } else {
+      console.error(`Stripe webhook: no profile found for customer ${subscription.customer} (event ${event.id})`);
+    }
+  }
+
+  sendJson(res, 200, { received: true });
+}
+
 async function handlePassage(req, res, searchParams) {
   const appKey = process.env.YVP_APP_KEY;
   if (!appKey) {
@@ -1110,6 +1310,18 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "POST" && url.pathname === "/api/chat") {
       await handleChat(req, res);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/billing/checkout") {
+      await handleCreateCheckout(req, res);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/billing/portal") {
+      await handleCreatePortalSession(req, res);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/webhooks/stripe") {
+      await handleStripeWebhook(req, res);
       return;
     }
     if (req.method === "GET" && ["/chat", "/today", "/plans", "/outlines", "/subscription"].includes(url.pathname)) {

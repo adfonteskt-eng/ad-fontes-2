@@ -70,6 +70,21 @@ services:
       - key: VAPID_PUBLIC_KEY
         sync: false
 
+      # Optional — enables Stripe Billing (see README -> Subscription / paid
+      # tier and lib/stripe.js). Without these, the Subscription page's
+      # Upgrade button 500s -- everything else on the site is unaffected.
+      # See .env.example for where each value comes from. Use the test-mode
+      # (sk_test_/price_.../whsec_...) values until ready to accept real
+      # payments, then swap in the live-mode set.
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PRICE_MONTHLY
+        sync: false
+      - key: STRIPE_PRICE_ANNUAL
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+
       # Optional tuning — safe to leave unset and use the code defaults.
       # Uncomment (and remove sync: false) to pin a value here instead of
       # setting it in the dashboard.

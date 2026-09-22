@@ -708,6 +708,17 @@ async function initAuth() {
     }
   };
 
+  // Opens the menu straight to the sign-in form -- used by the Subscription
+  // page's "Sign in or create a free account" link (see app.js's
+  // loadSubscriptionState()), since Stripe checkout needs a signed-in user
+  // to attach the subscription to and that page has no sign-in form of its
+  // own.
+  window.adFontesAuth.promptSignIn = () => {
+    openMenu();
+    resetSignedOutForms();
+    showSigninButton.click();
+  };
+
   setupPush(config); // not awaited -- registering the service worker and reading the browser's current subscription shouldn't hold up the rest of sign-in setup below
 
   // True from the moment a recovery link is detected (either the upfront
@@ -735,6 +746,7 @@ async function initAuth() {
     }
     window.adFontesReadingPlans?.refresh();
     window.adFontesOutlines?.refresh();
+    window.adFontesSubscription?.refresh();
   });
 
   // Reveal the menu and wire up every form now, rather than waiting on the
@@ -878,6 +890,7 @@ async function initAuth() {
         loadPreferences();
         window.adFontesReadingPlans?.refresh();
         window.adFontesOutlines?.refresh();
+        window.adFontesSubscription?.refresh();
       } else {
         showSignedOut();
       }
@@ -893,6 +906,7 @@ async function initAuth() {
     await client.auth.signOut();
     showSignedOut();
     window.adFontesChat?.startNewConversation();
+    window.adFontesSubscription?.refresh();
   });
 
   // The actual "is there already a session" check -- deferred to here (see
@@ -913,6 +927,7 @@ async function initAuth() {
       loadPreferences();
       window.adFontesReadingPlans?.refresh();
       window.adFontesOutlines?.refresh();
+      window.adFontesSubscription?.refresh();
     }
   } catch (error) {
     console.warn("Couldn't check for an existing Supabase session; staying signed out.", error.message);
