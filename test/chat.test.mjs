@@ -107,6 +107,61 @@ test("chains search_lexicon -> find_occurrences -> gather_passage against real d
   assert.ok(result.reply.length > 0);
 });
 
+// --- Receipts Mode wiring (lib/verify.js) -----------------------------
+// lib/verify.test.mjs already covers verifyReplyQuotes()'s own logic
+// thoroughly against fixtures; these two confirm chatTurn() actually calls
+// it with the real gathered-this-turn data and surfaces the result, end to
+// end through a real gather_passage call (stubbing YouVersion's response
+// too, not just Anthropic's, so there's real translation text to check
+// the quote against).
+const REAL_JHN_3_16_BSB = "For God so loved the world that He gave His one and only Son, that everyone who believes in Him shall not perish but have eternal life.";
+
+function stubGatherThenReply(replyText) {
+  let step = 0;
+  globalThis.fetch = async (url, opts) => {
+    const href = url.toString();
+    if (href.includes("api.youversion.com")) {
+      return jsonResponse({ content: REAL_JHN_3_16_BSB, reference: { human: "John 3:16" } });
+    }
+    if (href.includes("biblehub.com")) {
+      return { ok: false, status: 404, text: async () => "not found" };
+    }
+    if (href !== "https://api.anthropic.com/v1/messages") {
+      throw new Error(`unexpected fetch: ${href}`);
+    }
+    step++;
+    if (step === 1) {
+      return jsonResponse({
+        stop_reason: "tool_use",
+        content: [{ type: "tool_use", id: "t1", name: "gather_passage", input: { reference: "JHN.3.16" } }],
+      });
+    }
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: replyText }] });
+  };
+}
+
+test("chatTurn surfaces quoteVerification, verified when the reply quotes the real gathered text", async () => {
+  stubGatherThenReply(`John 3:16 says, "${REAL_JHN_3_16_BSB}" — that's the whole gospel in one verse.`);
+
+  const result = await chatTurn({ message: "What does John 3:16 say?", appKey: "test", apiKey: "fake-key" });
+
+  assert.ok(result.quoteVerification, "chatTurn should return a quoteVerification field");
+  assert.equal(result.quoteVerification.quotes.length, 1);
+  assert.equal(result.quoteVerification.quotes[0].verified, true);
+  assert.deepEqual(result.quoteVerification.quotes[0].source, { usfm: "JHN.3.16", translationAbbr: "BSB" });
+  assert.equal(result.quoteVerification.allVerified, true);
+});
+
+test("chatTurn flags quoteVerification when the reply's quote doesn't match the real gathered text", async () => {
+  stubGatherThenReply('John 3:16 says, "For God loved the world so much that he sacrificed his beloved child to save every believer from destruction." Powerful stuff.');
+
+  const result = await chatTurn({ message: "What does John 3:16 say?", appKey: "test", apiKey: "fake-key" });
+
+  assert.equal(result.quoteVerification.quotes.length, 1);
+  assert.equal(result.quoteVerification.quotes[0].verified, false, "this quote was never fetched -- it's a paraphrase dressed as a quote");
+  assert.equal(result.quoteVerification.allVerified, false);
+});
+
 test("search_bible_text tool call reports a friendly error, not a crash, when data/bsb.txt hasn't been downloaded", async () => {
   // Whether data/bsb.txt actually exists depends on the environment (see
   // the withBsbFileMissing() setup above), so this forces the "not yet

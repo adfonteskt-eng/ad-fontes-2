@@ -243,6 +243,46 @@ function renderSources(gatheredList) {
   return `<div class="chat-sources">${gatheredList.map(renderSourcePassage).join("")}</div>`;
 }
 
+// --- Receipts Mode (lib/verify.js's quoteVerification result) ------------
+// Every span the reply presents as a direct Scripture quotation, checked
+// against the real translation text actually fetched this turn — see
+// lib/verify.js's header comment for exactly what this does and doesn't
+// prove. Renders nothing at all when there were no quoted spans to check
+// (most replies don't quote verbatim, and a badge on every message would
+// just be noise); a calm, collapsed confirmation when everything checked
+// out; an open, visible flag when something didn't.
+const QUOTE_PREVIEW_MAX_LENGTH = 90;
+
+function truncateForDisplay(text) {
+  return text.length > QUOTE_PREVIEW_MAX_LENGTH ? `${text.slice(0, QUOTE_PREVIEW_MAX_LENGTH).trimEnd()}…` : text;
+}
+
+function renderQuoteVerification(verification) {
+  if (!verification || verification.quotes.length === 0) return "";
+
+  const items = verification.quotes
+    .map((q) => {
+      if (q.verified) {
+        return `<li class="quote-check verified">“${escapeHtml(truncateForDisplay(q.span))}” — matches ${escapeHtml(q.source.translationAbbr)} ${escapeHtml(q.source.usfm)}</li>`;
+      }
+      return `<li class="quote-check unverified">“${escapeHtml(truncateForDisplay(q.span))}” — doesn't match any translation fetched this turn</li>`;
+    })
+    .join("");
+
+  const summaryText = verification.allVerified
+    ? `Quote${verification.quotes.length > 1 ? "s" : ""} verified against the fetched text`
+    : `A quote above doesn't match the fetched text`;
+
+  // Open by default only when something needs attention -- a clean pass
+  // stays collapsed (available to check, not pushed in front of the
+  // reply it's confirming), same "closing is the deliberate action, seeing
+  // it is the default when it matters" reasoning as renderSourcePassage().
+  return `<details class="quote-verification ${verification.allVerified ? "verified" : "unverified"}" ${verification.allVerified ? "" : "open"}>
+    <summary>${escapeHtml(summaryText)}</summary>
+    <ul class="quote-checks">${items}</ul>
+  </details>`;
+}
+
 // --- Cross-reference diagrams (find_cross_references tool — see
 // lib/cross-references.js) -----------------------------------------------
 // A small radial diagram: the focus verse in the center, its cross-
@@ -907,7 +947,9 @@ async function sendChatMessage(message) {
     chatSessionId = data.sessionId;
     chatConversationId = data.conversationId ?? null;
     updateConversationExportControl();
-    appendChatMessage("assistant", data.reply);
+    const assistantEl = appendChatMessage("assistant", data.reply);
+    const quoteVerificationHtml = renderQuoteVerification(data.quoteVerification);
+    if (quoteVerificationHtml) assistantEl.insertAdjacentHTML("beforeend", quoteVerificationHtml);
     appendSources(data.gathered);
     appendCrossReferenceDiagrams(data.crossReferences);
     appendMapDiagrams(data.maps);
@@ -917,6 +959,7 @@ async function sendChatMessage(message) {
       gathered: data.gathered ?? null,
       crossReferences: data.crossReferences ?? null,
       maps: data.maps ?? null,
+      quoteVerification: data.quoteVerification ?? null,
     });
     saveChatState();
   } catch (error) {
@@ -1633,7 +1676,9 @@ function renderChatLog(entries) {
     if (entry.role === "user") {
       appendChatMessage("user", entry.text);
     } else if (entry.role === "assistant") {
-      appendChatMessage("assistant", entry.text);
+      const assistantEl = appendChatMessage("assistant", entry.text);
+      const quoteVerificationHtml = renderQuoteVerification(entry.quoteVerification);
+      if (quoteVerificationHtml) assistantEl.insertAdjacentHTML("beforeend", quoteVerificationHtml);
       if (entry.gathered) appendSources(entry.gathered);
       if (entry.crossReferences) appendCrossReferenceDiagrams(entry.crossReferences);
       if (entry.maps) appendMapDiagrams(entry.maps);

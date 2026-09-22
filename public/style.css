@@ -1317,6 +1317,66 @@ table.interlinear th {
   border-top: 1px solid var(--line);
 }
 
+/* --- Receipts Mode: quote verification (lib/verify.js) ------------------- */
+
+.quote-verification {
+  margin-top: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--panel);
+  font-size: 0.8rem;
+  overflow: hidden;
+}
+
+.quote-verification summary {
+  cursor: pointer;
+  padding: 0.45rem 0.75rem;
+  list-style: none;
+  color: var(--ink-soft);
+}
+
+.quote-verification summary::-webkit-details-marker {
+  display: none;
+}
+
+.quote-verification.verified summary::before {
+  content: "\2713  ";
+  color: var(--accent);
+}
+
+/* Deliberately the site's one --error use outside a hard failure state —
+   a mismatched quote is exactly the kind of thing that should stand out
+   from the calm, warm default rather than blend in with it. */
+.quote-verification.unverified {
+  border-color: var(--error);
+}
+
+.quote-verification.unverified summary {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.quote-verification.unverified summary::before {
+  content: "\26A0  ";
+}
+
+.quote-checks {
+  margin: 0;
+  padding: 0.5rem 0.9rem 0.7rem 1.6rem;
+  border-top: 1px solid var(--line);
+}
+
+.quote-check {
+  margin: 0.3rem 0;
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+.quote-check.unverified {
+  color: var(--error);
+  font-style: normal;
+}
+
 /* --- Cross-reference diagrams (find_cross_references tool) --------------- */
 
 .cross-ref-diagram-wrap {
