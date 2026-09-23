@@ -363,6 +363,32 @@ input[type="checkbox"] {
   font-style: normal;
 }
 
+/* --- Tradition Lens's home-tradition select (free for everyone) -------- */
+
+.home-tradition-field {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.home-tradition-field label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
+.home-tradition-field select {
+  width: 100%;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.82rem;
+  font-family: inherit;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--paper);
+  color: var(--ink);
+}
+
 .menu-conversations-header {
   display: flex;
   align-items: center;

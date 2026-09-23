@@ -97,6 +97,28 @@ alter table public.profiles
   add constraint profiles_depth_level_check
   check (depth_level in ('everyday', 'student', 'scholar'));
 
+-- Tradition Lens (free for every signed-in user, same as depth_level
+-- above -- see lib/chat.js's buildSystemPrompt()): an optional "home
+-- tradition" so Claude can note where the user's own tradition stands
+-- when a passage is genuinely debated across traditions. Nullable and
+-- defaults to null ("prefer not to say" / not set) -- unlike depth_level,
+-- there's no reasonable single default that applies to everyone. The
+-- fixed list mirrors lib/supabase.js's HOME_TRADITIONS by hand, same
+-- "Postgres can't reference an app-side constant" reasoning as
+-- profiles_depth_level_check.
+alter table public.profiles
+  add column if not exists home_tradition text;
+
+alter table public.profiles
+  drop constraint if exists profiles_home_tradition_check;
+
+alter table public.profiles
+  add constraint profiles_home_tradition_check
+  check (home_tradition is null or home_tradition in (
+    'reformed', 'baptist', 'wesleyan', 'lutheran', 'anglican',
+    'catholic', 'orthodox', 'pentecostal', 'nondenominational'
+  ));
+
 -- The webhook handler's actual lookup: "which profile does this Stripe
 -- customer id belong to" (see getProfileByStripeCustomerId in
 -- lib/supabase.js). Unique, not just indexed -- a customer id maps to at

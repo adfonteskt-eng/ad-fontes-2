@@ -201,6 +201,63 @@ Hebrews 11's disambiguating usage, a visibly different register than the
 same verse's "Everyday" answer earlier in the same session. Reload-
 persistence of the localStorage copy also confirmed live.
 
+## 2026-09-23 — Tradition Lens (Settled/Common view/Debated) shipped
+
+Resolved the open design question recorded earlier (curated fixed dataset
+vs. live Claude-generated positions with named-source grounding) in favor
+of the latter, for the reason already given: there's no real dataset of
+"which tradition holds which position" the way there is for cross-
+references or Bible geocoding, so a hand-curated fixed set would only ever
+cover a handful of pre-chosen topics and go stale. Instead,
+`lib/chat.js`'s new `TRADITION_LENS_PARAGRAPH` instructs Claude to
+explicitly label a point "Settled," "Common view," or "Debated" when a
+passage's meaning genuinely splits along denominational/confessional
+lines (not just individual commentators), and — critically — to name at
+least two real traditions and ground each in something real (a
+confession, a catechism, a named theologian, a denomination's stated
+teaching) or say plainly it doesn't have one, rather than inventing a
+position. This is deliberately kept as prose Claude writes, not a
+separately-parsed UI badge: consensus-level is inherently a judgment
+call, not a checkable fact the way a quoted verse is, and forcing a
+sentinel format out of free-form writing risks silent parsing failures or
+constraining Claude's voice for no real benefit — inconsistent with this
+app's existing "write like you're talking" design principle.
+
+Added `profiles.home_tradition` (nullable, no universal default — unlike
+depth level, "prefer not to say" is a common, legitimate answer here) via
+the same additive-migration + check-constraint pattern as depth_level,
+plus `HOME_TRADITIONS`/`isValidHomeTradition`/`setHomeTradition` in
+`lib/supabase.js`, and a `homeTradition` field on `getPaidProfile()`. When
+set, `buildSystemPrompt()` adds one line asking Claude to note where the
+user's own tradition stands on a Debated point specifically (without
+implying it's the one correct answer) — same real-source discipline as
+any other named tradition. Free for every signed-in user, no `is_paid`
+gate. Frontend: a `<select>` in the account menu (auto-saves on change,
+no separate Save button needed the way agentName's text field has one) —
+placed there rather than as a per-message control like the depth slider,
+since a home tradition is a one-time identity setting, not something
+toggled per question.
+
+Verified live (anonymous — see the note below on why signed-in wasn't):
+asked "Do all Christian traditions agree on what happens in communion /
+the Lord's Supper?" and got back an explicit "**Debated** is the right
+label here... not just individual commentators differing," followed by
+four real positions each grounded correctly — Catholic transubstantiation
+(Fourth Lateran Council 1215, Trent Session XIII), Lutheran sacramental
+union (Augsburg Confession Article X, the Marburg Colloquy), Reformed
+real spiritual presence (Calvin's Institutes 4.17, Westminster Confession
+29.7), and Zwinglian memorialism — plus a correct tie-back to which of
+the actually-gathered commentaries (Gill, Matthew Henry, JFB) leaned
+which direction. Did not attempt to live-verify the signed-in
+persistence path (the account menu's select, PUT /api/preferences) end to
+end: doing so would require signing up a real test account, and account
+creation is outside what I'll do unattended (see this project's own
+safety rules on prohibited actions). That path is covered instead by
+`test/supabase.test.mjs`'s `setHomeTradition`/`getPaidProfile` tests and
+`test/chat.test.mjs`'s stubbed-Supabase system-prompt tests, both of
+which exercise the real PostgREST request/response contract, not just
+this module's own internals.
+
 ## Not yet built (spec items, honestly tracked, not silently dropped)
 
 In spec priority order, each with why it's not done yet:
@@ -211,13 +268,7 @@ In spec priority order, each with why it's not done yet:
    which need a new Supabase table; and Hebrew coverage (different
    alphabet, different grammar-code scheme).
 3. ~~Depth slider~~ — done as of 2026-09-23, see above.
-4. Tradition Lens — needs a curated tradition/proof-text dataset decision:
-   hand-curate a small fixed set (Reformed/Baptist/Wesleyan/Catholic/
-   Orthodox × common debated topics) or have Claude generate positions
-   live with named-source grounding. Leaning toward the latter with a
-   strict "cite a real named source or say you can't" instruction, mirrors
-   how `find_cross_references` already prefers a real dataset over model
-   recall — worth a explicit decision before writing code, not guessing.
+4. ~~Tradition Lens~~ — done as of 2026-09-23, see above.
 5. Passage Briefing card — mostly composable from data already fetched
    (genre/author/date is general knowledge Claude already discloses as
    such elsewhere; setting map reuses `generate_map` directly).

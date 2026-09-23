@@ -31,6 +31,9 @@ import {
   setDepthLevel,
   DEPTH_LEVELS,
   isValidDepthLevel,
+  setHomeTradition,
+  HOME_TRADITIONS,
+  isValidHomeTradition,
   getReadingPlanReminderOptIn,
   setReadingPlanReminderOptIn,
   listReadingPlanReminderOptedInUsers,
@@ -854,31 +857,37 @@ test("listDigestOptedInUsers returns only opted-in users as { id, email }", asyn
 
 // --- getPaidProfile / setAgentName / getAgentNameIfPaid (paid tier) --------
 
-test("getPaidProfile returns { isPaid: false, agentName: null, depthLevel: 'everyday' } when Supabase isn't configured, without calling fetch", async () => {
+test("getPaidProfile returns { isPaid: false, agentName: null, depthLevel: 'everyday', homeTradition: null } when Supabase isn't configured, without calling fetch", async () => {
   let called = false;
   globalThis.fetch = async () => {
     called = true;
     return { ok: true, status: 200, text: async () => "[]" };
   };
-  assert.deepEqual(await getPaidProfile("user-1"), { isPaid: false, agentName: null, depthLevel: "everyday" });
+  assert.deepEqual(await getPaidProfile("user-1"), { isPaid: false, agentName: null, depthLevel: "everyday", homeTradition: null });
   assert.equal(called, false);
 });
 
-test("getPaidProfile defaults to not paid, no name, everyday depth, when there's no profiles row", async () => {
+test("getPaidProfile defaults to not paid, no name, everyday depth, no home tradition, when there's no profiles row", async () => {
   stubSupabase();
-  assert.deepEqual(await getPaidProfile("user-1"), { isPaid: false, agentName: null, depthLevel: "everyday" });
+  assert.deepEqual(await getPaidProfile("user-1"), { isPaid: false, agentName: null, depthLevel: "everyday", homeTradition: null });
 });
 
-test("getPaidProfile returns the stored is_paid + agent_name + depth_level", async () => {
+test("getPaidProfile returns the stored is_paid + agent_name + depth_level + home_tradition", async () => {
   const { profiles } = stubSupabase();
-  profiles.set("user-1", { id: "user-1", is_paid: true, agent_name: "Wisdom", depth_level: "scholar" });
-  assert.deepEqual(await getPaidProfile("user-1"), { isPaid: true, agentName: "Wisdom", depthLevel: "scholar" });
+  profiles.set("user-1", { id: "user-1", is_paid: true, agent_name: "Wisdom", depth_level: "scholar", home_tradition: "reformed" });
+  assert.deepEqual(await getPaidProfile("user-1"), { isPaid: true, agentName: "Wisdom", depthLevel: "scholar", homeTradition: "reformed" });
 });
 
 test("getPaidProfile falls back to 'everyday' for an invalid/unrecognized stored depth_level", async () => {
   const { profiles } = stubSupabase();
   profiles.set("user-1", { id: "user-1", is_paid: false, agent_name: null, depth_level: "expert" });
-  assert.deepEqual(await getPaidProfile("user-1"), { isPaid: false, agentName: null, depthLevel: "everyday" });
+  assert.deepEqual(await getPaidProfile("user-1"), { isPaid: false, agentName: null, depthLevel: "everyday", homeTradition: null });
+});
+
+test("getPaidProfile falls back to null for an invalid/unrecognized stored home_tradition", async () => {
+  const { profiles } = stubSupabase();
+  profiles.set("user-1", { id: "user-1", is_paid: false, agent_name: null, home_tradition: "flat-earth-baptist" });
+  assert.deepEqual(await getPaidProfile("user-1"), { isPaid: false, agentName: null, depthLevel: "everyday", homeTradition: null });
 });
 
 test("setAgentName PATCHes the user's profiles row with the secret key", async () => {
@@ -923,6 +932,39 @@ test("setDepthLevel PATCHes the user's profiles row with the secret key", async 
   assert.ok(patchRequest, "should have PATCHed profiles");
   assert.deepEqual(JSON.parse(patchRequest.opts.body), { depth_level: "scholar" });
   assert.equal(profiles.get("user-1").depth_level, "scholar");
+});
+
+test("HOME_TRADITIONS lists the fixed set, and isValidHomeTradition treats null as valid ('prefer not to say')", () => {
+  assert.deepEqual(HOME_TRADITIONS, [
+    "reformed", "baptist", "wesleyan", "lutheran", "anglican", "catholic", "orthodox", "pentecostal", "nondenominational",
+  ]);
+  for (const tradition of HOME_TRADITIONS) assert.equal(isValidHomeTradition(tradition), true);
+  assert.equal(isValidHomeTradition(null), true);
+  assert.equal(isValidHomeTradition("methodist"), false);
+  assert.equal(isValidHomeTradition(""), false);
+});
+
+test("setHomeTradition PATCHes the user's profiles row with the secret key", async () => {
+  const { requests, profiles } = stubSupabase();
+  profiles.set("user-1", { id: "user-1", home_tradition: null });
+
+  await setHomeTradition("user-1", "orthodox");
+
+  const patchRequest = requests.find(
+    (r) => r.url.pathname === "/rest/v1/profiles" && r.opts.method === "PATCH" && r.url.searchParams.get("id") === "eq.user-1",
+  );
+  assert.ok(patchRequest, "should have PATCHed profiles");
+  assert.deepEqual(JSON.parse(patchRequest.opts.body), { home_tradition: "orthodox" });
+  assert.equal(profiles.get("user-1").home_tradition, "orthodox");
+});
+
+test("setHomeTradition stores null for an empty value (clearing back to 'prefer not to say')", async () => {
+  const { profiles } = stubSupabase();
+  profiles.set("user-1", { id: "user-1", home_tradition: "baptist" });
+
+  await setHomeTradition("user-1", "");
+
+  assert.equal(profiles.get("user-1").home_tradition, null);
 });
 
 // --- getReadingPlanProgress / listReadingPlanProgress / setReadingPlanDayComplete

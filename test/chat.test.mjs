@@ -456,6 +456,82 @@ test("an explicit depthLevel override wins over a signed-in user's stored defaul
   }
 });
 
+// --- Tradition Lens (Settled/Common/Debated -- see lib/supabase.js's
+// HOME_TRADITIONS) --------------------------------------------------------
+
+test("anonymous chat's system prompt carries the Tradition Lens instruction but no home-tradition line", async () => {
+  globalThis.fetch = async (url, opts) => {
+    const href = url.toString();
+    if (href !== "https://api.anthropic.com/v1/messages") throw new Error(`unexpected fetch: ${href}`);
+    const body = JSON.parse(opts.body);
+    assert.match(body.system, /"Debated"/);
+    assert.doesNotMatch(body.system, /home tradition/);
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+  };
+
+  await chatTurn({ message: "Hi", appKey: "k", apiKey: "fake" });
+});
+
+test("a signed-in user's stored home_tradition adds a named-tradition line to the system prompt", async () => {
+  stubSupabaseEnv();
+  try {
+    globalThis.fetch = async (url, opts) => {
+      const href = url.toString();
+      if (href === "https://api.anthropic.com/v1/messages") {
+        const body = JSON.parse(opts.body);
+        assert.match(body.system, /home tradition is Reformed/);
+        return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+      }
+      const parsed = new URL(href);
+      if (parsed.pathname === "/rest/v1/profiles") {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify([{ id: "user-8", is_paid: false, agent_name: null, home_tradition: "reformed" }]),
+        };
+      }
+      if (parsed.pathname === "/rest/v1/conversations") {
+        return { ok: true, status: opts.method === "GET" ? 200 : 201, text: async () => "[]" };
+      }
+      throw new Error(`unexpected fetch to ${href}`);
+    };
+
+    await chatTurn({ message: "Hi", appKey: "k", apiKey: "fake", userId: "user-8" });
+  } finally {
+    clearSupabaseEnv();
+  }
+});
+
+test("an invalid/unrecognized stored home_tradition doesn't add a home-tradition line", async () => {
+  stubSupabaseEnv();
+  try {
+    globalThis.fetch = async (url, opts) => {
+      const href = url.toString();
+      if (href === "https://api.anthropic.com/v1/messages") {
+        const body = JSON.parse(opts.body);
+        assert.doesNotMatch(body.system, /home tradition/);
+        return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+      }
+      const parsed = new URL(href);
+      if (parsed.pathname === "/rest/v1/profiles") {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify([{ id: "user-9", is_paid: false, agent_name: null, home_tradition: "flat-earth-baptist" }]),
+        };
+      }
+      if (parsed.pathname === "/rest/v1/conversations") {
+        return { ok: true, status: opts.method === "GET" ? 200 : 201, text: async () => "[]" };
+      }
+      throw new Error(`unexpected fetch to ${href}`);
+    };
+
+    await chatTurn({ message: "Hi", appKey: "k", apiKey: "fake", userId: "user-9" });
+  } finally {
+    clearSupabaseEnv();
+  }
+});
+
 test("a signed-in, PAID user calling search_my_notes hits PostgREST's notes table, scoped to their own user_id", async () => {
   stubSupabaseEnv();
   try {

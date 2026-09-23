@@ -98,6 +98,11 @@ const agentNameInput = document.getElementById("auth-agent-name");
 const agentNameSaveButton = document.getElementById("auth-agent-name-save");
 const agentNameUpsell = document.getElementById("agent-name-upsell");
 
+// Tradition Lens's optional home-tradition select -- free for every
+// signed-in user, unlike agentName above, so there's no upsell state to
+// juggle here.
+const homeTraditionSelect = document.getElementById("auth-home-tradition");
+
 const menuHomeButton = document.getElementById("menu-home-button");
 const menuTodayButton = document.getElementById("menu-today-button");
 const menuPlansButton = document.getElementById("menu-plans-button");
@@ -418,9 +423,11 @@ async function loadConversation(id) {
 // One GET /api/preferences backs all four -- see server.js. isPaid is
 // read-only from here (driven by Stripe's webhook -- see lib/stripe.js),
 // so it only ever toggles which of agent-name-field / agent-name-upsell is
-// shown; dailyDigestOptIn, agentName, and depthLevel are all ever PUT back
-// (depthLevel from app.js's depth control, via window.adFontesAuth.
-// saveDepthLevel -- see this file's window.adFontesAuth definition above).
+// shown; dailyDigestOptIn, agentName, depthLevel, and homeTradition are all
+// ever PUT back (depthLevel from app.js's depth control, via
+// window.adFontesAuth.saveDepthLevel -- see this file's window.adFontesAuth
+// definition above; homeTradition straight from this file's own select,
+// below).
 
 // Guards against the digest-toggle change listener firing (and PUTting)
 // while loadPreferences() itself sets digestToggle.checked from the
@@ -451,7 +458,7 @@ async function loadPreferences() {
       headers: { authorization: `Bearer ${token}` },
     });
     if (!response.ok) return;
-    const { dailyDigestOptIn, isPaid, agentName, readingPlanRemindersOptIn, depthLevel } = await response.json();
+    const { dailyDigestOptIn, isPaid, agentName, readingPlanRemindersOptIn, depthLevel, homeTradition } = await response.json();
 
     // Exposed the same way getAccessToken() is -- app.js's Study export
     // section (notes can be exported by any signed-in user only once paid,
@@ -482,6 +489,8 @@ async function loadPreferences() {
     }
 
     window.adFontesChat?.setDepthLevelFromServer?.(depthLevel);
+
+    if (homeTraditionSelect) homeTraditionSelect.value = homeTradition ?? "";
   } catch {
     // Leave everything at whatever it last showed -- same "fail silently,
     // don't disrupt the rest of the menu" spirit as loadConversations().
@@ -553,6 +562,22 @@ if (agentNameSaveButton) {
       alert(`Network error: ${error.message}`);
     } finally {
       agentNameSaveButton.disabled = false;
+    }
+  });
+}
+
+if (homeTraditionSelect) {
+  homeTraditionSelect.addEventListener("change", async () => {
+    const token = await window.adFontesAuth.getAccessToken();
+    if (!token) return;
+    try {
+      await fetch("/api/preferences", {
+        method: "PUT",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ homeTradition: homeTraditionSelect.value || null }),
+      });
+    } catch {
+      // Not worth surfacing -- same reasoning as window.adFontesAuth.saveDepthLevel above.
     }
   });
 }

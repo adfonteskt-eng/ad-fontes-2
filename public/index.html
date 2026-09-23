@@ -177,6 +177,29 @@
           <p id="agent-name-upsell" class="agent-name-upsell" hidden>
             <a href="/subscription" id="agent-name-upsell-link">Upgrade to Pro</a> to name your agent.
           </p>
+
+          <!-- Tradition Lens (free for every signed-in user, unlike the
+               agent name above): an optional home tradition so answers can
+               note where it stands when a passage is genuinely debated
+               across traditions (see lib/chat.js's TRADITION_LENS_PARAGRAPH).
+               Auto-saves on change, unlike the agent-name field's explicit
+               Save button -- a <select> has no "still typing" state to
+               debounce around. -->
+          <div class="home-tradition-field">
+            <label for="auth-home-tradition">Home tradition (optional)</label>
+            <select id="auth-home-tradition">
+              <option value="">Prefer not to say</option>
+              <option value="reformed">Reformed</option>
+              <option value="baptist">Baptist</option>
+              <option value="wesleyan">Wesleyan / Methodist</option>
+              <option value="lutheran">Lutheran</option>
+              <option value="anglican">Anglican</option>
+              <option value="catholic">Catholic</option>
+              <option value="orthodox">Orthodox</option>
+              <option value="pentecostal">Pentecostal / Charismatic</option>
+              <option value="nondenominational">Non-denominational</option>
+            </select>
+          </div>
         </div>
       </div>
     </div>

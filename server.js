@@ -50,21 +50,22 @@
 //
 // GET /api/preferences -> { dailyDigestOptIn: boolean, isPaid: boolean,
 //   agentName: string|null, readingPlanRemindersOptIn: boolean, depthLevel:
-//   "everyday"|"student"|"scholar" } for the signed-in user. isPaid is
-//   read-only here (driven by Stripe's webhook — see lib/stripe.js — not
-//   settable via this endpoint); it just tells the frontend whether to show
-//   the "name your agent" field or its upsell. Requires a valid
-//   Authorization header — 401 without one.
+//   "everyday"|"student"|"scholar", homeTradition: string|null } for the
+//   signed-in user. isPaid is read-only here (driven by Stripe's webhook —
+//   see lib/stripe.js — not settable via this endpoint); it just tells the
+//   frontend whether to show the "name your agent" field or its upsell.
+//   Requires a valid Authorization header — 401 without one.
 //
 // PUT /api/preferences { dailyDigestOptIn?: boolean, agentName?: string,
-//   readingPlanRemindersOptIn?: boolean, depthLevel?: string } -> the full
-//   preferences object, same shape as GET. Provide any subset of fields —
-//   each present field is saved, absent ones are left alone (a 400 if none
-//   are present). Setting agentName or readingPlanRemindersOptIn on a
-//   non-paid account returns 403 (dailyDigestOptIn and depthLevel have no
-//   such restriction — the email digest and the depth slider are both free
-//   for every signed-in user). Requires a valid Authorization header — 401
-//   without one.
+//   readingPlanRemindersOptIn?: boolean, depthLevel?: string,
+//   homeTradition?: string|null } -> the full preferences object, same
+//   shape as GET. Provide any subset of fields — each present field is
+//   saved, absent ones are left alone (a 400 if none are present). Setting
+//   agentName or readingPlanRemindersOptIn on a non-paid account returns
+//   403 (dailyDigestOptIn, depthLevel, and homeTradition have no such
+//   restriction — the email digest, the depth slider, and Tradition Lens
+//   are all free for every signed-in user). Requires a valid Authorization
+//   header — 401 without one.
 //
 // Stripe billing (see README -> Subscription / paid tier, lib/stripe.js).
 // is_paid is now driven entirely by the webhook handler below -- GET/PUT
@@ -215,6 +216,7 @@ import {
   getReadingPlanReminderOptIn,
   getStripeCustomerId,
   isValidDepthLevel,
+  isValidHomeTradition,
   listConversations,
   listNotes,
   listOutlines,
@@ -223,6 +225,7 @@ import {
   setBillingProfile,
   setDepthLevel,
   setDigestOptIn,
+  setHomeTradition,
   setReadingPlanDayComplete,
   setReadingPlanReminderOptIn,
   verifyUser,
@@ -783,12 +786,12 @@ async function handleGetPreferences(req, res) {
   const user = await requireUser(req, res);
   if (!user) return;
 
-  const [dailyDigestOptIn, { isPaid, agentName, depthLevel }, readingPlanRemindersOptIn] = await Promise.all([
+  const [dailyDigestOptIn, { isPaid, agentName, depthLevel, homeTradition }, readingPlanRemindersOptIn] = await Promise.all([
     getDigestOptIn(user.id),
     getPaidProfile(user.id),
     getReadingPlanReminderOptIn(user.id),
   ]);
-  sendJson(res, 200, { dailyDigestOptIn, isPaid, agentName, readingPlanRemindersOptIn, depthLevel });
+  sendJson(res, 200, { dailyDigestOptIn, isPaid, agentName, readingPlanRemindersOptIn, depthLevel, homeTradition });
 }
 
 // PUT replaces whichever of the known preference fields are present in the
@@ -816,8 +819,9 @@ async function handleSetPreferences(req, res) {
   const hasAgentNameField = Object.prototype.hasOwnProperty.call(body, "agentName");
   const hasReadingPlanRemindersField = Object.prototype.hasOwnProperty.call(body, "readingPlanRemindersOptIn");
   const hasDepthLevelField = Object.prototype.hasOwnProperty.call(body, "depthLevel");
-  if (!hasDigestField && !hasAgentNameField && !hasReadingPlanRemindersField && !hasDepthLevelField) {
-    sendJson(res, 400, { error: "Provide at least one of: dailyDigestOptIn, agentName, readingPlanRemindersOptIn, depthLevel." });
+  const hasHomeTraditionField = Object.prototype.hasOwnProperty.call(body, "homeTradition");
+  if (!hasDigestField && !hasAgentNameField && !hasReadingPlanRemindersField && !hasDepthLevelField && !hasHomeTraditionField) {
+    sendJson(res, 400, { error: "Provide at least one of: dailyDigestOptIn, agentName, readingPlanRemindersOptIn, depthLevel, homeTradition." });
     return;
   }
 
@@ -879,12 +883,26 @@ async function handleSetPreferences(req, res) {
     await setDepthLevel(user.id, body.depthLevel);
   }
 
-  const [dailyDigestOptIn, { isPaid, agentName, depthLevel }, readingPlanRemindersOptIn] = await Promise.all([
+  if (hasHomeTraditionField) {
+    // Also free for every signed-in user -- see lib/chat.js's
+    // TRADITION_LENS_PARAGRAPH. null/"" clears it back to "prefer not to
+    // say" (isValidHomeTradition treats null as valid for exactly this).
+    const homeTradition = body.homeTradition || null;
+    if (!isValidHomeTradition(homeTradition)) {
+      sendJson(res, 400, {
+        error: "Invalid field: homeTradition (must be one of: reformed, baptist, wesleyan, lutheran, anglican, catholic, orthodox, pentecostal, nondenominational, or null).",
+      });
+      return;
+    }
+    await setHomeTradition(user.id, homeTradition);
+  }
+
+  const [dailyDigestOptIn, { isPaid, agentName, depthLevel, homeTradition }, readingPlanRemindersOptIn] = await Promise.all([
     getDigestOptIn(user.id),
     getPaidProfile(user.id),
     getReadingPlanReminderOptIn(user.id),
   ]);
-  sendJson(res, 200, { dailyDigestOptIn, isPaid, agentName, readingPlanRemindersOptIn, depthLevel });
+  sendJson(res, 200, { dailyDigestOptIn, isPaid, agentName, readingPlanRemindersOptIn, depthLevel, homeTradition });
 }
 
 // Same reasoning as lib/daily-digest.js's DEFAULT_SITE_URL -- a sensible
