@@ -82,6 +82,7 @@ const menuTodayButton = document.getElementById("menu-today-button");
 const menuPlansButton = document.getElementById("menu-plans-button");
 const menuOutlinesButton = document.getElementById("menu-outlines-button");
 const menuSubscriptionButton = document.getElementById("menu-subscription-button");
+const menuSourcesButton = document.getElementById("menu-sources-button");
 const menuNewChatButton = document.getElementById("menu-new-chat-button");
 const menuConversationsHeader = document.getElementById("menu-conversations-header");
 const conversationsList = document.getElementById("conversations-list");
@@ -126,9 +127,10 @@ document.addEventListener("keydown", (event) => {
 // "Home" and "New chat" (shown instead of the conversations list when it's
 // empty — see renderConversations()) both start a fresh conversation and go
 // home, same as the in-page Home button/logo click — see app.js's
-// startNewConversation(). "Today's Passage," "Reading Plans," and
-// "Subscription" just navigate to their own page without touching whatever
-// conversation is in progress — see app.js's view system. All of these are
+// startNewConversation(). "Today's Passage," "Reading Plans,"
+// "Subscription," and "Sources & Licenses" just navigate to their own page
+// without touching whatever conversation is in progress — see app.js's
+// view system. All of these are
 // defined here (rather than purely in app.js) because the menu is what
 // needs to close itself afterward.
 function goHomeFromMenu() {
@@ -156,6 +158,11 @@ menuOutlinesButton.addEventListener("click", () => {
 
 menuSubscriptionButton.addEventListener("click", () => {
   window.adFontesChat?.goToSubscription();
+  closeMenu();
+});
+
+menuSourcesButton.addEventListener("click", () => {
+  window.adFontesChat?.goToSources();
   closeMenu();
 });
 

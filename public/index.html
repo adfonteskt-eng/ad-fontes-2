@@ -70,6 +70,7 @@
       </div>
 
       <button type="button" id="menu-subscription-button" class="menu-nav-item">Subscription</button>
+      <button type="button" id="menu-sources-button" class="menu-nav-item">Sources &amp; Licenses</button>
 
       <div class="menu-footer">
         <!-- Signed out: an initial choice between creating an account and
@@ -375,6 +376,102 @@
             <p class="subscription-note">You're on Pro.</p>
             <button type="button" id="manage-billing-button" class="subscription-cta">Manage billing</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sources & Licenses: what actually powers each answer, and under
+         what license -- the spec's "source transparency page." Static
+         content (no fetch, nothing to load) since every fact here is a
+         property of the code itself, not of any one conversation -- see
+         docs/STATE.md's own "Data sources and licensing" table, which this
+         mirrors in user-facing language. -->
+    <div id="page-sources" class="page" hidden>
+      <h2 class="page-heading">Sources &amp; licenses</h2>
+      <p class="sources-intro">
+        "Back to the sources" means every claim here traces to something you
+        can click. This page lists exactly what powers each part of ad
+        fontes, and under what license — nothing here is generated or
+        guessed by the AI; it's a fixed description of the underlying data
+        and tools.
+      </p>
+
+      <div class="sources-list">
+        <div class="sources-item">
+          <h3>Bible translations</h3>
+          <p>
+            <a href="https://developers.youversion.com" target="_blank" rel="noopener">YouVersion Platform API</a>
+            — the Berean Standard Bible, King James Version, World English Bible, and American Standard Version,
+            fetched live by reference and displayed under YouVersion's Platform Terms of Use. Never cached into a
+            searchable index (see Full-text search below for why that's a separate, independently-sourced copy).
+          </p>
+        </div>
+
+        <div class="sources-item">
+          <h3>Original-language text, lexicons &amp; cross-references</h3>
+          <p>
+            <a href="https://github.com/STEPBible/STEPBible-Data" target="_blank" rel="noopener">STEPBible-Data</a>,
+            created by STEPBible.org based on work at Tyndale House, Cambridge — <strong>CC BY 4.0</strong>. Backs the
+            word-by-word Greek/Hebrew interlinear (Strong's numbers, transliteration, morphology), the lexicon search,
+            and word-occurrence lookups. Parsed and re-formatted for display (word-by-word tables, keyword search over
+            the lexicon glosses) — the underlying tagged text itself is unmodified from the source files.
+          </p>
+        </div>
+
+        <div class="sources-item">
+          <h3>Full-text search</h3>
+          <p>
+            The <a href="https://berean.bible" target="_blank" rel="noopener">Berean Standard Bible</a>'s own full
+            text, dedicated to the <strong>public domain (CC0)</strong> by its translation committee and fetched
+            directly from its own distributor — deliberately not derived from the YouVersion API copy above, even
+            though BSB is also one of the translations shown on-screen (see the README's Full-text search section for
+            the licensing reasoning).
+          </p>
+        </div>
+
+        <div class="sources-item">
+          <h3>Commentary</h3>
+          <p>
+            Matthew Henry (Concise), Barnes' Notes, Jamieson-Fausset-Brown, Gill's Exposition, and the Geneva Study
+            Bible — all <strong>public domain</strong>, fetched live per verse from
+            <a href="https://biblehub.com" target="_blank" rel="noopener">biblehub.com</a>. Always shown in its own
+            clearly labeled block, separate from the AI's own words.
+          </p>
+        </div>
+
+        <div class="sources-item">
+          <h3>Cross-reference diagrams</h3>
+          <p>
+            <a href="https://www.openbible.info/labs/cross-references/" target="_blank" rel="noopener">openbible.info's cross-reference dataset</a>
+            — <strong>CC BY 4.0</strong>, ~345,000 verse-pair connections drawn primarily from the public-domain
+            Treasury of Scripture Knowledge, each with a relevance score. A real, curated dataset someone else
+            compiled — not a list of connections the AI thought of on its own.
+          </p>
+        </div>
+
+        <div class="sources-item">
+          <h3>Map diagrams</h3>
+          <p>
+            Place coordinates from
+            <a href="https://github.com/openbibleinfo/Bible-Geocoding-Data" target="_blank" rel="noopener">openbible.info's Bible-Geocoding-Data</a>
+            (<strong>CC BY 4.0</strong>), each with a real, source-backed confidence score — a place is only ever
+            marked "disputed" or "identified" based on that dataset's own evidence, never a guess. Base map coastline
+            from <a href="https://www.naturalearthdata.com" target="_blank" rel="noopener">Natural Earth</a>
+            (<strong>public domain</strong>, no attribution required).
+          </p>
+        </div>
+
+        <div class="sources-item">
+          <h3>The AI model</h3>
+          <p>
+            Claude (Anthropic) writes the conversational reply, decides which of the tools above to call for a given
+            question, and never generates Bible text from its own memory — every verse shown to you comes verbatim
+            from the sources above, by reference. Any text a reply presents as a direct quotation is additionally
+            checked against the real, fetched translation text for that turn and flagged if it doesn't match (see the
+            "Quote verified" note under a reply) — see
+            <a href="https://github.com/adfonteskt-eng/ad-fontes-2/blob/main/docs/receipts-mode.md" target="_blank" rel="noopener">Receipts Mode</a>
+            for exactly what that check does and doesn't prove.
+          </p>
         </div>
       </div>
     </div>

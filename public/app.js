@@ -1018,6 +1018,7 @@ const pageToday = document.getElementById("page-today");
 const pagePlans = document.getElementById("page-plans");
 const pageOutlines = document.getElementById("page-outlines");
 const pageSubscription = document.getElementById("page-subscription");
+const pageSources = document.getElementById("page-sources");
 
 const HOME_PATH = "/";
 const CONVERSATION_PATH = "/chat";
@@ -1025,6 +1026,7 @@ const TODAY_PATH = "/today";
 const PLANS_PATH = "/plans";
 const OUTLINES_PATH = "/outlines";
 const SUBSCRIPTION_PATH = "/subscription";
+const SOURCES_PATH = "/sources";
 
 const VIEW_PATHS = {
   home: HOME_PATH,
@@ -1033,6 +1035,7 @@ const VIEW_PATHS = {
   plans: PLANS_PATH,
   outlines: OUTLINES_PATH,
   subscription: SUBSCRIPTION_PATH,
+  sources: SOURCES_PATH,
 };
 const PATH_VIEWS = Object.fromEntries(Object.entries(VIEW_PATHS).map(([view, path]) => [path, view]));
 
@@ -1040,12 +1043,12 @@ const PATH_VIEWS = Object.fromEntries(Object.entries(VIEW_PATHS).map(([view, pat
 // other navigation helper below funnels through, and also what the
 // popstate handler calls directly (browser back/forward should change what
 // you see without mutating the conversation itself or pushing more history).
-// Six views share this one document: home and conversation (as before),
-// plus four standalone pages -- Today's Passage, Reading Plans, My
-// Outlines, and Subscription -- reached from the top-left menu (see
-// auth.js's menuTodayButton/menuPlansButton/menuOutlinesButton/
-// menuSubscriptionButton handlers, which call the goTo*View() wrappers
-// below via window.adFontesChat).
+// Seven views share this one document: home and conversation (as before),
+// plus five standalone pages -- Today's Passage, Reading Plans, My
+// Outlines, Subscription, and Sources & Licenses -- reached from the
+// top-left menu (see auth.js's menuTodayButton/menuPlansButton/
+// menuOutlinesButton/menuSubscriptionButton/menuSourcesButton handlers,
+// which call the goTo*View() wrappers below via window.adFontesChat).
 function renderView(view) {
   const isHome = view === "home";
   const isConversation = view === "conversation";
@@ -1053,6 +1056,7 @@ function renderView(view) {
   const isPlans = view === "plans";
   const isOutlines = view === "outlines";
   const isSubscription = view === "subscription";
+  const isSources = view === "sources";
 
   emptyState.hidden = !isHome;
   examplesContainer.hidden = !isHome;
@@ -1061,6 +1065,7 @@ function renderView(view) {
   pagePlans.hidden = !isPlans;
   pageOutlines.hidden = !isOutlines;
   pageSubscription.hidden = !isSubscription;
+  pageSources.hidden = !isSources;
   // The message box only makes sense on the chat-flow views -- the
   // standalone pages have their own actions (a passage button, a reading-
   // plan day, a saved outline, static plan copy) that route back into chat
@@ -1099,6 +1104,10 @@ function goToOutlinesView(options) {
 
 function goToSubscriptionView(options) {
   goToView("subscription", options);
+}
+
+function goToSourcesView(options) {
+  goToView("sources", options);
 }
 
 window.addEventListener("popstate", (event) => {
@@ -1782,6 +1791,7 @@ window.adFontesChat = {
   goToPlans: () => goToPlansView(),
   goToOutlines: () => goToOutlinesView(),
   goToSubscription: () => goToSubscriptionView(),
+  goToSources: () => goToSourcesView(),
   // Called by auth.js once window.adFontesAuth.isPaid is (re-)known --
   // signing in/out, or the initial page load's loadPreferences() call, can
   // all happen after a conversation's already on screen (see

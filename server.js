@@ -154,10 +154,11 @@
 //   :id doesn't exist or isn't the signed-in user's own; 400 for an
 //   unrecognized :type or format.
 //
-// GET /chat, /today, /plans, /outlines, /subscription -> all serve the same index.html
-//   as GET / -- the frontend is a single-page app with six client-side
-//   views (home, conversation, today, plans, outlines, subscription — see
-//   public/app.js's view system), and these routes exist purely so a hard
+// GET /chat, /today, /plans, /outlines, /subscription, /sources -> all serve
+//   the same index.html as GET / -- the frontend is a single-page app with
+//   seven client-side views (home, conversation, today, plans, outlines,
+//   subscription, sources — see public/app.js's view system), and these
+//   routes exist purely so a hard
 //   refresh or a direct/bookmarked link to any of them still loads the app
 //   instead of 404ing. Which view actually renders is decided client-side
 //   (from localStorage for a resumed conversation, otherwise from the
@@ -1324,7 +1325,7 @@ const server = createServer(async (req, res) => {
       await handleStripeWebhook(req, res);
       return;
     }
-    if (req.method === "GET" && ["/chat", "/today", "/plans", "/outlines", "/subscription"].includes(url.pathname)) {
+    if (req.method === "GET" && ["/chat", "/today", "/plans", "/outlines", "/subscription", "/sources"].includes(url.pathname)) {
       await serveStatic(res, "/"); // same file as the homepage -- see the GET /chat doc comment above
       return;
     }
