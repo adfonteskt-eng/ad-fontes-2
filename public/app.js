@@ -523,6 +523,35 @@ function renderMapDiagrams(mapList) {
   return `<div class="chat-sources">${mapList.map(renderMapDiagram).join("")}</div>`;
 }
 
+// --- Passage Briefing card (generate_passage_briefing tool) ---------------
+// Unlike every other card above, this one has no real dataset behind it —
+// see lib/chat.js's PASSAGE_BRIEFING_TOOL comment for why. The `disclosure`
+// string chatTurn() always attaches is rendered prominently (not buried in
+// a footnote) so this never reads as verified fact the way a gathered
+// translation or a real geocoded map does.
+function renderPassageBriefing(briefing) {
+  const settingRow = briefing.setting
+    ? `<div class="briefing-row"><span class="briefing-label">Setting</span><span>${escapeHtml(briefing.setting)}</span></div>`
+    : "";
+
+  return `<details class="source-passage passage-briefing" open>
+    <summary>Briefing: ${escapeHtml(briefing.reference)}</summary>
+    <div class="source-body">
+      <div class="briefing-row"><span class="briefing-label">Genre</span><span>${escapeHtml(briefing.genre)}</span></div>
+      <div class="briefing-row"><span class="briefing-label">Traditional author</span><span>${escapeHtml(briefing.traditionalAuthor)}</span></div>
+      <div class="briefing-row"><span class="briefing-label">Approximate date</span><span>${escapeHtml(briefing.approximateDate)}</span></div>
+      <div class="briefing-row"><span class="briefing-label">Structure</span><span>${escapeHtml(briefing.structureNote)}</span></div>
+      ${settingRow}
+      <p class="section-note briefing-disclosure">${escapeHtml(briefing.disclosure)}</p>
+    </div>
+  </details>`;
+}
+
+function renderPassageBriefings(briefingList) {
+  if (!briefingList || briefingList.length === 0) return "";
+  return `<div class="chat-sources">${briefingList.map(renderPassageBriefing).join("")}</div>`;
+}
+
 // --- Chat ---------------------------------------------------------------
 
 const chatLog = document.getElementById("chat-log");
@@ -774,6 +803,15 @@ function appendCrossReferenceDiagrams(diagramList) {
 
 function appendMapDiagrams(mapList) {
   const html = renderMapDiagrams(mapList);
+  if (!html) return;
+  const el = document.createElement("div");
+  el.innerHTML = html;
+  chatLog.appendChild(el.firstElementChild);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+function appendPassageBriefings(briefingList) {
+  const html = renderPassageBriefings(briefingList);
   if (!html) return;
   const el = document.createElement("div");
   el.innerHTML = html;
@@ -1047,6 +1085,7 @@ async function sendChatMessage(message) {
     const assistantEl = appendChatMessage("assistant", data.reply);
     const quoteVerificationHtml = renderQuoteVerification(data.quoteVerification);
     if (quoteVerificationHtml) assistantEl.insertAdjacentHTML("beforeend", quoteVerificationHtml);
+    appendPassageBriefings(data.briefings);
     appendSources(data.gathered);
     appendCrossReferenceDiagrams(data.crossReferences);
     appendMapDiagrams(data.maps);
@@ -1056,6 +1095,7 @@ async function sendChatMessage(message) {
       gathered: data.gathered ?? null,
       crossReferences: data.crossReferences ?? null,
       maps: data.maps ?? null,
+      briefings: data.briefings ?? null,
       quoteVerification: data.quoteVerification ?? null,
     });
     saveChatState();
@@ -1771,7 +1811,7 @@ chatLog.addEventListener("click", (event) => {
   }
 });
 
-// Replays a { role, text, gathered?, crossReferences?, maps? } log through
+// Replays a { role, text, gathered?, crossReferences?, maps?, briefings? } log through
 // the same render functions a live turn uses — shared by
 // restoreChatState() (from localStorage) and loadConversation() (from the
 // server, via the top-left menu's "previous conversations" list) so a
@@ -1785,6 +1825,7 @@ function renderChatLog(entries) {
       const assistantEl = appendChatMessage("assistant", entry.text);
       const quoteVerificationHtml = renderQuoteVerification(entry.quoteVerification);
       if (quoteVerificationHtml) assistantEl.insertAdjacentHTML("beforeend", quoteVerificationHtml);
+      if (entry.briefings) appendPassageBriefings(entry.briefings);
       if (entry.gathered) appendSources(entry.gathered);
       if (entry.crossReferences) appendCrossReferenceDiagrams(entry.crossReferences);
       if (entry.maps) appendMapDiagrams(entry.maps);

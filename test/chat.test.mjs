@@ -107,6 +107,107 @@ test("chains search_lexicon -> find_occurrences -> gather_passage against real d
   assert.ok(result.reply.length > 0);
 });
 
+// --- Passage Briefing card (generate_passage_briefing) -------------------
+// Unlike every other tool exercised above, this one does no server-side
+// lookup at all (see PASSAGE_BRIEFING_TOOL's own comment in lib/chat.js) —
+// what's worth testing here is the dispatch/validation/dedup logic, not a
+// real dataset.
+
+test("generate_passage_briefing surfaces a structured briefing card with the honesty disclosure", async () => {
+  let step = 0;
+  globalThis.fetch = async (url, opts) => {
+    const href = url.toString();
+    if (href !== "https://api.anthropic.com/v1/messages") throw new Error(`unexpected fetch: ${href}`);
+    step++;
+    if (step === 1) {
+      return jsonResponse({
+        stop_reason: "tool_use",
+        content: [
+          {
+            type: "tool_use",
+            id: "t1",
+            name: "generate_passage_briefing",
+            input: {
+              reference: "PSA.23",
+              genre: "Wisdom/poetry",
+              traditionalAuthor: "Traditionally David",
+              approximateDate: "10th century BC (traditional)",
+              structureNote: "One of the individual psalms of trust.",
+              setting: "Pastoral imagery drawn from shepherding.",
+            },
+          },
+        ],
+      });
+    }
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "Here's some background on Psalm 23." }] });
+  };
+
+  const result = await chatTurn({ message: "Tell me about Psalm 23", appKey: "k", apiKey: "fake" });
+
+  assert.equal(result.briefings.length, 1);
+  const briefing = result.briefings[0];
+  assert.equal(briefing.reference, "PSA.23");
+  assert.equal(briefing.genre, "Wisdom/poetry");
+  assert.equal(briefing.traditionalAuthor, "Traditionally David");
+  assert.equal(briefing.setting, "Pastoral imagery drawn from shepherding.");
+  assert.match(briefing.disclosure, /not verified against a dataset/);
+});
+
+test("generate_passage_briefing without a required field reports an error to Claude and adds no briefing", async () => {
+  let step = 0;
+  let sawErrorToolResult = false;
+  globalThis.fetch = async (url, opts) => {
+    const href = url.toString();
+    if (href !== "https://api.anthropic.com/v1/messages") throw new Error(`unexpected fetch: ${href}`);
+    const body = JSON.parse(opts.body);
+    const last = body.messages[body.messages.length - 1];
+    if (Array.isArray(last?.content)) {
+      for (const block of last.content) {
+        if (block.type === "tool_result" && /missing required field/.test(block.content)) sawErrorToolResult = true;
+      }
+    }
+    step++;
+    if (step === 1) {
+      return jsonResponse({
+        stop_reason: "tool_use",
+        content: [{ type: "tool_use", id: "t1", name: "generate_passage_briefing", input: { reference: "PSA.23", genre: "Poetry" } }],
+      });
+    }
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+  };
+
+  const result = await chatTurn({ message: "Hi", appKey: "k", apiKey: "fake" });
+
+  assert.equal(result.briefings.length, 0);
+  assert.ok(sawErrorToolResult, "Claude should see an error naming the missing fields");
+});
+
+test("generate_passage_briefing dedupes repeated calls for the same reference", async () => {
+  let step = 0;
+  globalThis.fetch = async (url, opts) => {
+    const href = url.toString();
+    if (href !== "https://api.anthropic.com/v1/messages") throw new Error(`unexpected fetch: ${href}`);
+    step++;
+    const input = {
+      reference: "PSA.23",
+      genre: "Wisdom/poetry",
+      traditionalAuthor: "Traditionally David",
+      approximateDate: "10th century BC (traditional)",
+      structureNote: "An individual psalm of trust.",
+    };
+    if (step === 1 || step === 2) {
+      return jsonResponse({
+        stop_reason: "tool_use",
+        content: [{ type: "tool_use", id: `t${step}`, name: "generate_passage_briefing", input }],
+      });
+    }
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+  };
+
+  const result = await chatTurn({ message: "Hi", appKey: "k", apiKey: "fake" });
+  assert.equal(result.briefings.length, 1, "a second call for the same reference should not duplicate the card");
+});
+
 // --- Receipts Mode wiring (lib/verify.js) -----------------------------
 // lib/verify.test.mjs already covers verifyReplyQuotes()'s own logic
 // thoroughly against fixtures; these two confirm chatTurn() actually calls
@@ -227,7 +328,7 @@ test("callAnthropic requests automatic prompt caching with a 1h TTL", async () =
   // cache_control") — system and tools must both be present for there to be
   // anything worth caching.
   assert.ok(capturedBody.system, "system prompt must be present for caching to have any effect");
-  assert.ok(Array.isArray(capturedBody.tools) && capturedBody.tools.length === 6);
+  assert.ok(Array.isArray(capturedBody.tools) && capturedBody.tools.length === 7);
 });
 
 // --- Compounding study memory (userId) --------------------------------
@@ -257,7 +358,7 @@ test("anonymous chat (no userId) never touches Supabase, even if it's configured
         throw new Error(`unexpected fetch to ${href} for an anonymous request`);
       }
       const body = JSON.parse(opts.body);
-      assert.equal(body.tools.length, 6, "no userId means no search_study_history tool, but the 6 base tools are always present");
+      assert.equal(body.tools.length, 7, "no userId means no search_study_history tool, but the 7 base tools are always present");
       return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
     };
     await chatTurn({ message: "What does Psalm 23:1 mean?", appKey: "k", apiKey: "fake" });
@@ -266,7 +367,7 @@ test("anonymous chat (no userId) never touches Supabase, even if it's configured
   }
 });
 
-test("a signed-in, PAID user gets a 7th and 8th tool (search_study_history, search_my_notes), and calling search_study_history hits PostgREST", async () => {
+test("a signed-in, PAID user gets an 8th and 9th tool (search_study_history, search_my_notes), and calling search_study_history hits PostgREST", async () => {
   stubSupabaseEnv();
   try {
     let step = 0;
@@ -276,7 +377,7 @@ test("a signed-in, PAID user gets a 7th and 8th tool (search_study_history, sear
       const href = url.toString();
       if (href === "https://api.anthropic.com/v1/messages") {
         const body = JSON.parse(opts.body);
-        assert.equal(body.tools.length, 8, "a signed-in, paid user should see all eight tools");
+        assert.equal(body.tools.length, 9, "a signed-in, paid user should see all nine tools");
         assert.ok(
           body.tools.some((t) => t.name === "search_study_history"),
           "search_study_history should be in the tools list",
@@ -328,7 +429,7 @@ test("a signed-in but FREE user does not get search_study_history or search_my_n
       const href = url.toString();
       if (href === "https://api.anthropic.com/v1/messages") {
         const body = JSON.parse(opts.body);
-        assert.equal(body.tools.length, 6, "a free account should see only the six base tools");
+        assert.equal(body.tools.length, 7, "a free account should see only the seven base tools");
         assert.ok(
           !body.tools.some((t) => t.name === "search_study_history"),
           "search_study_history should NOT be offered to a free account",

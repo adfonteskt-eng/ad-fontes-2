@@ -1458,6 +1458,37 @@ table.interlinear th {
   font-style: normal;
 }
 
+/* --- Passage Briefing card (generate_passage_briefing tool) -------------- */
+/* No real dataset behind this one (see lib/chat.js's PASSAGE_BRIEFING_TOOL
+   comment) -- .briefing-disclosure is styled to stand out a little more
+   than an ordinary .section-note, since it's the thing keeping this card
+   from reading as verified fact. */
+
+.briefing-row {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.briefing-row:last-of-type {
+  border-bottom: none;
+}
+
+.briefing-label {
+  flex: 0 0 9rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ink-soft);
+}
+
+.briefing-disclosure {
+  margin-top: 0.6rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--line);
+}
+
 /* --- Cross-reference diagrams (find_cross_references tool) --------------- */
 
 .cross-ref-diagram-wrap {

@@ -258,6 +258,43 @@ safety rules on prohibited actions). That path is covered instead by
 which exercise the real PostgREST request/response contract, not just
 this module's own internals.
 
+## 2026-09-23 — Passage Briefing card shipped
+
+Added `generate_passage_briefing`, a new base tool (always available, not
+paid-gated) alongside `gather_passage`/`find_cross_references`/
+`generate_map`. It's structurally different from every other tool in
+`lib/chat.js`: there's no dataset behind genre/traditional-author/
+approximate-date/book-structure the way there is for cross-references or
+geocoding, so this tool does no server-side lookup at all — it exists
+purely to force Claude's own background knowledge into a fixed, renderable
+shape instead of leaving it as prose. `runPassageBriefingTool()` validates
+the required fields (reference, genre, traditionalAuthor, approximateDate,
+structureNote — `setting` is optional) and caps each field's length, then
+attaches a `disclosure` string ("General background from the model's own
+knowledge, not verified against a dataset") that `lib/chat.js`'s JSDoc and
+the frontend both carry through explicitly — same "don't let structure
+impersonate verified fact" reasoning as Tradition Lens. A genuinely
+geographic setting is left to the separate, real `generate_map` tool
+rather than duplicated here.
+
+Frontend: a `.passage-briefing` card (reusing the existing `.source-passage`
+chrome) with labeled rows and the disclosure rendered as a visually
+distinct dashed-border note, not buried in a footnote. Wired through
+`chatTurn()`'s return value, the persisted conversation `render_log`
+(opaque JSON, so no `lib/supabase.js` changes needed), and both the live
+and restored-from-localStorage render paths, the same way `crossReferences`/
+`maps` already were.
+
+Verified live: asked "I've never read the book of James before... give me
+an overview" and got a real card — genre ("Wisdom literature / General
+epistle"), authorship correctly noting the minority critical-scholarship
+challenge to traditional attribution, a dated range with the traditional/
+critical split spelled out, and a structure summary citing real chapter
+divisions — plus the disclosure line rendered distinctly underneath.
+Confirmed it survives a reload via the localStorage restore path, and
+that the base tool count text (now seven/nine instead of six/eight)
+updated consistently everywhere it's referenced.
+
 ## Not yet built (spec items, honestly tracked, not silently dropped)
 
 In spec priority order, each with why it's not done yet:
@@ -269,9 +306,7 @@ In spec priority order, each with why it's not done yet:
    alphabet, different grammar-code scheme).
 3. ~~Depth slider~~ — done as of 2026-09-23, see above.
 4. ~~Tradition Lens~~ — done as of 2026-09-23, see above.
-5. Passage Briefing card — mostly composable from data already fetched
-   (genre/author/date is general knowledge Claude already discloses as
-   such elsewhere; setting map reuses `generate_map` directly).
+5. ~~Passage Briefing card~~ — done as of 2026-09-23, see above.
 6. Word-Study Web sense-clustering + chart — `find_occurrences` exists;
    clustering "senses" of a Strong's number is itself an interpretive
    judgment call with no dataset backing it directly, needs thought on
