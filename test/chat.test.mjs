@@ -827,6 +827,25 @@ test("an explicit depthLevel override wins over a signed-in user's stored defaul
   }
 });
 
+// --- Observe/Interpret/Apply scaffold ------------------------------------
+// Pure system-prompt structure (see lib/chat.js's OIA_PARAGRAPH), no new
+// tool or data source -- what's worth confirming is that it's actually in
+// the prompt, and that unlike the sermon-outline structure right above it
+// in the same prompt, it's NOT paid-gated.
+
+test("the system prompt carries the Observe/Interpret/Apply instruction for an anonymous (free, unpaid) chat", async () => {
+  globalThis.fetch = async (url, opts) => {
+    const href = url.toString();
+    if (href !== "https://api.anthropic.com/v1/messages") throw new Error(`unexpected fetch: ${href}`);
+    const body = JSON.parse(opts.body);
+    assert.match(body.system, /Observe \/ Interpret \/ Apply/);
+    assert.match(body.system, /free for every user, not a Pro-only structure/);
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+  };
+
+  await chatTurn({ message: "Hi", appKey: "k", apiKey: "fake" });
+});
+
 // --- Tradition Lens (Settled/Common/Debated -- see lib/supabase.js's
 // HOME_TRADITIONS) --------------------------------------------------------
 

@@ -392,6 +392,30 @@ system-prompt or single-tool addition like everything else in this
 session's pass. Not started; flagged honestly rather than folded into
 this commit as if it were done.
 
+## 2026-09-23 — Observe→Interpret→Apply scaffold shipped
+
+The simplest feature in this pass, matching its own "pure UI/prompt
+feature, no data blockers" characterization exactly: a new
+`OIA_PARAGRAPH` in `lib/chat.js`'s system prompt, same shape as the
+existing sermon-outline-mode paragraph right above it (structure lives
+entirely in the instruction, no new tool, no new data). The one real
+decision: unlike the sermon outline (Pro-gated, `isPaid` check), this is
+free for every user regardless of account status — Observe/Interpret/
+Apply is a personal or small-group study habit, not a leader-facing
+deliverable meant to be preached from, so gating it the same way would
+have been the wrong call, not just an oversight. Updated the "write like
+you're talking, prose not headers" paragraph's exception list to also
+cover an OIA request, alongside the sermon-outline exception already
+there.
+
+Verified live (anonymous, unpaid session, confirming the free-for-
+everyone decision): asked for an OIA study on James 1:19-20 and got a
+correctly three-part-labeled, well-grounded answer — Observe noticed the
+real Greek repetition (*orgē* in both "slow to anger" and "wrath of
+man"), Interpret cited JFB's and Barnes' and Gill's actual comments by
+name, and Apply stayed appropriately non-prescriptive per the
+instruction rather than handing down a single mandated takeaway.
+
 ## Not yet built (spec items, honestly tracked, not silently dropped)
 
 In spec priority order, each with why it's not done yet:
@@ -410,8 +434,7 @@ In spec priority order, each with why it's not done yet:
    explorable multi-hop graph beyond the current focus-verse-plus-
    connections radial view (a real UI/interaction feature, not a prompt
    or tool addition).
-8. Observe→Interpret→Apply scaffold — pure UI/prompt feature, no data
-   blockers, straightforward to build next.
+8. ~~Observe→Interpret→Apply scaffold~~ — done as of 2026-09-23, see above.
 9. Manuscript variant "how much this matters" plain-English layer — the
    variant detection already exists in `lib/interlinear.js`; needs a
    short, curated significance note per variant type, not per-instance.
