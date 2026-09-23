@@ -1604,6 +1604,17 @@ table.interlinear th {
   color: var(--ink-soft);
 }
 
+/* Claude's own quotation/allusion/thematic read (see
+   label_cross_reference_types in lib/chat.js) -- deliberately plain text
+   styling, not a solid-fill badge like .map-certainty-tag's real
+   identified/disputed distinction, so it doesn't visually outrank data
+   that actually came from the dataset. */
+.cross-ref-type-tag {
+  font-size: 0.7rem;
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
 /* --- Maps (generate_map tool) --------------------------------------------- */
 
 .map-svg-wrap {

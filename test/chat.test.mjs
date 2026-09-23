@@ -248,6 +248,135 @@ test("label_word_senses without a prior find_occurrences call for that number re
   assert.equal(result.wordStudies.length, 0);
 });
 
+// --- Cross-Reference Constellation type classification
+// (label_cross_reference_types) -------------------------------------------
+// Same shape as label_word_senses's tests above: the connections
+// themselves come from a real dataset (test/cross-references.test.mjs
+// covers that), so what's worth testing here is the validation that keeps
+// the TYPE classification honest.
+
+test("label_cross_reference_types accepts types for references find_cross_references actually returned", async () => {
+  const { findCrossReferences } = await import("../lib/cross-references.js");
+  const real = await findCrossReferences("JHN.3.16", { limit: 3 });
+  const [refA, refB] = real.results.map((r) => r.reference);
+
+  let step = 0;
+  globalThis.fetch = async (url, opts) => {
+    const href = url.toString();
+    if (href !== "https://api.anthropic.com/v1/messages") throw new Error(`unexpected fetch: ${href}`);
+    step++;
+    if (step === 1) {
+      return jsonResponse({
+        stop_reason: "tool_use",
+        content: [{ type: "tool_use", id: "t1", name: "find_cross_references", input: { reference: "JHN.3.16", limit: 3 } }],
+      });
+    }
+    if (step === 2) {
+      return jsonResponse({
+        stop_reason: "tool_use",
+        content: [
+          {
+            type: "tool_use",
+            id: "t2",
+            name: "label_cross_reference_types",
+            input: {
+              reference: "JHN.3.16",
+              links: [
+                { reference: refA, type: "quotation" },
+                { reference: refB, type: "thematic" },
+              ],
+            },
+          },
+        ],
+      });
+    }
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+  };
+
+  const result = await chatTurn({ message: "Cross-references for John 3:16", appKey: "k", apiKey: "fake" });
+  assert.equal(result.crossReferences.length, 1);
+  const typed = result.crossReferences[0].results.find((r) => r.reference === refA);
+  assert.equal(typed.type, "quotation");
+  const untouched = result.crossReferences[0].results.find((r) => r.reference !== refA && r.reference !== refB);
+  assert.equal(untouched?.type ?? null, null, "a reference not classified should keep type: null");
+});
+
+test("label_cross_reference_types rejects a reference find_cross_references never returned, and records no types", async () => {
+  let step = 0;
+  let sawRejectionText = false;
+  globalThis.fetch = async (url, opts) => {
+    const href = url.toString();
+    if (href !== "https://api.anthropic.com/v1/messages") throw new Error(`unexpected fetch: ${href}`);
+    const body = JSON.parse(opts.body);
+    const last = body.messages[body.messages.length - 1];
+    if (Array.isArray(last?.content)) {
+      for (const block of last.content) {
+        if (block.type === "tool_result" && /weren't in find_cross_references/.test(block.content)) sawRejectionText = true;
+      }
+    }
+    step++;
+    if (step === 1) {
+      return jsonResponse({
+        stop_reason: "tool_use",
+        content: [{ type: "tool_use", id: "t1", name: "find_cross_references", input: { reference: "JHN.3.16", limit: 3 } }],
+      });
+    }
+    if (step === 2) {
+      return jsonResponse({
+        stop_reason: "tool_use",
+        content: [
+          {
+            type: "tool_use",
+            id: "t2",
+            name: "label_cross_reference_types",
+            input: { reference: "JHN.3.16", links: [{ reference: "XXX.99.99", type: "quotation" }] },
+          },
+        ],
+      });
+    }
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+  };
+
+  const result = await chatTurn({ message: "Cross-references for John 3:16", appKey: "k", apiKey: "fake" });
+  assert.ok(sawRejectionText, "Claude should see a clear error naming the fabricated reference");
+  assert.ok(result.crossReferences[0].results.every((r) => r.type === null), "no types should be recorded on rejection");
+});
+
+test("label_cross_reference_types without a prior find_cross_references call reports an error", async () => {
+  let step = 0;
+  let sawErrorText = false;
+  globalThis.fetch = async (url, opts) => {
+    const href = url.toString();
+    if (href !== "https://api.anthropic.com/v1/messages") throw new Error(`unexpected fetch: ${href}`);
+    const body = JSON.parse(opts.body);
+    const last = body.messages[body.messages.length - 1];
+    if (Array.isArray(last?.content)) {
+      for (const block of last.content) {
+        if (block.type === "tool_result" && /call find_cross_references/.test(block.content)) sawErrorText = true;
+      }
+    }
+    step++;
+    if (step === 1) {
+      return jsonResponse({
+        stop_reason: "tool_use",
+        content: [
+          {
+            type: "tool_use",
+            id: "t1",
+            name: "label_cross_reference_types",
+            input: { reference: "JHN.3.16", links: [{ reference: "1JN.4.8", type: "thematic" }] },
+          },
+        ],
+      });
+    }
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+  };
+
+  const result = await chatTurn({ message: "Cross-references for John 3:16", appKey: "k", apiKey: "fake" });
+  assert.ok(sawErrorText, "Claude should be told to call find_cross_references first");
+  assert.equal(result.crossReferences.length, 0);
+});
+
 // --- Passage Briefing card (generate_passage_briefing) -------------------
 // Unlike every other tool exercised above, this one does no server-side
 // lookup at all (see PASSAGE_BRIEFING_TOOL's own comment in lib/chat.js) —
@@ -469,7 +598,7 @@ test("callAnthropic requests automatic prompt caching with a 1h TTL", async () =
   // cache_control") — system and tools must both be present for there to be
   // anything worth caching.
   assert.ok(capturedBody.system, "system prompt must be present for caching to have any effect");
-  assert.ok(Array.isArray(capturedBody.tools) && capturedBody.tools.length === 8);
+  assert.ok(Array.isArray(capturedBody.tools) && capturedBody.tools.length === 9);
 });
 
 // --- Compounding study memory (userId) --------------------------------
@@ -499,7 +628,7 @@ test("anonymous chat (no userId) never touches Supabase, even if it's configured
         throw new Error(`unexpected fetch to ${href} for an anonymous request`);
       }
       const body = JSON.parse(opts.body);
-      assert.equal(body.tools.length, 8, "no userId means no search_study_history tool, but the 8 base tools are always present");
+      assert.equal(body.tools.length, 9, "no userId means no search_study_history tool, but the 9 base tools are always present");
       return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
     };
     await chatTurn({ message: "What does Psalm 23:1 mean?", appKey: "k", apiKey: "fake" });
@@ -518,7 +647,7 @@ test("a signed-in, PAID user gets an 8th and 9th tool (search_study_history, sea
       const href = url.toString();
       if (href === "https://api.anthropic.com/v1/messages") {
         const body = JSON.parse(opts.body);
-        assert.equal(body.tools.length, 10, "a signed-in, paid user should see all ten tools");
+        assert.equal(body.tools.length, 11, "a signed-in, paid user should see all eleven tools");
         assert.ok(
           body.tools.some((t) => t.name === "search_study_history"),
           "search_study_history should be in the tools list",
@@ -570,7 +699,7 @@ test("a signed-in but FREE user does not get search_study_history or search_my_n
       const href = url.toString();
       if (href === "https://api.anthropic.com/v1/messages") {
         const body = JSON.parse(opts.body);
-        assert.equal(body.tools.length, 8, "a free account should see only the eight base tools");
+        assert.equal(body.tools.length, 9, "a free account should see only the nine base tools");
         assert.ok(
           !body.tools.some((t) => t.name === "search_study_history"),
           "search_study_history should NOT be offered to a free account",

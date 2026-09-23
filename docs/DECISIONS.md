@@ -345,6 +345,53 @@ from verses the chart had already shown, with the disclosure rendered
 underneath. Confirmed both cards, including all four sense groups,
 survive a reload via the localStorage restore path.
 
+## 2026-09-23 — Cross-Reference Constellation's type distinction shipped
+(multi-hop graph expansion still deferred)
+
+Item 7 had two separate gaps (see docs/STATE.md): the quotation/allusion/
+thematic distinction, and "isn't a full interactive graph beyond the
+current focus-verse-plus-connections radial view." Only the first is
+done this pass — see below for why the second is deliberately left for
+later rather than rushed in alongside it.
+
+Resolved the type-distinction blocker exactly like Word-Study Web's
+sense-clustering (same shape, adapted): the CONNECTIONS are already real,
+dataset-backed data (openbible.info); which of quotation/allusion/
+thematic a connection is isn't encoded there at all, so a second tool,
+`label_cross_reference_types`, lets Claude classify connections a prior
+`find_cross_references` call already returned this turn.
+`runLabelCrossReferenceTypesTool()` rejects the whole call, no partial
+acceptance, if any reference wasn't actually in that real result — same
+"wrong is worse than incomplete, so reject and let Claude retry" policy
+as `label_word_senses`. Implementation mirrors that feature closely
+enough that `crossReferencesThisTurn` (previously an array + a dedup
+Set) became a `Map` keyed by focus verse, the same restructuring
+`wordStudiesThisTurn` already needed, so a later type-labeling call can
+look up and mutate the real diagram in place.
+
+Frontend: each cross-reference list item gets an optional italic type tag
+— deliberately plain text, not a solid badge like `.map-certainty-tag`'s
+real identified/disputed distinction, so Claude's own read doesn't
+visually outrank data that actually came from the dataset — plus a
+disclosure line when anything's been typed.
+
+Verified live: asked for Matthew 1:23's cross-references classified by
+type, and got Isaiah 7:14 (the verse Matthew explicitly quotes) correctly
+labeled "quotation," John 1:1 and Genesis 3:15 labeled "allusion," and
+the remaining thematic Psalm/Isaiah parallels labeled "thematic" — a
+theologically correct classification on the first real request, not a
+cherry-picked retry. Confirmed the diagram and its type tags survive a
+reload.
+
+**Explicitly deferred**: turning the current "one focus verse plus its
+direct connections" radial view into a genuinely explorable multi-hop
+graph (click a connection to expand its own connections, building out a
+bigger constellation) is a real, separate UI/interaction feature — new
+client-side graph-layout logic and likely new state management, not a
+system-prompt or single-tool addition like everything else in this
+session's pass. Not started; flagged honestly rather than folded into
+this commit as if it were done.
+
 ## Not yet built (spec items, honestly tracked, not silently dropped)
 
 In spec priority order, each with why it's not done yet:
@@ -358,10 +405,11 @@ In spec priority order, each with why it's not done yet:
 4. ~~Tradition Lens~~ — done as of 2026-09-23, see above.
 5. ~~Passage Briefing card~~ — done as of 2026-09-23, see above.
 6. ~~Word-Study Web~~ — done as of 2026-09-23, see above.
-7. Cross-Reference Constellation quote/allusion/thematic distinction — the
-   openbible.info dataset has no such field; would need a second,
-   separately-sourced dataset or an honest "we don't distinguish these"
-   disclosure if left as-is.
+7. Cross-Reference Constellation — the quote/allusion/thematic distinction
+   is done as of 2026-09-23, see above. Still missing: a genuinely
+   explorable multi-hop graph beyond the current focus-verse-plus-
+   connections radial view (a real UI/interaction feature, not a prompt
+   or tool addition).
 8. Observe→Interpret→Apply scaffold — pure UI/prompt feature, no data
    blockers, straightforward to build next.
 9. Manuscript variant "how much this matters" plain-English layer — the

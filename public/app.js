@@ -400,13 +400,23 @@ function renderCrossReferenceDiagram(diagram) {
   const { reference, results, totalCount } = diagram;
   if (!results || results.length === 0) return "";
 
+  // type (quotation/allusion/thematic — see lib/chat.js's
+  // LABEL_CROSS_REFERENCE_TYPES_TOOL) is Claude's own reading, present
+  // only when it chose to classify that specific connection — a plain
+  // vote count carries no such judgment, so it's shown unconditionally.
   const listItems = results
-    .map((r) => `<li><button type="button" class="cross-ref-list-item" data-reference="${escapeHtml(r.reference)}">${escapeHtml(r.reference)}</button> <span class="cross-ref-votes">(${r.votes})</span></li>`)
+    .map((r) => {
+      const typeTag = r.type ? ` <span class="cross-ref-type-tag ${escapeHtml(r.type)}">${escapeHtml(r.type)}</span>` : "";
+      return `<li><button type="button" class="cross-ref-list-item" data-reference="${escapeHtml(r.reference)}">${escapeHtml(r.reference)}</button> <span class="cross-ref-votes">(${r.votes})</span>${typeTag}</li>`;
+    })
     .join("");
   const truncatedNote =
     totalCount > results.length
       ? `<p class="section-note">${totalCount} total connections; showing the ${results.length} most-cited.</p>`
       : "";
+  const typeDisclosure = results.some((r) => r.type)
+    ? `<p class="section-note">Quotation/allusion/thematic labels are the model's own reading of these connections, not something the dataset itself classifies.</p>`
+    : "";
 
   return `<details class="source-passage cross-ref-diagram" open>
     <summary>Cross-references for ${escapeHtml(reference)}</summary>
@@ -415,6 +425,7 @@ function renderCrossReferenceDiagram(diagram) {
       <div class="cross-ref-diagram-wrap">${renderCrossReferenceSvg(diagram)}</div>
       <ul class="cross-ref-list">${listItems}</ul>
       ${truncatedNote}
+      ${typeDisclosure}
     </div>
   </details>`;
 }
