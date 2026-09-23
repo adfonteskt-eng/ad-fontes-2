@@ -102,6 +102,26 @@ test("findStrongsOccurrences returns real cross-references for a common word", a
   assert.ok(occurrences.every((o) => /^[A-Za-z0-9]+\.\d+\.\d+$/.test(o.reference)));
 });
 
+test("findStrongsOccurrences's byBook tally is computed from every occurrence, not just the capped subset, and sorted canonically", async () => {
+  const capped = await findStrongsOccurrences("G0025", { limit: 3 });
+  const totalFromByBook = capped.byBook.reduce((sum, b) => sum + b.count, 0);
+  assert.equal(totalFromByBook, capped.totalCount, "byBook counts should sum to the real total, not the capped occurrences length");
+
+  // John's Gospel is well known for its heavy use of agapaō ("love") -- a
+  // real, checkable fact about this dataset, not an assumption.
+  const john = capped.byBook.find((b) => b.book === "JHN");
+  assert.ok(john && john.count > 0, "expected agapaō to occur in John's Gospel");
+  assert.equal(john.name, "John");
+});
+
+test("findStrongsOccurrences's byBook entries are in canonical Bible order", async () => {
+  const { bookOrder } = await import("../lib/bible-books.js");
+  const { byBook } = await findStrongsOccurrences("G0025", { limit: 3 });
+  const positions = byBook.map((b) => bookOrder(b.book));
+  const sorted = [...positions].sort((a, b) => a - b);
+  assert.deepEqual(positions, sorted, "byBook should already be in canonical order");
+});
+
 test("findStrongsOccurrences caches repeat lookups (real speedup, not just equal output)", async () => {
   // G2532 (kai, "and") is one of the most common words in the NT — a full,
   // uncached scan of both TAGNT files is genuinely slow enough (hundreds of

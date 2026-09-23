@@ -295,6 +295,56 @@ Confirmed it survives a reload via the localStorage restore path, and
 that the base tool count text (now seven/nine instead of six/eight)
 updated consistently everywhere it's referenced.
 
+## 2026-09-23 — Word-Study Web shipped
+
+Resolved the open blocker recorded earlier (sense-clustering is an
+interpretive judgment call with no dataset backing it) the same way as
+Tradition Lens and the Passage Briefing card: split the feature into a
+fully-grounded part and an optional, validated, disclosed part, rather
+than picking one extreme (skip clustering entirely, or let Claude invent
+it unchecked).
+
+Grounded part: `lib/interlinear.js`'s `findStrongsOccurrences()` now also
+returns `byBook` — a real per-book frequency tally computed from every
+occurrence (not just the capped subset returned to Claude), sorted in
+canonical Bible order via the existing `bookOrder()`/`bookName()` helpers
+in `lib/bible-books.js`. This needed no new tool — `find_occurrences`
+already scans the full tagged text; the tally was sitting right there
+before the result got capped to `limit`.
+
+Interpretive part: a new tool, `label_word_senses`, lets Claude group an
+already-returned word study's occurrences into named senses. What keeps
+this honest isn't the labels (unverifiable — Claude's own reading) but
+the membership: `runLabelWordSensesTool()` rejects the *entire* call
+outright, with no partial acceptance, if any referenced verse wasn't
+actually among that Strong's number's real `find_occurrences` result this
+turn (tracked in `chatTurn()`'s new `wordStudiesThisTurn` Map, threaded
+into `runTool()` as read-only validation context — the loop itself does
+the actual mutation, keeping the tool functions otherwise pure). A
+fabricated or mistyped reference can't sneak into the chart; Claude gets
+a clear, correctable error instead. `label_word_senses` is explicitly
+optional in its own tool description — not every word needs distinct
+senses called out.
+
+Frontend: a `.word-study-web` card with a real horizontal bar chart (plain
+HTML/CSS, not SVG — a variable-length book list didn't need one) for
+`byBook`, and either the sense groups (each captioned as "the model's own
+reading... not something the dataset itself labels") or a plain clickable
+occurrence list when no grouping was requested. Occurrence buttons reuse
+the existing click-to-ask wiring (`.word-study-list-item` added to
+`CLICK_TO_ASK_SELECTOR`) rather than introducing new event plumbing.
+
+Verified live in one real conversation: asked for a word study on agapē
+(G0026) — got a real 116-occurrence chart across every NT book it
+appears in (1 John highest at 18, matching that letter's well-known
+emphasis on love). A follow-up asking to "actually group those
+occurrences into a few named senses" produced four real, coherent groups
+("God's and Christ's love for people," "Love among believers," "Love as
+virtue/fruit of the Spirit," "Love growing cold or absent") built only
+from verses the chart had already shown, with the disclosure rendered
+underneath. Confirmed both cards, including all four sense groups,
+survive a reload via the localStorage restore path.
+
 ## Not yet built (spec items, honestly tracked, not silently dropped)
 
 In spec priority order, each with why it's not done yet:
@@ -307,10 +357,7 @@ In spec priority order, each with why it's not done yet:
 3. ~~Depth slider~~ — done as of 2026-09-23, see above.
 4. ~~Tradition Lens~~ — done as of 2026-09-23, see above.
 5. ~~Passage Briefing card~~ — done as of 2026-09-23, see above.
-6. Word-Study Web sense-clustering + chart — `find_occurrences` exists;
-   clustering "senses" of a Strong's number is itself an interpretive
-   judgment call with no dataset backing it directly, needs thought on
-   how to ground it rather than have Claude invent clusters.
+6. ~~Word-Study Web~~ — done as of 2026-09-23, see above.
 7. Cross-Reference Constellation quote/allusion/thematic distinction — the
    openbible.info dataset has no such field; would need a second,
    separately-sourced dataset or an honest "we don't distinguish these"

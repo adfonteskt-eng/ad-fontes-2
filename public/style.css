@@ -1577,7 +1577,8 @@ table.interlinear th {
 }
 
 .cross-ref-list-item,
-.map-list-item {
+.map-list-item,
+.word-study-list-item {
   font-family: var(--mono);
   font-size: 0.8rem;
   background: none;
@@ -1591,7 +1592,9 @@ table.interlinear th {
 .cross-ref-list-item:hover,
 .cross-ref-list-item:focus-visible,
 .map-list-item:hover,
-.map-list-item:focus-visible {
+.map-list-item:focus-visible,
+.word-study-list-item:hover,
+.word-study-list-item:focus-visible {
   background: var(--accent-soft);
   color: var(--ink);
 }
@@ -1703,6 +1706,67 @@ table.interlinear th {
 .map-certainty-tag.disputed {
   color: var(--error);
   font-style: italic;
+}
+
+/* --- Word-Study Web (find_occurrences + optional label_word_senses) ------ */
+/* .word-study-chart is real, grounded data (a per-book count from the
+   tagged text); .word-study-sense-group content is Claude's own reading
+   of which verses cluster together -- captioned as such in the rendered
+   markup itself (see renderWordStudy in app.js), not just here in CSS. */
+
+.word-study-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.5rem 0 0.8rem;
+}
+
+.word-study-bar-row {
+  display: grid;
+  grid-template-columns: 6rem 1fr 2.2rem;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.word-study-bar-label {
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.word-study-bar-track {
+  background: var(--accent-soft);
+  border-radius: 0.2rem;
+  height: 0.6rem;
+  overflow: hidden;
+}
+
+.word-study-bar-fill {
+  background: var(--accent);
+  height: 100%;
+}
+
+.word-study-bar-count {
+  text-align: right;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+}
+
+.word-study-sense-group {
+  margin-bottom: 0.6rem;
+}
+
+.word-study-sense-label {
+  margin: 0 0 0.3rem;
+  font-size: 0.85rem;
+}
+
+.word-study-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.6rem;
 }
 
 /* --- Notes (signed-in users' own notes on a passage) --------------------- */

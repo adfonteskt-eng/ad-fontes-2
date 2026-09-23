@@ -105,6 +105,147 @@ test("chains search_lexicon -> find_occurrences -> gather_passage against real d
     "the gathered array returned to the frontend should include 1CO.13.4",
   );
   assert.ok(result.reply.length > 0);
+  assert.equal(result.wordStudies.length, 1);
+  assert.ok(result.wordStudies[0].byBook.length > 0, "expected a real per-book tally for agapaō");
+  assert.ok(result.wordStudies[0].byBook.some((b) => b.book === "JHN"), "agapaō should occur in John's Gospel");
+});
+
+// --- Word-Study Web sense-clustering (label_word_senses) ------------------
+// The frequency-by-book data above (byBook) is fully grounded and needs no
+// separate test beyond what's already covered by
+// test/interlinear.test.mjs's tallyOccurrencesByBook coverage and the
+// assertion above. label_word_senses is different: it's Claude's own
+// interpretive grouping, so what's worth testing is the validation that
+// keeps it honest — every referenced verse must be one find_occurrences
+// actually returned this turn.
+
+test("label_word_senses accepts groups built only from references find_occurrences actually returned", async () => {
+  // Learn real references directly from the dataset first, rather than
+  // guessing/hardcoding verse numbers — this is the same real data
+  // find_occurrences itself would return.
+  const { findStrongsOccurrences } = await import("../lib/interlinear.js");
+  const real = await findStrongsOccurrences("G0025", { limit: 3 });
+  const [refA, refB] = real.occurrences.map((o) => o.reference);
+
+  let step = 0;
+  globalThis.fetch = async (url, opts) => {
+    const href = url.toString();
+    if (href !== "https://api.anthropic.com/v1/messages") throw new Error(`unexpected fetch: ${href}`);
+    step++;
+    if (step === 1) {
+      return jsonResponse({
+        stop_reason: "tool_use",
+        content: [{ type: "tool_use", id: "t1", name: "find_occurrences", input: { strongsNumber: "G0025", limit: 3 } }],
+      });
+    }
+    if (step === 2) {
+      return jsonResponse({
+        stop_reason: "tool_use",
+        content: [
+          {
+            type: "tool_use",
+            id: "t2",
+            name: "label_word_senses",
+            input: {
+              strongsNumber: "G0025",
+              senseGroups: [
+                { label: "Sense A", references: [refA] },
+                { label: "Sense B", references: [refB] },
+              ],
+            },
+          },
+        ],
+      });
+    }
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+  };
+
+  const result = await chatTurn({ message: "Study agapao", appKey: "k", apiKey: "fake" });
+  assert.equal(result.wordStudies.length, 1);
+  assert.equal(result.wordStudies[0].senseGroups.length, 2);
+  assert.deepEqual(result.wordStudies[0].senseGroups[0].references, [refA]);
+});
+
+test("label_word_senses rejects a reference find_occurrences never returned, and records no sense groups", async () => {
+  let step = 0;
+  let sawRejectionText = false;
+  globalThis.fetch = async (url, opts) => {
+    const href = url.toString();
+    if (href !== "https://api.anthropic.com/v1/messages") throw new Error(`unexpected fetch: ${href}`);
+    const body = JSON.parse(opts.body);
+    const last = body.messages[body.messages.length - 1];
+    if (Array.isArray(last?.content)) {
+      for (const block of last.content) {
+        if (block.type === "tool_result" && /weren't in find_occurrences/.test(block.content)) sawRejectionText = true;
+      }
+    }
+    step++;
+    if (step === 1) {
+      return jsonResponse({
+        stop_reason: "tool_use",
+        content: [{ type: "tool_use", id: "t1", name: "find_occurrences", input: { strongsNumber: "G0025", limit: 3 } }],
+      });
+    }
+    if (step === 2) {
+      return jsonResponse({
+        stop_reason: "tool_use",
+        content: [
+          {
+            type: "tool_use",
+            id: "t2",
+            name: "label_word_senses",
+            input: {
+              strongsNumber: "G0025",
+              senseGroups: [
+                { label: "Sense A", references: ["XXX.99.99"] },
+                { label: "Sense B", references: ["YYY.1.1"] },
+              ],
+            },
+          },
+        ],
+      });
+    }
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+  };
+
+  const result = await chatTurn({ message: "Study agapao", appKey: "k", apiKey: "fake" });
+  assert.ok(sawRejectionText, "Claude should see a clear error naming the fabricated references");
+  assert.equal(result.wordStudies[0].senseGroups.length, 0, "no sense groups should be recorded on rejection");
+});
+
+test("label_word_senses without a prior find_occurrences call for that number reports an error", async () => {
+  let step = 0;
+  let sawErrorText = false;
+  globalThis.fetch = async (url, opts) => {
+    const href = url.toString();
+    if (href !== "https://api.anthropic.com/v1/messages") throw new Error(`unexpected fetch: ${href}`);
+    const body = JSON.parse(opts.body);
+    const last = body.messages[body.messages.length - 1];
+    if (Array.isArray(last?.content)) {
+      for (const block of last.content) {
+        if (block.type === "tool_result" && /call find_occurrences/.test(block.content)) sawErrorText = true;
+      }
+    }
+    step++;
+    if (step === 1) {
+      return jsonResponse({
+        stop_reason: "tool_use",
+        content: [
+          {
+            type: "tool_use",
+            id: "t1",
+            name: "label_word_senses",
+            input: { strongsNumber: "G0025", senseGroups: [{ label: "A", references: ["JHN.3.16"] }, { label: "B", references: ["1JN.4.8"] }] },
+          },
+        ],
+      });
+    }
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+  };
+
+  const result = await chatTurn({ message: "Study agapao", appKey: "k", apiKey: "fake" });
+  assert.ok(sawErrorText, "Claude should be told to call find_occurrences first");
+  assert.equal(result.wordStudies.length, 0);
 });
 
 // --- Passage Briefing card (generate_passage_briefing) -------------------
@@ -328,7 +469,7 @@ test("callAnthropic requests automatic prompt caching with a 1h TTL", async () =
   // cache_control") — system and tools must both be present for there to be
   // anything worth caching.
   assert.ok(capturedBody.system, "system prompt must be present for caching to have any effect");
-  assert.ok(Array.isArray(capturedBody.tools) && capturedBody.tools.length === 7);
+  assert.ok(Array.isArray(capturedBody.tools) && capturedBody.tools.length === 8);
 });
 
 // --- Compounding study memory (userId) --------------------------------
@@ -358,7 +499,7 @@ test("anonymous chat (no userId) never touches Supabase, even if it's configured
         throw new Error(`unexpected fetch to ${href} for an anonymous request`);
       }
       const body = JSON.parse(opts.body);
-      assert.equal(body.tools.length, 7, "no userId means no search_study_history tool, but the 7 base tools are always present");
+      assert.equal(body.tools.length, 8, "no userId means no search_study_history tool, but the 8 base tools are always present");
       return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
     };
     await chatTurn({ message: "What does Psalm 23:1 mean?", appKey: "k", apiKey: "fake" });
@@ -377,7 +518,7 @@ test("a signed-in, PAID user gets an 8th and 9th tool (search_study_history, sea
       const href = url.toString();
       if (href === "https://api.anthropic.com/v1/messages") {
         const body = JSON.parse(opts.body);
-        assert.equal(body.tools.length, 9, "a signed-in, paid user should see all nine tools");
+        assert.equal(body.tools.length, 10, "a signed-in, paid user should see all ten tools");
         assert.ok(
           body.tools.some((t) => t.name === "search_study_history"),
           "search_study_history should be in the tools list",
@@ -429,7 +570,7 @@ test("a signed-in but FREE user does not get search_study_history or search_my_n
       const href = url.toString();
       if (href === "https://api.anthropic.com/v1/messages") {
         const body = JSON.parse(opts.body);
-        assert.equal(body.tools.length, 7, "a free account should see only the seven base tools");
+        assert.equal(body.tools.length, 8, "a free account should see only the eight base tools");
         assert.ok(
           !body.tools.some((t) => t.name === "search_study_history"),
           "search_study_history should NOT be offered to a free account",

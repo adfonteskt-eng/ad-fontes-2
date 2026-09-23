@@ -552,6 +552,68 @@ function renderPassageBriefings(briefingList) {
   return `<div class="chat-sources">${briefingList.map(renderPassageBriefing).join("")}</div>`;
 }
 
+// --- Word-Study Web (find_occurrences + optional label_word_senses) -------
+// byBook is fully grounded (a real count from the tagged text — see
+// lib/interlinear.js's tallyOccurrencesByBook); senseGroups, when present,
+// is Claude's own reading of which occurrences cluster together (see
+// lib/chat.js's LABEL_WORD_SENSES_TOOL comment) — every reference in it
+// was already checked against find_occurrences's own real result, but the
+// GROUPING itself is a judgment call, so it's captioned as such rather
+// than presented with the same unqualified confidence as the chart above.
+function renderOccurrenceButton(reference, label) {
+  return `<button type="button" class="word-study-list-item" data-reference="${escapeHtml(reference)}">${escapeHtml(label ?? reference)}</button>`;
+}
+
+function renderWordStudyChart(byBook) {
+  const maxCount = Math.max(...byBook.map((b) => b.count));
+  const rows = byBook
+    .map((b) => {
+      const pct = Math.max(6, Math.round((b.count / maxCount) * 100));
+      return `<div class="word-study-bar-row">
+        <span class="word-study-bar-label">${escapeHtml(b.name)}</span>
+        <div class="word-study-bar-track"><div class="word-study-bar-fill" style="width: ${pct}%"></div></div>
+        <span class="word-study-bar-count">${b.count}</span>
+      </div>`;
+    })
+    .join("");
+  return `<div class="word-study-chart">${rows}</div>`;
+}
+
+function renderWordStudy(wordStudy) {
+  const { strongsNumber, occurrences, totalCount, byBook, senseGroups } = wordStudy;
+  const truncatedNote =
+    totalCount > occurrences.length
+      ? `<p class="section-note">${totalCount} total occurrences; chart and list reflect all of them, but only the first ${occurrences.length} are listed below.</p>`
+      : "";
+
+  const occurrenceList =
+    senseGroups && senseGroups.length > 0
+      ? senseGroups
+          .map(
+            (group) => `<div class="word-study-sense-group">
+              <h4 class="word-study-sense-label">${escapeHtml(group.label)}</h4>
+              <div class="word-study-list">${group.references.map((r) => renderOccurrenceButton(r)).join("")}</div>
+            </div>`,
+          )
+          .join("") + `<p class="section-note">Sense groupings are the model's own reading of these verses, not something the dataset itself labels.</p>`
+      : `<div class="word-study-list">${occurrences.map((o) => renderOccurrenceButton(o.reference, `${o.reference} — ${o.gloss}`)).join("")}</div>`;
+
+  return `<details class="source-passage word-study-web" open>
+    <summary>Word study: ${escapeHtml(strongsNumber)} (${totalCount} occurrence${totalCount === 1 ? "" : "s"})</summary>
+    <div class="source-body">
+      <p class="section-note">Real per-book frequency, from the tagged Greek/Hebrew text.</p>
+      ${renderWordStudyChart(byBook)}
+      ${occurrenceList}
+      ${truncatedNote}
+    </div>
+  </details>`;
+}
+
+function renderWordStudies(wordStudyList) {
+  if (!wordStudyList || wordStudyList.length === 0) return "";
+  return `<div class="chat-sources">${wordStudyList.map(renderWordStudy).join("")}</div>`;
+}
+
 // --- Chat ---------------------------------------------------------------
 
 const chatLog = document.getElementById("chat-log");
@@ -819,13 +881,22 @@ function appendPassageBriefings(briefingList) {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
+function appendWordStudies(wordStudyList) {
+  const html = renderWordStudies(wordStudyList);
+  if (!html) return;
+  const el = document.createElement("div");
+  el.innerHTML = html;
+  chatLog.appendChild(el.firstElementChild);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
 // Clicking any cross-reference node/map marker (SVG dot+label, or its
 // plain-list counterpart) fills the chat input with that reference/place
 // rather than submitting it automatically — see this section's header
 // comment above for why. Delegated on #chat-log, same reasoning as the
 // notes/outline delegation below: these blocks are inserted via innerHTML
 // after render, for both a live reply and a restored/resumed conversation.
-const CLICK_TO_ASK_SELECTOR = ".cross-ref-node, .cross-ref-list-item, .map-marker, .map-list-item";
+const CLICK_TO_ASK_SELECTOR = ".cross-ref-node, .cross-ref-list-item, .map-marker, .map-list-item, .word-study-list-item";
 chatLog.addEventListener("click", (event) => {
   const node = event.target.closest(CLICK_TO_ASK_SELECTOR);
   if (!node) return;
@@ -1089,6 +1160,7 @@ async function sendChatMessage(message) {
     appendSources(data.gathered);
     appendCrossReferenceDiagrams(data.crossReferences);
     appendMapDiagrams(data.maps);
+    appendWordStudies(data.wordStudies);
     chatLogData.push({
       role: "assistant",
       text: data.reply,
@@ -1096,6 +1168,7 @@ async function sendChatMessage(message) {
       crossReferences: data.crossReferences ?? null,
       maps: data.maps ?? null,
       briefings: data.briefings ?? null,
+      wordStudies: data.wordStudies ?? null,
       quoteVerification: data.quoteVerification ?? null,
     });
     saveChatState();
@@ -1811,7 +1884,7 @@ chatLog.addEventListener("click", (event) => {
   }
 });
 
-// Replays a { role, text, gathered?, crossReferences?, maps?, briefings? } log through
+// Replays a { role, text, gathered?, crossReferences?, maps?, briefings?, wordStudies? } log through
 // the same render functions a live turn uses — shared by
 // restoreChatState() (from localStorage) and loadConversation() (from the
 // server, via the top-left menu's "previous conversations" list) so a
@@ -1829,6 +1902,7 @@ function renderChatLog(entries) {
       if (entry.gathered) appendSources(entry.gathered);
       if (entry.crossReferences) appendCrossReferenceDiagrams(entry.crossReferences);
       if (entry.maps) appendMapDiagrams(entry.maps);
+      if (entry.wordStudies) appendWordStudies(entry.wordStudies);
     } else if (entry.role === "error") {
       appendChatMessage("error", entry.text);
     }
