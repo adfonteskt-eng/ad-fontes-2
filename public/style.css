@@ -606,6 +606,61 @@ table.interlinear th {
   font-weight: bold;
 }
 
+/* Alphabet Mode groundwork: per-word letter/grammar breakdown, revealed via
+   a native <details> the same way .commentary-entry is below. Lives inside
+   an .interlinear td, which is nowrap by default — the open panel needs to
+   wrap normally once it's showing real content. */
+.word-breakdown summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.word-breakdown summary::-webkit-details-marker {
+  display: none;
+}
+
+.word-breakdown summary::after {
+  content: " ⓘ";
+  font-size: 0.75rem;
+  color: var(--accent);
+}
+
+.word-breakdown-body {
+  white-space: normal;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  max-width: 22rem;
+  padding: 0.5rem 0;
+}
+
+.word-morphology {
+  margin: 0 0 0.4rem;
+}
+
+.letter-breakdown {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.letter-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.letter-char {
+  font-size: 1.2rem;
+  min-width: 1.5em;
+}
+
+.letter-name {
+  font-weight: 600;
+}
+
 .commentary-entry {
   border: 1px solid var(--line);
   border-radius: 0.5rem;

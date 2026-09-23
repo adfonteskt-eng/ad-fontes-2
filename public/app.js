@@ -135,6 +135,41 @@ function renderTranslations(translations) {
   return `<h2 class="source-heading">Translations</h2>${rows}`;
 }
 
+// Alphabet Mode groundwork (see docs/DECISIONS.md): a per-word breakdown
+// revealed on click, using a native <details>/<summary> the same way
+// .commentary-entry already does elsewhere in this file — no JS event
+// wiring needed, and it degrades to a plain closed toggle if styling ever
+// fails to load. Only Greek words carry this data (lib/gather.js's
+// enrichGreekWord()); Hebrew words render as plain text, unchanged.
+function renderLetterBreakdown(letterBreakdown) {
+  const items = letterBreakdown
+    .map((l) => {
+      if (!l.atlas) return `<li class="letter-entry"><span class="letter-char">${escapeHtml(l.char)}</span></li>`;
+      const diacritics = l.diacritics.length ? ` — ${escapeHtml(l.diacritics.join(", "))}` : "";
+      return `<li class="letter-entry">
+        <span class="letter-char">${escapeHtml(l.char)}</span>
+        <span class="letter-name">${escapeHtml(l.atlas.name)} (${escapeHtml(l.atlas.transliteration)})</span>
+        <span class="letter-pronunciation">${escapeHtml(l.atlas.pronunciation)}${diacritics}</span>
+      </li>`;
+    })
+    .join("");
+  return `<ul class="letter-breakdown">${items}</ul>`;
+}
+
+function renderWordBreakdown(word) {
+  const morph = word.morphologyExplanation;
+  const morphBlock = morph
+    ? `<p class="word-morphology"><strong>${escapeHtml(morph.shortLabel)}</strong> — ${escapeHtml(morph.description)}</p>`
+    : "";
+  return `<details class="word-breakdown">
+    <summary>${escapeHtml(word.surface)}</summary>
+    <div class="word-breakdown-body">
+      ${morphBlock}
+      ${renderLetterBreakdown(word.letterBreakdown)}
+    </div>
+  </details>`;
+}
+
 function renderOriginalLanguage(ol) {
   let heading = "";
   let body;
@@ -155,8 +190,12 @@ function renderOriginalLanguage(ol) {
     const rows = ol.words
       .map((w) => {
         const variantClass = w.isCriticalText === false ? "interlinear-variant" : "";
+        const surfaceCell =
+          ol.type === "greek" && Array.isArray(w.letterBreakdown)
+            ? renderWordBreakdown(w)
+            : escapeHtml(w.surface);
         return `<tr class="${variantClass}">
-          <td class="interlinear-surface">${escapeHtml(w.surface)}</td>
+          <td class="interlinear-surface">${surfaceCell}</td>
           <td>${escapeHtml(w.transliteration)}</td>
           <td class="interlinear-strongs">${escapeHtml(w.strongs)}</td>
           <td>${escapeHtml(w.gloss ?? w.contextGloss ?? "—")}</td>

@@ -123,12 +123,58 @@ replacement for it.
   Render build) when the QA phase actually starts, and say so in the
   commit message rather than adding it silently now before it's used.
 
+## 2026-09-22 — Alphabet Mode groundwork shipped; deck/quiz still deferred
+
+Built the word-level foundation for spec item 2: `lib/greek-morphology.js`
+parses STEPBible's own TEGMC legend (real CC BY 4.0 data, fetched by
+`scripts/fetch-data.js`) into plain-English explanations of Robinson-style
+morphology codes (e.g. "V-AAI-3S" → "Verb Aorist Active Indicative 3rd
+Singular"), and `lib/greek-alphabet.js` is a hand-authored 24-letter Greek
+atlas (name/transliteration/pronunciation/beginner look-alike warnings)
+with a `breakdownWord()` that splits a real surface form into its letters
+and diacritics via Unicode NFD decomposition. Hand-authoring the alphabet
+itself (not sourcing it from a dataset) is deliberate and different from
+how this project treats Scripture text or grammar-code meanings: the
+shape of the Greek alphabet is settled, non-interpretive reference
+knowledge, not something with competing scholarly answers to get wrong —
+see `lib/greek-alphabet.js`'s own header comment for the reasoning.
+
+Both are wired into `lib/gather.js`'s `gatherGreek()` (new
+`enrichGreekWord()`), so every Greek word `gatherPassage()` returns now
+carries `morphologyExplanation` and `letterBreakdown` alongside the
+existing lemma/gloss. The frontend (`public/app.js`) reveals this per
+word as a native `<details>` in the interlinear table's Word cell —
+click-to-expand, no JS event wiring needed, same disclosure pattern as
+`.commentary-entry`. Verified live: sent a real chat message ("What does
+John 3:16 mean?"), confirmed the interlinear table renders 25 real Greek
+words, and confirmed clicking one (μονογενῆ) shows its real STEPBible
+grammar explanation and a correct letter-by-letter breakdown including a
+flagged circumflex accent.
+
+One honest data-quality finding surfaced along the way: TEGMC.txt's own
+entry for "V-PMO-3P" is malformed in the source file itself (a leftover
+multi-column debug row instead of the normal four-line block), so that
+one legitimate code resolves to `null` rather than a decoded explanation
+— documented in `lib/greek-morphology.js`'s own comment rather than
+hand-patched, consistent with this whole feature's "don't fabricate, say
+what you don't have" stance.
+
+Explicitly out of scope for this pass, same reasoning as before this was
+started (see "Not yet built" below, item 2): the personal saved-word deck
+(needs a new Supabase table), spaced-repetition scheduling, and Hebrew
+letter/grammar coverage (Hebrew uses a different alphabet and a different
+STEPBible grammar-code scheme entirely — a separate future addition, not
+a gap in this one).
+
 ## Not yet built (spec items, honestly tracked, not silently dropped)
 
 In spec priority order, each with why it's not done yet:
 
-2. Alphabet Mode — real scope (letter atlas content, a tap-to-save deck
-   schema, a spaced-repetition scheduler). Needs its own Supabase table.
+2. Alphabet Mode — letter-level groundwork (atlas + per-word grammar/letter
+   breakdown) is done as of 2026-09-22, see above. Still missing: a
+   tap-to-save personal deck and a spaced-repetition scheduler, both of
+   which need a new Supabase table; and Hebrew coverage (different
+   alphabet, different grammar-code scheme).
 3. Depth slider — needs the profiles column above + a system-prompt
    variant per depth; straightforward once started.
 4. Tradition Lens — needs a curated tradition/proof-text dataset decision:
@@ -159,5 +205,7 @@ In spec priority order, each with why it's not done yet:
     a session-path recorder. Reel Kit needs an image-generation decision
     (canvas/SVG-to-PNG vs. an external service) not yet made.
 12. Select-anywhere popover — pure frontend feature, no backend blocker.
-13. Sources & Licenses page — no blocker at all, pure documentation/UI;
-    should be one of the next things built, cheap and high-trust-value.
+
+**Built since this was first written:**
+13. Sources & Licenses page (`/sources`) — done 2026-09-22. Static content,
+    no data blocker; wired the same way every other standalone page is.

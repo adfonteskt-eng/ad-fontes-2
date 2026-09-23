@@ -35,6 +35,14 @@
 // `data/modern.jsonl` is fetched — the project's ancient-place metadata
 // (verse references, spelling variants) isn't needed here, since the modern
 // side already carries each candidate's ancient place name inline.
+//
+// TEGMC (Greek morphology codes): STEPBible's own official legend mapping
+// every Robinson-style morphology code actually used in the tagged Greek
+// NT (e.g. "V-AAI-3S") to a real, plain-English grammatical explanation
+// and example sentence — the same CC BY 4.0 STEPBible-Data project as the
+// other files above. Backs lib/greek-morphology.js's plain-English parsing
+// (Alphabet Mode) with STEPBible's own real explanations rather than a
+// hand-rolled decoder guessing at what a code means.
 
 import { mkdir, stat } from "node:fs/promises";
 import { writeFile } from "node:fs/promises";
@@ -85,6 +93,11 @@ export const FILES = [
     name: "TAHOT-Isa-Mal.txt",
     path: "Translators Amalgamated OT+NT/TAHOT Isa-Mal - Translators Amalgamated Hebrew OT - STEPBible.org CC BY.txt",
     description: "Tagged Hebrew OT, Isaiah–Malachi",
+  },
+  {
+    name: "TEGMC.txt",
+    path: "Morphology codes/TEGMC - Translators Expansion of Greek Morphhology Codes - STEPBible.org CC BY.txt",
+    description: "Greek morphology code legend (plain-English parsing, backs Alphabet Mode)",
   },
 ];
 
