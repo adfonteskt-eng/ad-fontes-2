@@ -13,6 +13,7 @@ import {
   readHebrewVerseWords,
   searchLexicon,
   findStrongsOccurrences,
+  classifyVariantSignificance,
 } from "../lib/interlinear.js";
 import { gatherPassage, clearGatherCache } from "../lib/gather.js";
 
@@ -154,4 +155,51 @@ test("searchLexicon cache is keyed by testament, not just the keyword", async ()
   const greekOnly = await searchLexicon("love", { testament: "greek", limit: 30 });
   assert.ok(both.totalCount >= greekOnly.totalCount, "both-testament search shouldn't return fewer matches than Greek alone");
   assert.ok(greekOnly.results.every((r) => r.strongs.startsWith("G")), "a Greek-only search shouldn't leak Hebrew entries");
+});
+
+// --- classifyVariantSignificance (spec item 9: manuscript variant
+// "how much this matters" layer) -------------------------------------------
+// Every pattern below was confirmed to actually occur in the real TAGNT
+// data (via a full scan of data/TAGNT-Mat-Jhn.txt's witness markers), not
+// picked from the header's five illustrative examples alone -- see
+// lib/interlinear.js's own comment for the general rule these reduce to.
+test("classifyVariantSignificance covers every real witness pattern found in the tagged data", () => {
+  const cases = {
+    NKO: "agreement",
+    NK: "agreement",
+    "NK(O)": "agreement",
+    "NK(o)": "agreement",
+    N: "ancientOnly",
+    NO: "ancientOnly",
+    n: "ancientOnly",
+    "n(o)": "ancientOnly",
+    no: "ancientOnly",
+    "N(k)O": "ancientDiffersFromTraditional",
+    "N(K)O": "ancientDiffersFromTraditional",
+    "N(k)(o)": "ancientDiffersFromTraditional",
+    "N(K)(o)": "ancientDiffersFromTraditional",
+    "N(k)": "ancientDiffersFromTraditional",
+    K: "traditionalOnly",
+    KO: "traditionalOnly",
+    ko: "traditionalOnly",
+    "K(o)": "traditionalOnly",
+    "K(O)": "traditionalOnly",
+    "k(o)": "traditionalOnly",
+    "(k)O": "traditionalOnly",
+    O: "otherOnly",
+    o: "otherOnly",
+  };
+  for (const [witnesses, expected] of Object.entries(cases)) {
+    assert.equal(classifyVariantSignificance(witnesses), expected, `witnesses="${witnesses}" should classify as ${expected}`);
+  }
+});
+
+test("classifyVariantSignificance against a real TR/Byzantine-only word from Mark 16:9 (the disputed ending)", async () => {
+  const ref = parseReference("MRK.16.9");
+  const { words } = await readGreekVerseWords(ref);
+  assert.ok(words.length > 0, "Mark 16:9 should have tagged Greek once variants aren't filtered out");
+  const first = words[0];
+  assert.equal(first.isCriticalText, false, "the disputed ending's words shouldn't be in the NA28 critical text");
+  const category = classifyVariantSignificance(first.witnesses);
+  assert.notEqual(category, "agreement", "a real TR/Byzantine-only word should never classify as plain agreement");
 });

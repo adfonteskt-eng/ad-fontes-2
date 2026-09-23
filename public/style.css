@@ -663,6 +663,13 @@ table.interlinear th {
   margin: 0 0 0.4rem;
 }
 
+.word-variant-significance {
+  margin: 0 0 0.4rem;
+  padding: 0.3rem 0.5rem;
+  border-left: 2px solid var(--error);
+  background: var(--accent-soft);
+}
+
 .letter-breakdown {
   list-style: none;
   margin: 0;

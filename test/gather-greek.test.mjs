@@ -49,5 +49,26 @@ test("gatherPassage attaches morphologyExplanation and letterBreakdown to Greek 
   assert.ok(loved, "expected to find the V-AAI-3S tagged word in John 3:16");
   assert.equal(loved.morphologyExplanation.shortLabel, "Verb Aorist Active Indicative 3rd Singular");
   assert.equal(loved.letterBreakdown[0].atlas.name, "Eta");
+
+  // Ordinary NA28-critical-text words (the vast majority) are the plain
+  // "agreement" band -- nothing to explain, so null rather than noise.
+  assert.equal(loved.variantSignificance, null);
+});
+
+test("gatherPassage attaches a real variantSignificance note to a genuine manuscript variant word (John 3:16's TR/Byzantine-only 'his')", async () => {
+  clearGatherCache();
+  const result = await gatherPassage("JHN.3.16", {
+    translations: [],
+    includeCommentary: false,
+    includeVariants: true,
+  });
+
+  const greek = result.originalLanguage;
+  const variant = greek.words.find((w) => w.isCriticalText === false);
+  assert.ok(variant, "expected to find the non-critical-text variant word once includeVariants is true");
+  assert.ok(variant.variantSignificance, "a real manuscript variant should get a real significance note, not null");
+  assert.ok(["ancientDiffersFromTraditional", "traditionalOnly", "ancientOnly", "otherOnly"].includes(variant.variantSignificance.category));
+  assert.equal(typeof variant.variantSignificance.note, "string");
+  assert.ok(variant.variantSignificance.note.length > 0);
 });
 

@@ -161,10 +161,19 @@ function renderWordBreakdown(word) {
   const morphBlock = morph
     ? `<p class="word-morphology"><strong>${escapeHtml(morph.shortLabel)}</strong> — ${escapeHtml(morph.description)}</p>`
     : "";
+  // Manuscript variant significance (spec item 9) -- see
+  // lib/interlinear.js's VARIANT_SIGNIFICANCE. Only present at all when
+  // this word isn't the plain ~94%-of-the-NT "agreement" band, so there's
+  // nothing to show for most words.
+  const variant = word.variantSignificance;
+  const variantBlock = variant
+    ? `<p class="word-variant-significance"><strong>${escapeHtml(variant.label)}</strong> — ${escapeHtml(variant.note)}</p>`
+    : "";
   return `<details class="word-breakdown">
     <summary>${escapeHtml(word.surface)}</summary>
     <div class="word-breakdown-body">
       ${morphBlock}
+      ${variantBlock}
       ${renderLetterBreakdown(word.letterBreakdown)}
     </div>
   </details>`;

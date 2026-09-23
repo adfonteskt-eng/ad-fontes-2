@@ -416,6 +416,51 @@ man"), Interpret cited JFB's and Barnes' and Gill's actual comments by
 name, and Apply stayed appropriately non-prescriptive per the
 instruction rather than handing down a single mandated takeaway.
 
+## 2026-09-23 — Manuscript variant "how much this matters" layer shipped
+
+Best surprise of this whole pass: the "curated significance note per
+variant type" this item's blocker called for already exists, written by
+STEPBible themselves, sitting in the header of the exact TAGNT files this
+project already reads (`data/TAGNT-Mat-Jhn.txt`'s own documentation of
+its witness-marker scheme, CC BY 4.0 — quoted at length in
+`lib/interlinear.js`'s new comment). No new dataset, no new fetch, and no
+model-generated content at all was needed for this one — a first for this
+whole batch of "closest safe version" features, and the cleanest possible
+version: the note itself is exactly as licensed and sourced as the rest
+of this project's data, not an interpretive layer on top of it.
+
+`classifyVariantSignificance()` reduces a word's witness marker (e.g.
+"NKO", "N(k)O", "ko") to one of five bands STEPBible's own header
+documents (with real NT-wide counts): plain agreement (~94% of words),
+Ancient-differs-from-Traditional, Traditional-only, Ancient-only, and
+other-editions-only. The header gives five illustrative example patterns,
+explicitly not exhaustive ("..." on one row) — the real data has ~20
+distinct literal patterns, so the classifier implements the *general
+rule* those five examples embody (bare/capital vs. parenthesized/
+lowercase vs. absent, for N and K independently) rather than a lookup
+table, and was checked against every one of the ~20 real patterns found
+by scanning the actual file.
+
+Wired into `lib/gather.js`'s existing `enrichGreekWord()` (same function
+Alphabet Mode's morphology/letter breakdown already uses) as
+`variantSignificance` — null for the plain-agreement band (nothing to
+say about the ~94% baseline case), a real `{ category, label, note }`
+otherwise. One thing this surfaced that the *existing* red/hidden variant
+flagging in `public/app.js` doesn't currently catch: a word can be a
+genuine, worth-knowing KJV-vs-modern difference (the
+"ancientDiffersFromTraditional" band, e.g. "N(k)O") while still counting
+as NA28 critical text and therefore never being flagged or hidden today
+— this layer surfaces that case too, not just the two bands
+(Traditional-only, other-only) that were already visually flagged.
+
+Frontend reuses Alphabet Mode's existing per-word `<details>` breakdown
+panel rather than adding new UI — the note appears there, styled with a
+left accent border, when present. Verified live: asked about Matthew
+5:32, clicked ἀπολύων (tagged "N(k)O" in the real data, not currently
+flagged by the existing red/hidden variant treatment since it *is*
+NA28 text), and got the correct "Ancient text differs from the
+Traditional (KJV) text" note rendered inline with its morphology.
+
 ## Not yet built (spec items, honestly tracked, not silently dropped)
 
 In spec priority order, each with why it's not done yet:
@@ -435,9 +480,8 @@ In spec priority order, each with why it's not done yet:
    connections radial view (a real UI/interaction feature, not a prompt
    or tool addition).
 8. ~~Observe→Interpret→Apply scaffold~~ — done as of 2026-09-23, see above.
-9. Manuscript variant "how much this matters" plain-English layer — the
-   variant detection already exists in `lib/interlinear.js`; needs a
-   short, curated significance note per variant type, not per-instance.
+9. ~~Manuscript variant "how much this matters" layer~~ — done as of
+   2026-09-23, see above.
 10. (Voices Through History) — effectively already shipped; not re-listed.
 11. Study Trail + export — export plumbing exists (`lib/export.js`); needs
     a session-path recorder. Reel Kit needs an image-generation decision
