@@ -31,6 +31,27 @@ window.adFontesAuth = {
   // and showSignedOut() below. Defaults to false so a not-yet-loaded or
   // signed-out state never shows a paid-only control by omission.
   isPaid: false,
+  // Called by app.js when the depth control changes -- persists it as this
+  // signed-in user's account default (free feature, no is_paid check --
+  // see server.js's handleSetPreferences). A no-op for an anonymous
+  // visitor (getAccessToken() resolves to null, nothing to save it to);
+  // app.js's own localStorage copy already covers that case. Fire-and-
+  // forget: a failed save just means next session falls back to whatever
+  // was last saved, not worth surfacing as an error for a preference this
+  // low-stakes.
+  saveDepthLevel: async (level) => {
+    const token = await window.adFontesAuth.getAccessToken();
+    if (!token) return;
+    try {
+      await fetch("/api/preferences", {
+        method: "PUT",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ depthLevel: level }),
+      });
+    } catch {
+      // Not worth surfacing -- see the comment above.
+    }
+  },
 };
 
 const menuButton = document.getElementById("site-menu-button");
@@ -393,12 +414,13 @@ async function loadConversation(id) {
   }
 }
 
-// --- Preferences: daily digest, paid status, agent name ---------------------
-// One GET /api/preferences backs all three -- see server.js. isPaid is
-// read-only from here (set by hand in Supabase for now -- see README ->
-// Subscription / paid tier, there's no real checkout yet), so it only ever
-// toggles which of agent-name-field / agent-name-upsell is shown; only
-// dailyDigestOptIn and agentName are ever PUT back.
+// --- Preferences: daily digest, paid status, agent name, depth level -------
+// One GET /api/preferences backs all four -- see server.js. isPaid is
+// read-only from here (driven by Stripe's webhook -- see lib/stripe.js),
+// so it only ever toggles which of agent-name-field / agent-name-upsell is
+// shown; dailyDigestOptIn, agentName, and depthLevel are all ever PUT back
+// (depthLevel from app.js's depth control, via window.adFontesAuth.
+// saveDepthLevel -- see this file's window.adFontesAuth definition above).
 
 // Guards against the digest-toggle change listener firing (and PUTting)
 // while loadPreferences() itself sets digestToggle.checked from the
@@ -429,7 +451,7 @@ async function loadPreferences() {
       headers: { authorization: `Bearer ${token}` },
     });
     if (!response.ok) return;
-    const { dailyDigestOptIn, isPaid, agentName, readingPlanRemindersOptIn } = await response.json();
+    const { dailyDigestOptIn, isPaid, agentName, readingPlanRemindersOptIn, depthLevel } = await response.json();
 
     // Exposed the same way getAccessToken() is -- app.js's Study export
     // section (notes can be exported by any signed-in user only once paid,
@@ -458,6 +480,8 @@ async function loadPreferences() {
       agentNameUpsell.hidden = Boolean(isPaid);
       if (isPaid && agentNameInput) agentNameInput.value = agentName ?? "";
     }
+
+    window.adFontesChat?.setDepthLevelFromServer?.(depthLevel);
   } catch {
     // Leave everything at whatever it last showed -- same "fail silently,
     // don't disrupt the rest of the menu" spirit as loadConversations().

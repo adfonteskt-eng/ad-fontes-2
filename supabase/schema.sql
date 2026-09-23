@@ -79,6 +79,24 @@ alter table public.profiles
 alter table public.profiles
   add column if not exists stripe_subscription_id text;
 
+-- Depth slider (free for every signed-in user, unlike agent_name/reading
+-- plans above -- see lib/chat.js's buildSystemPrompt()): how technical an
+-- answer should be. Defaults to "everyday" (today's existing single voice,
+-- unchanged for anyone who's never touched the slider). The check
+-- constraint is real validation at the database level, not just app-side --
+-- lib/supabase.js's DEPTH_LEVELS is the same three values, kept in sync by
+-- hand since Postgres check constraints can't reference an app-side
+-- constant.
+alter table public.profiles
+  add column if not exists depth_level text not null default 'everyday';
+
+alter table public.profiles
+  drop constraint if exists profiles_depth_level_check;
+
+alter table public.profiles
+  add constraint profiles_depth_level_check
+  check (depth_level in ('everyday', 'student', 'scholar'));
+
 -- The webhook handler's actual lookup: "which profile does this Stripe
 -- customer id belong to" (see getProfileByStripeCustomerId in
 -- lib/supabase.js). Unique, not just indexed -- a customer id maps to at

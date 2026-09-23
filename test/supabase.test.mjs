@@ -28,6 +28,9 @@ import {
   listDigestOptedInUsers,
   getPaidProfile,
   setAgentName,
+  setDepthLevel,
+  DEPTH_LEVELS,
+  isValidDepthLevel,
   getReadingPlanReminderOptIn,
   setReadingPlanReminderOptIn,
   listReadingPlanReminderOptedInUsers,
@@ -851,25 +854,31 @@ test("listDigestOptedInUsers returns only opted-in users as { id, email }", asyn
 
 // --- getPaidProfile / setAgentName / getAgentNameIfPaid (paid tier) --------
 
-test("getPaidProfile returns { isPaid: false, agentName: null } when Supabase isn't configured, without calling fetch", async () => {
+test("getPaidProfile returns { isPaid: false, agentName: null, depthLevel: 'everyday' } when Supabase isn't configured, without calling fetch", async () => {
   let called = false;
   globalThis.fetch = async () => {
     called = true;
     return { ok: true, status: 200, text: async () => "[]" };
   };
-  assert.deepEqual(await getPaidProfile("user-1"), { isPaid: false, agentName: null });
+  assert.deepEqual(await getPaidProfile("user-1"), { isPaid: false, agentName: null, depthLevel: "everyday" });
   assert.equal(called, false);
 });
 
-test("getPaidProfile defaults to not paid, no name, when there's no profiles row", async () => {
+test("getPaidProfile defaults to not paid, no name, everyday depth, when there's no profiles row", async () => {
   stubSupabase();
-  assert.deepEqual(await getPaidProfile("user-1"), { isPaid: false, agentName: null });
+  assert.deepEqual(await getPaidProfile("user-1"), { isPaid: false, agentName: null, depthLevel: "everyday" });
 });
 
-test("getPaidProfile returns the stored is_paid + agent_name", async () => {
+test("getPaidProfile returns the stored is_paid + agent_name + depth_level", async () => {
   const { profiles } = stubSupabase();
-  profiles.set("user-1", { id: "user-1", is_paid: true, agent_name: "Wisdom" });
-  assert.deepEqual(await getPaidProfile("user-1"), { isPaid: true, agentName: "Wisdom" });
+  profiles.set("user-1", { id: "user-1", is_paid: true, agent_name: "Wisdom", depth_level: "scholar" });
+  assert.deepEqual(await getPaidProfile("user-1"), { isPaid: true, agentName: "Wisdom", depthLevel: "scholar" });
+});
+
+test("getPaidProfile falls back to 'everyday' for an invalid/unrecognized stored depth_level", async () => {
+  const { profiles } = stubSupabase();
+  profiles.set("user-1", { id: "user-1", is_paid: false, agent_name: null, depth_level: "expert" });
+  assert.deepEqual(await getPaidProfile("user-1"), { isPaid: false, agentName: null, depthLevel: "everyday" });
 });
 
 test("setAgentName PATCHes the user's profiles row with the secret key", async () => {
@@ -893,6 +902,27 @@ test("setAgentName stores null for an empty name (clearing it back to the defaul
   await setAgentName("user-1", "");
 
   assert.equal(profiles.get("user-1").agent_name, null);
+});
+
+test("DEPTH_LEVELS lists exactly everyday/student/scholar, and isValidDepthLevel matches it", () => {
+  assert.deepEqual(DEPTH_LEVELS, ["everyday", "student", "scholar"]);
+  for (const level of DEPTH_LEVELS) assert.equal(isValidDepthLevel(level), true);
+  assert.equal(isValidDepthLevel("expert"), false);
+  assert.equal(isValidDepthLevel(undefined), false);
+});
+
+test("setDepthLevel PATCHes the user's profiles row with the secret key", async () => {
+  const { requests, profiles } = stubSupabase();
+  profiles.set("user-1", { id: "user-1", depth_level: "everyday" });
+
+  await setDepthLevel("user-1", "scholar");
+
+  const patchRequest = requests.find(
+    (r) => r.url.pathname === "/rest/v1/profiles" && r.opts.method === "PATCH" && r.url.searchParams.get("id") === "eq.user-1",
+  );
+  assert.ok(patchRequest, "should have PATCHed profiles");
+  assert.deepEqual(JSON.parse(patchRequest.opts.body), { depth_level: "scholar" });
+  assert.equal(profiles.get("user-1").depth_level, "scholar");
 });
 
 // --- getReadingPlanProgress / listReadingPlanProgress / setReadingPlanDayComplete

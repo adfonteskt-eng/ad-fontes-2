@@ -532,6 +532,64 @@ const chatSendButton = chatForm.querySelector('button[type="submit"]');
 const homeButton = document.getElementById("nav-home-button");
 const homeLink = document.getElementById("home-link");
 const conversationExportContainer = document.getElementById("conversation-export");
+const depthControl = document.getElementById("depth-control");
+
+// --- Depth slider (spec item 3: Everyday/Student/Scholar) ----------------
+// A segmented control, not a real <input type="range"> — see
+// lib/supabase.js's DEPTH_LEVELS for why (three named levels, not a
+// continuous scale). Kept as simple client state sent with every chat
+// request; the server (lib/chat.js) is the only thing that actually
+// decides what each level means for the reply.
+const DEPTH_LEVELS = ["everyday", "student", "scholar"];
+const DEFAULT_DEPTH_LEVEL = "everyday";
+const DEPTH_STORAGE_KEY = "adfontes.depthLevel";
+
+function loadStoredDepthLevel() {
+  try {
+    const stored = localStorage.getItem(DEPTH_STORAGE_KEY);
+    return DEPTH_LEVELS.includes(stored) ? stored : DEFAULT_DEPTH_LEVEL;
+  } catch {
+    // Same "convenience only, never block on it" reasoning as
+    // saveChatState/loadChatState above.
+    return DEFAULT_DEPTH_LEVEL;
+  }
+}
+
+let chatDepthLevel = loadStoredDepthLevel();
+
+function renderDepthControl() {
+  if (!depthControl) return;
+  for (const button of depthControl.querySelectorAll(".depth-option")) {
+    const isActive = button.dataset.depth === chatDepthLevel;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  }
+}
+
+// Sets the current depth level. `fromServer` is true only when auth.js is
+// applying a signed-in user's own saved default (see
+// window.adFontesChat.setDepthLevelFromServer below) — that should update
+// what's shown and sent, and the local convenience copy, but must NOT loop
+// back into another PUT /api/preferences (it just came FROM one).
+function setDepthLevel(level, { fromServer = false } = {}) {
+  if (!DEPTH_LEVELS.includes(level)) return;
+  chatDepthLevel = level;
+  renderDepthControl();
+  try {
+    localStorage.setItem(DEPTH_STORAGE_KEY, level);
+  } catch {
+    // Not worth surfacing — see loadStoredDepthLevel above.
+  }
+  if (!fromServer) window.adFontesAuth?.saveDepthLevel?.(level);
+}
+
+if (depthControl) {
+  renderDepthControl();
+  depthControl.addEventListener("click", (event) => {
+    const button = event.target.closest(".depth-option");
+    if (button) setDepthLevel(button.dataset.depth);
+  });
+}
 
 // Shows/hides the whole-conversation export control (see the Study export
 // section above) based on current state: there has to be a real, durable
@@ -969,7 +1027,7 @@ async function sendChatMessage(message) {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers,
-      body: JSON.stringify({ sessionId: chatSessionId, conversationId: chatConversationId, message }),
+      body: JSON.stringify({ sessionId: chatSessionId, conversationId: chatConversationId, message, depthLevel: chatDepthLevel }),
     });
     const data = await response.json();
 
@@ -1836,6 +1894,13 @@ window.adFontesChat = {
   // all happen after a conversation's already on screen (see
   // restoreChatState(), which runs at load time before isPaid has loaded).
   refreshConversationExport: updateConversationExportControl,
+  // Called by auth.js's loadPreferences() once a signed-in user's own
+  // saved depth_level is known, so the control (and the value sent with
+  // the next message) reflects their account default rather than
+  // whatever this browser's localStorage happened to have. See
+  // setDepthLevel's `fromServer` flag above for why this doesn't loop
+  // back into another PUT.
+  setDepthLevelFromServer: (level) => setDepthLevel(level, { fromServer: true }),
 };
 
 // IMPORTANT: this replaceState only ever rewrites the *pathname*, never

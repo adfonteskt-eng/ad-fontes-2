@@ -49,19 +49,22 @@
 //   401 without one.
 //
 // GET /api/preferences -> { dailyDigestOptIn: boolean, isPaid: boolean,
-//   agentName: string|null } for the signed-in user. isPaid is read-only
-//   here (set by hand in Supabase for now — no real checkout yet, see
-//   README -> Subscription / paid tier); it just tells the frontend whether
-//   to show the "name your agent" field or its upsell. Requires a valid
+//   agentName: string|null, readingPlanRemindersOptIn: boolean, depthLevel:
+//   "everyday"|"student"|"scholar" } for the signed-in user. isPaid is
+//   read-only here (driven by Stripe's webhook — see lib/stripe.js — not
+//   settable via this endpoint); it just tells the frontend whether to show
+//   the "name your agent" field or its upsell. Requires a valid
 //   Authorization header — 401 without one.
 //
 // PUT /api/preferences { dailyDigestOptIn?: boolean, agentName?: string,
-//   readingPlanRemindersOptIn?: boolean } -> the full preferences object,
-//   same shape as GET. Provide any subset of fields — each present field is
-//   saved, absent ones are left alone (a 400 if none are present). Setting
-//   agentName or readingPlanRemindersOptIn on a non-paid account returns
-//   403 (dailyDigestOptIn has no such restriction — the email digest is
-//   free). Requires a valid Authorization header — 401 without one.
+//   readingPlanRemindersOptIn?: boolean, depthLevel?: string } -> the full
+//   preferences object, same shape as GET. Provide any subset of fields —
+//   each present field is saved, absent ones are left alone (a 400 if none
+//   are present). Setting agentName or readingPlanRemindersOptIn on a
+//   non-paid account returns 403 (dailyDigestOptIn and depthLevel have no
+//   such restriction — the email digest and the depth slider are both free
+//   for every signed-in user). Requires a valid Authorization header — 401
+//   without one.
 //
 // Stripe billing (see README -> Subscription / paid tier, lib/stripe.js).
 // is_paid is now driven entirely by the webhook handler below -- GET/PUT
@@ -211,12 +214,14 @@ import {
   getProfileByStripeCustomerId,
   getReadingPlanReminderOptIn,
   getStripeCustomerId,
+  isValidDepthLevel,
   listConversations,
   listNotes,
   listOutlines,
   listReadingPlanProgress,
   setAgentName,
   setBillingProfile,
+  setDepthLevel,
   setDigestOptIn,
   setReadingPlanDayComplete,
   setReadingPlanReminderOptIn,
@@ -778,12 +783,12 @@ async function handleGetPreferences(req, res) {
   const user = await requireUser(req, res);
   if (!user) return;
 
-  const [dailyDigestOptIn, { isPaid, agentName }, readingPlanRemindersOptIn] = await Promise.all([
+  const [dailyDigestOptIn, { isPaid, agentName, depthLevel }, readingPlanRemindersOptIn] = await Promise.all([
     getDigestOptIn(user.id),
     getPaidProfile(user.id),
     getReadingPlanReminderOptIn(user.id),
   ]);
-  sendJson(res, 200, { dailyDigestOptIn, isPaid, agentName, readingPlanRemindersOptIn });
+  sendJson(res, 200, { dailyDigestOptIn, isPaid, agentName, readingPlanRemindersOptIn, depthLevel });
 }
 
 // PUT replaces whichever of the known preference fields are present in the
@@ -810,8 +815,9 @@ async function handleSetPreferences(req, res) {
   const hasDigestField = Object.prototype.hasOwnProperty.call(body, "dailyDigestOptIn");
   const hasAgentNameField = Object.prototype.hasOwnProperty.call(body, "agentName");
   const hasReadingPlanRemindersField = Object.prototype.hasOwnProperty.call(body, "readingPlanRemindersOptIn");
-  if (!hasDigestField && !hasAgentNameField && !hasReadingPlanRemindersField) {
-    sendJson(res, 400, { error: "Provide at least one of: dailyDigestOptIn, agentName, readingPlanRemindersOptIn." });
+  const hasDepthLevelField = Object.prototype.hasOwnProperty.call(body, "depthLevel");
+  if (!hasDigestField && !hasAgentNameField && !hasReadingPlanRemindersField && !hasDepthLevelField) {
+    sendJson(res, 400, { error: "Provide at least one of: dailyDigestOptIn, agentName, readingPlanRemindersOptIn, depthLevel." });
     return;
   }
 
@@ -863,12 +869,22 @@ async function handleSetPreferences(req, res) {
     await setReadingPlanReminderOptIn(user.id, body.readingPlanRemindersOptIn);
   }
 
-  const [dailyDigestOptIn, { isPaid, agentName }, readingPlanRemindersOptIn] = await Promise.all([
+  if (hasDepthLevelField) {
+    // Free for every signed-in user, unlike agentName/readingPlanReminders
+    // above -- no is_paid check here. See lib/chat.js's DEPTH_LEVEL_PARAGRAPHS.
+    if (typeof body.depthLevel !== "string" || !isValidDepthLevel(body.depthLevel)) {
+      sendJson(res, 400, { error: "Invalid field: depthLevel (must be one of: everyday, student, scholar)." });
+      return;
+    }
+    await setDepthLevel(user.id, body.depthLevel);
+  }
+
+  const [dailyDigestOptIn, { isPaid, agentName, depthLevel }, readingPlanRemindersOptIn] = await Promise.all([
     getDigestOptIn(user.id),
     getPaidProfile(user.id),
     getReadingPlanReminderOptIn(user.id),
   ]);
-  sendJson(res, 200, { dailyDigestOptIn, isPaid, agentName, readingPlanRemindersOptIn });
+  sendJson(res, 200, { dailyDigestOptIn, isPaid, agentName, readingPlanRemindersOptIn, depthLevel });
 }
 
 // Same reasoning as lib/daily-digest.js's DEFAULT_SITE_URL -- a sensible
@@ -1190,6 +1206,13 @@ async function handleChat(req, res) {
     });
     return;
   }
+  // Depth slider (see lib/supabase.js's DEPTH_LEVELS): an explicit
+  // per-message override is optional -- an omitted or invalid value just
+  // falls through as null, and chatTurn() falls back to the signed-in
+  // user's own stored default (or "everyday" for an anonymous request),
+  // same "don't hard-fail on an optional field" treatment as everywhere
+  // else a client sends state this server can reasonably default instead.
+  const depthLevel = typeof body.depthLevel === "string" && isValidDepthLevel(body.depthLevel) ? body.depthLevel : null;
 
   const { allowed } = await checkAndIncrement("chat", clientIp(req), CHAT_DAILY_LIMIT);
   if (!allowed) {
@@ -1221,6 +1244,7 @@ async function handleChat(req, res) {
       appKey,
       apiKey: anthropicKey,
       userId: user?.id ?? null,
+      depthLevel,
     });
     sendJson(res, 200, result);
   } catch (error) {

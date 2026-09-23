@@ -166,6 +166,41 @@ letter/grammar coverage (Hebrew uses a different alphabet and a different
 STEPBible grammar-code scheme entirely — a separate future addition, not
 a gap in this one).
 
+## 2026-09-23 — Depth slider (Everyday/Student/Scholar) shipped
+
+Built spec item 3 following the plan already recorded above: added
+`profiles.depth_level` (text, default `'everyday'`, check-constrained to
+the three values) via the existing additive-migration pattern, and a
+matching `DEPTH_LEVELS`/`DEFAULT_DEPTH_LEVEL`/`isValidDepthLevel` in
+`lib/supabase.js` (kept there rather than in `lib/chat.js` specifically to
+avoid a circular import — `lib/chat.js` already imports `getPaidProfile`
+from `lib/supabase.js`). `getPaidProfile()` now also returns `depthLevel`,
+normalized server-side so an invalid/legacy stored value can never reach
+the system prompt.
+
+`lib/chat.js`'s `buildSystemPrompt()` takes a `depthLevel` and picks one of
+three paragraphs (`DEPTH_LEVEL_PARAGRAPHS`) instructing Claude how
+technical to be; "everyday" reproduces this app's one existing voice
+unchanged, so nobody who's never touched the slider sees any behavior
+change. `chatTurn()` resolves the effective level as: an explicit
+per-message override (validated by `server.js` before being passed
+through) if present, else the signed-in user's own stored default, else
+"everyday" for an anonymous request — and reports back which one actually
+applied.
+
+Frontend: a three-button segmented control (not a literal
+`<input type="range">`, since there are exactly three named levels, not a
+continuous scale) above the chat form, working for anonymous visitors via
+localStorage and additionally persisted to `profiles.depth_level` for a
+signed-in user via `PUT /api/preferences` (free — no `is_paid` gate,
+unlike `agentName`/`readingPlanRemindersOptIn` in that same endpoint).
+Verified live: switched to "Scholar" and asked "What does monogenes mean
+in John 3:16?" — the reply engaged with the *monogenēs*-vs-*gennaō*
+etymology debate, cited occurrence data by Strong's number, and referenced
+Hebrews 11's disambiguating usage, a visibly different register than the
+same verse's "Everyday" answer earlier in the same session. Reload-
+persistence of the localStorage copy also confirmed live.
+
 ## Not yet built (spec items, honestly tracked, not silently dropped)
 
 In spec priority order, each with why it's not done yet:
@@ -175,8 +210,7 @@ In spec priority order, each with why it's not done yet:
    tap-to-save personal deck and a spaced-repetition scheduler, both of
    which need a new Supabase table; and Hebrew coverage (different
    alphabet, different grammar-code scheme).
-3. Depth slider — needs the profiles column above + a system-prompt
-   variant per depth; straightforward once started.
+3. ~~Depth slider~~ — done as of 2026-09-23, see above.
 4. Tradition Lens — needs a curated tradition/proof-text dataset decision:
    hand-curate a small fixed set (Reformed/Baptist/Wesleyan/Catholic/
    Orthodox × common debated topics) or have Claude generate positions

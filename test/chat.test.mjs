@@ -359,6 +359,103 @@ test("a signed-in but FREE user does not get search_study_history or search_my_n
   }
 });
 
+// --- Depth slider (Everyday/Student/Scholar -- see lib/supabase.js's
+// DEPTH_LEVELS) ------------------------------------------------------------
+
+test("an anonymous chat with no depthLevel gets the 'everyday' system prompt and reports it back", async () => {
+  globalThis.fetch = async (url, opts) => {
+    const href = url.toString();
+    if (href !== "https://api.anthropic.com/v1/messages") throw new Error(`unexpected fetch: ${href}`);
+    const body = JSON.parse(opts.body);
+    assert.match(body.system, /"Everyday"/);
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+  };
+
+  const result = await chatTurn({ message: "Hi", appKey: "k", apiKey: "fake" });
+  assert.equal(result.depthLevel, "everyday");
+});
+
+test("an explicit depthLevel override changes the system prompt for an anonymous chat", async () => {
+  globalThis.fetch = async (url, opts) => {
+    const href = url.toString();
+    if (href !== "https://api.anthropic.com/v1/messages") throw new Error(`unexpected fetch: ${href}`);
+    const body = JSON.parse(opts.body);
+    assert.match(body.system, /"Scholar"/);
+    assert.doesNotMatch(body.system, /"Everyday"/);
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+  };
+
+  const result = await chatTurn({ message: "Hi", appKey: "k", apiKey: "fake", depthLevel: "scholar" });
+  assert.equal(result.depthLevel, "scholar");
+});
+
+test("an invalid depthLevel falls back to 'everyday' rather than being passed through raw", async () => {
+  globalThis.fetch = async (url, opts) => {
+    const href = url.toString();
+    if (href !== "https://api.anthropic.com/v1/messages") throw new Error(`unexpected fetch: ${href}`);
+    const body = JSON.parse(opts.body);
+    assert.match(body.system, /"Everyday"/);
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+  };
+
+  const result = await chatTurn({ message: "Hi", appKey: "k", apiKey: "fake", depthLevel: "expert" });
+  assert.equal(result.depthLevel, "everyday");
+});
+
+test("a signed-in user's own stored depth_level is used when the message sends no override", async () => {
+  stubSupabaseEnv();
+  try {
+    globalThis.fetch = async (url, opts) => {
+      const href = url.toString();
+      if (href === "https://api.anthropic.com/v1/messages") {
+        const body = JSON.parse(opts.body);
+        assert.match(body.system, /"Student"/);
+        return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+      }
+      const parsed = new URL(href);
+      if (parsed.pathname === "/rest/v1/profiles") {
+        return { ok: true, status: 200, text: async () => JSON.stringify([{ id: "user-7", is_paid: false, agent_name: null, depth_level: "student" }]) };
+      }
+      if (parsed.pathname === "/rest/v1/conversations") {
+        return { ok: true, status: opts.method === "GET" ? 200 : 201, text: async () => "[]" };
+      }
+      throw new Error(`unexpected fetch to ${href}`);
+    };
+
+    const result = await chatTurn({ message: "Hi", appKey: "k", apiKey: "fake", userId: "user-7" });
+    assert.equal(result.depthLevel, "student");
+  } finally {
+    clearSupabaseEnv();
+  }
+});
+
+test("an explicit depthLevel override wins over a signed-in user's stored default for that message", async () => {
+  stubSupabaseEnv();
+  try {
+    globalThis.fetch = async (url, opts) => {
+      const href = url.toString();
+      if (href === "https://api.anthropic.com/v1/messages") {
+        const body = JSON.parse(opts.body);
+        assert.match(body.system, /"Everyday"/);
+        return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "reply" }] });
+      }
+      const parsed = new URL(href);
+      if (parsed.pathname === "/rest/v1/profiles") {
+        return { ok: true, status: 200, text: async () => JSON.stringify([{ id: "user-7", is_paid: false, agent_name: null, depth_level: "scholar" }]) };
+      }
+      if (parsed.pathname === "/rest/v1/conversations") {
+        return { ok: true, status: opts.method === "GET" ? 200 : 201, text: async () => "[]" };
+      }
+      throw new Error(`unexpected fetch to ${href}`);
+    };
+
+    const result = await chatTurn({ message: "Hi", appKey: "k", apiKey: "fake", userId: "user-7", depthLevel: "everyday" });
+    assert.equal(result.depthLevel, "everyday");
+  } finally {
+    clearSupabaseEnv();
+  }
+});
+
 test("a signed-in, PAID user calling search_my_notes hits PostgREST's notes table, scoped to their own user_id", async () => {
   stubSupabaseEnv();
   try {

@@ -476,6 +476,20 @@
       </div>
     </div>
 
+    <!-- Depth slider (spec item 3): how technical an answer should be --
+         free for everyone, signed in or not. Persisted locally for an
+         anonymous visitor (see app.js) and, for a signed-in user, also
+         saved as their account default via PUT /api/preferences so it
+         carries across devices. A segmented control rather than a literal
+         <input type="range"> since there are exactly three named levels,
+         not a continuous scale. -->
+    <div id="depth-control" class="depth-control" role="radiogroup" aria-label="Answer depth">
+      <span class="depth-control-label">Depth</span>
+      <button type="button" class="depth-option" data-depth="everyday" aria-pressed="true">Everyday</button>
+      <button type="button" class="depth-option" data-depth="student" aria-pressed="false">Student</button>
+      <button type="button" class="depth-option" data-depth="scholar" aria-pressed="false">Scholar</button>
+    </div>
+
     <form id="chat-form">
       <textarea
         id="chat-input"
