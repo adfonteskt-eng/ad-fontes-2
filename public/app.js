@@ -1094,6 +1094,90 @@ chatLog.addEventListener("click", (event) => {
   downloadShareCard({ reference, abbr: button.dataset.abbr ?? "", content });
 });
 
+// --- Select-anywhere popover (spec item 12) -------------------------------
+// Selecting any real text in the study material (a translation, the
+// interlinear, commentary, a briefing, Claude's own reply — anywhere
+// inside <main> except the chat form itself, where a selection is just
+// normal text editing) reveals a small floating "Ask about this" button.
+// Clicking it does exactly what every other click-to-ask control in this
+// file already does: fill the chat input and focus it — just for
+// arbitrary selected text instead of a designated reference/place/verse
+// button. Pure frontend, no backend involved at all.
+const mainEl = document.querySelector("main");
+const MIN_SELECT_POPOVER_LENGTH = 3;
+
+const selectPopover = document.createElement("div");
+selectPopover.className = "select-popover";
+selectPopover.hidden = true;
+selectPopover.innerHTML = `<button type="button" class="select-popover-button">Ask about this</button>`;
+document.body.appendChild(selectPopover);
+
+function hideSelectPopover() {
+  selectPopover.hidden = true;
+  delete selectPopover.dataset.selectedText;
+}
+
+function showSelectPopoverForSelection(selection) {
+  const text = selection.toString().trim();
+  if (text.length < MIN_SELECT_POPOVER_LENGTH) {
+    hideSelectPopover();
+    return;
+  }
+  const rect = selection.getRangeAt(0).getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0) {
+    hideSelectPopover();
+    return;
+  }
+  selectPopover.dataset.selectedText = text;
+  selectPopover.hidden = false;
+  // Measured after unhiding, since an element with `hidden` has no size
+  // to center against yet.
+  const popoverWidth = selectPopover.offsetWidth;
+  selectPopover.style.top = `${window.scrollY + rect.top - selectPopover.offsetHeight - 8}px`;
+  selectPopover.style.left = `${window.scrollX + rect.left + rect.width / 2 - popoverWidth / 2}px`;
+}
+
+// selectionchange (not mouseup) so this also works for a touch long-press
+// selection on mobile, not just a mouse drag — debounced since it can fire
+// many times during a drag. Excludes the chat form entirely (selecting
+// text you're typing isn't a request to ask about it) and anything
+// outside <main> (the site menu, header chrome).
+let selectionChangeTimer = null;
+document.addEventListener("selectionchange", () => {
+  clearTimeout(selectionChangeTimer);
+  selectionChangeTimer = setTimeout(() => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+      hideSelectPopover();
+      return;
+    }
+    const anchorEl = selection.anchorNode?.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode?.parentElement;
+    if (!anchorEl || !mainEl.contains(anchorEl) || anchorEl.closest("#chat-form")) {
+      hideSelectPopover();
+      return;
+    }
+    showSelectPopoverForSelection(selection);
+  }, 150);
+});
+
+selectPopover.addEventListener("click", (event) => {
+  if (!event.target.closest(".select-popover-button")) return;
+  const text = selectPopover.dataset.selectedText ?? "";
+  hideSelectPopover();
+  window.getSelection()?.removeAllRanges();
+  if (!text) return;
+  chatInput.value = `What does this mean: "${text}"?`;
+  clearInputPlaceholder();
+  chatInput.focus();
+});
+
+// A stale-positioned popover (after a scroll) is worse than none — hiding
+// on scroll is simpler and safer than re-measuring on every scroll event.
+window.addEventListener("scroll", hideSelectPopover, { passive: true });
+document.addEventListener("mousedown", (event) => {
+  if (!event.target.closest(".select-popover")) hideSelectPopover();
+});
+
 // --- Notes (signed-in users can save their own notes on a passage) --------
 // One .notes-section per gathered passage (see renderNotesSection above),
 // populated here rather than server-side or inline in renderSourcePassage

@@ -539,9 +539,39 @@ and leaves batching for later, the same "ship the focused slice, defer
 the bigger UI feature honestly" call as the Cross-Reference multi-hop
 graph.
 
+## 2026-09-23 — Select-anywhere popover shipped (all 13 Phase 2 items now
+addressed)
+
+Pure frontend, exactly as flagged — no backend, no new data, no tool.
+Selecting real text anywhere inside `<main>` (a translation, the
+interlinear, commentary, a briefing, Claude's own reply — everywhere
+except the chat form itself, where a selection is just normal text
+editing) shows a small floating "Ask about this" button positioned over
+the selection; clicking it does exactly what every other click-to-ask
+control in this app already does (cross-reference verses, map markers,
+word-study occurrences) — fills the chat input and focuses it, this time
+with arbitrary selected text instead of a designated reference.
+
+Listens on `selectionchange` rather than `mouseup` specifically so it
+works the same for a touch long-press selection on mobile as a mouse
+drag on desktop, debounced since `selectionchange` fires continuously
+during a drag. Popover hides on scroll (a stale position is worse than
+none), on an outside click, and after use.
+
+Verified live: a real mouse-drag selection inside a translation showed
+the popover positioned correctly above the selected text; clicking it
+filled the chat input with the selected text and focused it; selecting
+text inside the chat textarea itself correctly showed no popover at all;
+and the same drag-select-and-ask flow works cleanly at mobile width
+(375px) without overflowing the viewport.
+
+This closes out every item in the spec's Phase 2 priority list (1
+through 13) — see the tracker below for the final status of each.
+
 ## Not yet built (spec items, honestly tracked, not silently dropped)
 
-In spec priority order, each with why it's not done yet:
+In spec priority order, each with why it's not done yet — everything is
+now either done or has an explicitly deferred, documented sub-part:
 
 2. Alphabet Mode — letter-level groundwork (atlas + per-word grammar/letter
    breakdown) is done as of 2026-09-22, see above. Still missing: a
@@ -564,8 +594,15 @@ In spec priority order, each with why it's not done yet:
 11. ~~Study Trail + Reel Kit~~ — done as of 2026-09-23, see above (the
     single-card Reel Kit generator; batch/multi-card export deferred, see
     above).
-12. Select-anywhere popover — pure frontend feature, no backend blocker.
+12. ~~Select-anywhere popover~~ — done as of 2026-09-23, see above.
 
 **Built since this was first written:**
 13. Sources & Licenses page (`/sources`) — done 2026-09-22. Static content,
     no data blocker; wired the same way every other standalone page is.
+
+**Remaining known gaps, all explicitly deferred with reasoning recorded
+above, not silently dropped:**
+- Alphabet Mode's save-a-word deck + spaced repetition (needs a new
+  Supabase table) and Hebrew letter/grammar coverage (item 2).
+- Cross-Reference Constellation's multi-hop explorable graph (item 7).
+- Reel Kit's batch/multi-card export (item 11).

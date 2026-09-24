@@ -601,6 +601,37 @@ main {
   color: var(--accent);
 }
 
+/* --- Select-anywhere popover (spec item 12) ------------------------------
+   Positioned via inline top/left (app.js computes these from the real
+   selection's bounding rect) -- position: absolute, document-relative, to
+   match those scrollY/scrollX-adjusted values. */
+
+.select-popover {
+  position: absolute;
+  z-index: 40;
+}
+
+.select-popover[hidden] {
+  display: none;
+}
+
+.select-popover-button {
+  padding: 0.4rem 0.8rem;
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.select-popover-button:hover {
+  opacity: 0.9;
+}
+
 .interlinear-wrap {
   overflow-x: auto;
   border: 1px solid var(--line);
