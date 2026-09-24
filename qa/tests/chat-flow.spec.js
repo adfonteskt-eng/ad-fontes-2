@@ -13,10 +13,12 @@
 // covered.
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { collectCspViolations, getCspViolations, describeCspViolations } from "./helpers.js";
 
 test.setTimeout(60_000);
 
 test("a bare-reference message returns real gathered material, renders an injected script as inert text, and the loaded conversation passes an accessibility scan", async ({ page }) => {
+  await collectCspViolations(page);
   await page.goto("/");
   // The injection attempt rides along in the same real message as a
   // legitimate question, rather than spending a second Anthropic call on
@@ -48,10 +50,14 @@ test("a bare-reference message returns real gathered material, renders an inject
     (v) => v.impact === "critical" || v.impact === "serious",
   );
   expect(violations.map((v) => `${v.id}: ${v.help}`), "loaded conversation should have no critical/serious a11y violations").toEqual([]);
+
+  const cspViolations = await getCspViolations(page);
+  expect(cspViolations, describeCspViolations(cspViolations)).toEqual([]);
 });
 
-test("a word-study request renders the real per-book frequency chart", async ({ page }) => {
+test("a word-study request renders the real per-book frequency chart, with bar widths correctly applied via the CSSOM (not a blocked inline style)", async ({ page }) => {
   test.setTimeout(120_000);
+  await collectCspViolations(page);
   await page.goto("/");
   await page.locator("#chat-input").fill("Do a word study on the Greek word for love, agape, and show me where it occurs across the Bible.");
   await page.locator("#chat-form button[type=submit]").click();
@@ -67,9 +73,21 @@ test("a word-study request renders the real per-book frequency chart", async ({ 
   // the right thing to assert on rather than the model-discretion parts.
   const barCount = await page.locator(".word-study-bar-row").count();
   expect(barCount).toBeGreaterThan(0);
+
+  // The bar width is set via applyComputedStyles() (public/app.js) reading
+  // a data-pct attribute, specifically so no style="..." attribute is
+  // needed under the strict CSP -- confirm it actually landed on the real
+  // element (not just "no CSP violation happened", but "the chart still
+  // looks like a chart").
+  const firstBarWidth = await page.locator(".word-study-bar-fill").first().evaluate((el) => el.style.width);
+  expect(firstBarWidth).toMatch(/^\d+%$/);
+
+  const cspViolations = await getCspViolations(page);
+  expect(cspViolations, describeCspViolations(cspViolations)).toEqual([]);
 });
 
-test("a cross-references request renders the real diagram with a working click-to-ask verse button", async ({ page }) => {
+test("a cross-references request renders the real diagram (with edge stroke-width/opacity correctly applied via the CSSOM) and a working click-to-ask verse button", async ({ page }) => {
+  await collectCspViolations(page);
   await page.goto("/");
   await page.locator("#chat-input").fill("What are the cross-references for John 3:16?");
   await page.locator("#chat-form button[type=submit]").click();
@@ -82,4 +100,15 @@ test("a cross-references request renders the real diagram with a working click-t
 
   await firstItem.click();
   await expect(page.locator("#chat-input")).toHaveValue(reference);
+
+  // Same CSSOM-vs-style-attribute concern as the word-study bars above,
+  // for the SVG edges' stroke-width/opacity (public/app.js's
+  // renderCrossReferenceSvg + applyComputedStyles).
+  const firstEdge = page.locator(".cross-ref-edge").first();
+  const edgeStyle = await firstEdge.evaluate((el) => ({ strokeWidth: el.style.strokeWidth, opacity: el.style.opacity }));
+  expect(edgeStyle.strokeWidth).not.toBe("");
+  expect(edgeStyle.opacity).not.toBe("");
+
+  const cspViolations = await getCspViolations(page);
+  expect(cspViolations, describeCspViolations(cspViolations)).toEqual([]);
 });

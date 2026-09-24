@@ -519,7 +519,14 @@ function renderCrossReferenceSvg({ reference, results }) {
 
   const edges = nodes
     .map(
-      (node) => `<line class="cross-ref-edge" x1="${CROSS_REF_CENTER}" y1="${CROSS_REF_CENTER}" x2="${node.x.toFixed(1)}" y2="${node.y.toFixed(1)}" style="stroke-width:${(1 + node.weight * 2.5).toFixed(2)};opacity:${(0.25 + node.weight * 0.55).toFixed(2)}"></line>`,
+      // stroke-width/opacity are set via the CSSOM after insertion (see
+      // applyComputedStyles below), not as a literal style="..." attribute
+      // here — a strict Content-Security-Policy's style-src (no
+      // 'unsafe-inline') covers <style> elements via nonces but has no
+      // equivalent for inline style *attributes*, so the only way to keep
+      // style-src strict is to never write one in the first place. The
+      // real values ride along as plain data-* attributes instead.
+      (node) => `<line class="cross-ref-edge" x1="${CROSS_REF_CENTER}" y1="${CROSS_REF_CENTER}" x2="${node.x.toFixed(1)}" y2="${node.y.toFixed(1)}" data-stroke-width="${(1 + node.weight * 2.5).toFixed(2)}" data-opacity="${(0.25 + node.weight * 0.55).toFixed(2)}"></line>`,
     )
     .join("");
 
@@ -726,9 +733,12 @@ function renderWordStudyChart(byBook) {
   const rows = byBook
     .map((b) => {
       const pct = Math.max(6, Math.round((b.count / maxCount) * 100));
+      // Width set via the CSSOM after insertion (see applyComputedStyles),
+      // not a literal style="..." attribute — same style-src reasoning as
+      // the cross-reference edges above.
       return `<div class="word-study-bar-row">
         <span class="word-study-bar-label">${escapeHtml(b.name)}</span>
-        <div class="word-study-bar-track"><div class="word-study-bar-fill" style="width: ${pct}%"></div></div>
+        <div class="word-study-bar-track"><div class="word-study-bar-fill" data-pct="${pct}"></div></div>
         <span class="word-study-bar-count">${b.count}</span>
       </div>`;
     })
@@ -1021,11 +1031,30 @@ function appendSources(gatheredList) {
   initNotesSections(inserted);
 }
 
+// Applies the real numeric values renderCrossReferenceSvg()/
+// renderWordStudyChart() emit as plain data-* attributes (not a literal
+// style="..." HTML attribute — see those functions' own comments) onto
+// the actual CSSOM, via direct .style.property assignment. This has to
+// run on `root` (the throwaway wrapper div innerHTML was set on) *before*
+// its child is moved into #chat-log — querySelectorAll would find nothing
+// on `root` afterward, since appendChild moves the node rather than
+// copying it.
+function applyComputedStyles(root) {
+  root.querySelectorAll("[data-pct]").forEach((el) => {
+    el.style.width = `${el.dataset.pct}%`;
+  });
+  root.querySelectorAll("[data-stroke-width]").forEach((el) => {
+    el.style.strokeWidth = el.dataset.strokeWidth;
+    el.style.opacity = el.dataset.opacity;
+  });
+}
+
 function appendCrossReferenceDiagrams(diagramList) {
   const html = renderCrossReferenceDiagrams(diagramList);
   if (!html) return;
   const el = document.createElement("div");
   el.innerHTML = html;
+  applyComputedStyles(el);
   chatLog.appendChild(el.firstElementChild);
   chatLog.scrollTop = chatLog.scrollHeight;
 }
@@ -1053,6 +1082,7 @@ function appendWordStudies(wordStudyList) {
   if (!html) return;
   const el = document.createElement("div");
   el.innerHTML = html;
+  applyComputedStyles(el);
   chatLog.appendChild(el.firstElementChild);
   chatLog.scrollTop = chatLog.scrollHeight;
 }

@@ -89,6 +89,78 @@ test("GET /today, /plans, /outlines, and /subscription each serve the same index
   }
 });
 
+// --- Nonce-based CSP (see server.js's buildContentSecurityPolicy() and
+// serveIndexHtml()) ----------------------------------------------------
+// Real HTTP requests against the real running server, same as every test
+// in this file — the actual bug class a nonce-based CSP is meant to catch
+// (a legitimate <script> tag silently missing its nonce) only ever shows
+// up by parsing what really gets sent over the wire, not by reading the
+// source and assuming it's right.
+
+const NONCE_PATTERN = /nonce-([A-Za-z0-9+/=]+)/;
+
+test("GET / sends a Content-Security-Policy header with a real nonce, and every <script> tag in the body carries that exact nonce", async () => {
+  const response = await fetch(BASE_URL + "/");
+  const csp = response.headers.get("content-security-policy");
+  assert.ok(csp, "expected a Content-Security-Policy header");
+  const match = csp.match(NONCE_PATTERN);
+  assert.ok(match, `expected the CSP to contain a nonce-XXX source, got: ${csp}`);
+  const nonce = match[1];
+  assert.ok(nonce.length >= 16, "a base64-encoded 16-byte nonce should be reasonably long, not a short/weak placeholder");
+
+  const body = await response.text();
+  const scriptTags = body.match(/<script\b[^>]*>/gi) ?? [];
+  assert.ok(scriptTags.length > 0, "expected at least one <script> tag to check");
+  for (const tag of scriptTags) {
+    assert.ok(tag.includes(`nonce="${nonce}"`), `every <script> tag must carry the same nonce the CSP header names — missing on: ${tag}`);
+  }
+});
+
+test("two separate requests for / get two different nonces (never cached or reused across requests)", async () => {
+  const [first, second] = await Promise.all([fetch(BASE_URL + "/"), fetch(BASE_URL + "/")]);
+  const nonceOf = (res) => res.headers.get("content-security-policy")?.match(NONCE_PATTERN)?.[1];
+  const nonceA = nonceOf(first);
+  const nonceB = nonceOf(second);
+  assert.ok(nonceA && nonceB, "both responses should carry a nonce");
+  assert.notEqual(nonceA, nonceB, "a fresh nonce should be generated per request, not reused");
+});
+
+test("GET /chat (an SPA-shell route serving the same index.html) also gets a CSP with a matching per-script nonce", async () => {
+  const response = await fetch(BASE_URL + "/chat");
+  const csp = response.headers.get("content-security-policy");
+  const nonce = csp?.match(NONCE_PATTERN)?.[1];
+  assert.ok(nonce, "expected /chat's response to carry a CSP nonce too, not just /");
+
+  const body = await response.text();
+  const scriptTags = body.match(/<script\b[^>]*>/gi) ?? [];
+  assert.ok(scriptTags.length > 0);
+  for (const tag of scriptTags) {
+    assert.ok(tag.includes(`nonce="${nonce}"`));
+  }
+});
+
+test("the CSP has no 'unsafe-inline' or wildcard '*' script source, and restricts frame-ancestors/object-src", async () => {
+  const response = await fetch(BASE_URL + "/");
+  const csp = response.headers.get("content-security-policy") ?? "";
+  const scriptSrc = csp.split(";").find((d) => d.trim().startsWith("script-src")) ?? "";
+  assert.doesNotMatch(scriptSrc, /'unsafe-inline'/);
+  assert.doesNotMatch(scriptSrc, /(^|\s)\*(\s|$)/, "script-src should never fall back to a bare wildcard");
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.match(csp, /object-src 'none'/);
+});
+
+test("a plain static asset (not index.html) does not get a Content-Security-Policy header", async () => {
+  const response = await fetch(BASE_URL + "/app.js");
+  assert.equal(response.headers.get("content-security-policy"), null, "CSP governs the HTML document, not every individual asset response");
+});
+
+test("every response still carries the baseline security headers alongside the CSP", async () => {
+  const response = await fetch(BASE_URL + "/");
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(response.headers.get("x-frame-options"), "DENY");
+  assert.equal(response.headers.get("referrer-policy"), "strict-origin-when-cross-origin");
+});
+
 test("GET /app.js serves the frontend script with the right content type", async () => {
   const response = await fetch(BASE_URL + "/app.js");
   assert.equal(response.status, 200);

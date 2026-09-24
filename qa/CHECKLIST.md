@@ -154,7 +154,14 @@ yet. Findings go in `BUGS.md`, not here. The final summary goes in
 - [x] No secrets in page source or the /api/config response body
 - [x] **Fixed during this pass**: no security response headers were set
       at all — added the safe subset (X-Content-Type-Options,
-      X-Frame-Options, Referrer-Policy) globally; a real
-      Content-Security-Policy is an explicitly deferred, separate piece
-      of work (this app's inline-script/style architecture needs a
-      nonce-based rework first — see server.js's own comment on this)
+      X-Frame-Options, Referrer-Policy) globally
+- [x] **Built (was the deferred recommendation above)**: a real,
+      nonce-based Content-Security-Policy, generated fresh per request —
+      see `test/server.test.mjs` (6 tests: nonce mechanics, header
+      hygiene) and `qa/tests/csp.spec.js` (10 tests: real
+      `securitypolicyviolation` listener across every static page, a
+      hard-refresh on each, the site menu, the service worker, and Reel
+      Kit's blob: image) plus CSP-violation assertions added to
+      `chat-flow.spec.js`'s three existing real-call tests. Full
+      directive-by-directive writeup in `docs/DECISIONS.md`'s 2026-09-24
+      "nonce-based CSP" entry.

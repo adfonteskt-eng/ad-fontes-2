@@ -20,6 +20,17 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./qa/tests",
   fullyParallel: false, // shares one real server + real Anthropic/YouVersion rate limits
+  // `fullyParallel: false` alone only stops tests *within* one file from
+  // racing each other -- Playwright still spreads separate spec files
+  // across multiple worker processes by default, which found a real,
+  // reproducible flake here: several concurrent browsers plus several
+  // concurrent real Anthropic calls against the one shared dev server
+  // caused a transient reflow that tripped responsive.spec.js's overflow
+  // check (confirmed by re-running that exact test alone — it passed
+  // clean every time; only failed under 4-way concurrency). Worth the
+  // slower wall-clock time for a suite whose whole point is trustworthy
+  // results against a real, singular, rate-limited backend.
+  workers: 1,
   retries: 0,
   reporter: [["list"], ["html", { outputFolder: "qa/playwright-report", open: "never" }]],
   use: {

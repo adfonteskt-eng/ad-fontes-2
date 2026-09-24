@@ -684,6 +684,147 @@ accessibility, chat flow, responsive, security), plus the full existing
 335-test unit suite, unaffected by either header change or the
 `aria-label` fix from the previous batch.
 
+## 2026-09-24 — the deferred real Content-Security-Policy, built: a
+nonce-based CSP, generated per request
+
+Follow-up to the previous entry's explicitly-deferred recommendation.
+Audited first rather than assumed (see the fuller comment at
+`buildContentSecurityPolicy()` in `server.js`): `public/index.html` has
+*zero* inline `<script>` or `<style>` **tags** — every script is
+`src="..."` (three same-origin, one from the jsdelivr CDN for
+supabase-js) and all CSS is the external `style.css`. So there was
+nothing to literally "stamp a nonce onto" in the sense of an inline
+block. What the audit *did* turn up: two real inline `style="..."`
+**attributes**, written into HTML strings in `public/app.js` and
+inserted via `innerHTML` — the cross-reference SVG edges' stroke-width/
+opacity (`renderCrossReferenceSvg`) and the word-study chart's bar width
+(`renderWordStudyChart`). Nonces cover `<style>`/`<script>` *elements*,
+never inline style *attributes* — there's no CSP mechanism that allow-
+lists a specific `style="..."` value the way a nonce allow-lists a whole
+`<script>` tag (CSP3's `'unsafe-hashes'` can hash a *static* attribute
+value, which doesn't help here since these are computed per-request
+numbers, not fixed strings). The actual fix: both were changed to render
+as plain `data-*` attributes instead, with the real value applied via the
+CSSOM (`el.style.width = ...`) after the markup lands in the DOM — a new
+`applyComputedStyles()` in `app.js`, called from `appendCrossReference-
+Diagrams()`/`appendWordStudies()` right after `innerHTML` is set. This is
+what let `style-src` end up as plain `'self'`, no `'unsafe-inline'`
+needed at all — a stricter policy than "add a CSP" alone would have
+gotten without this extra step.
+
+**The mechanism**: `server.js`'s `serveStatic()` now special-cases
+`index.html` (`serveIndexHtml()`): a fresh nonce
+(`randomBytes(16).toString("base64")`) is generated per request — never
+cached, never reused, since a reused nonce is a replayable one — every
+real `<script>` tag in the file gets `nonce="..."` stamped on via a
+regex targeting `<script` followed by whitespace or `>` (so it doesn't
+depend on the file's exact current attribute-spacing), and the identical
+value goes into a `Content-Security-Policy` response header built by
+`buildContentSecurityPolicy(nonce)`. Every other static asset (the .js/
+.css/.png files themselves) is served unchanged, with no CSP header —
+CSP governs the *document*, not each individual subresource response.
+
+**Full directive-by-directive audit** (each checked against what this
+app actually does, not assumed):
+- `script-src 'nonce-{X}' 'strict-dynamic' https:` — nonce is the real
+  trust anchor; `strict-dynamic` is currently inert future-proofing
+  (confirmed nothing dynamically injects a `<script>` today) that avoids
+  a silent break if that ever changes; `https:` is the standard CSP2
+  fallback for a nonce-aware-but-strict-dynamic-unaware browser, ignored
+  entirely by anything that understands `strict-dynamic`. Deliberately
+  **no** `'unsafe-inline'` fallback: every browser that understands a
+  nonce ignores `'unsafe-inline'` in the same directive anyway, and
+  omitting it avoids a naive scanner flagging it as a false-positive
+  weak point.
+- `style-src 'self'` — no nonce, no `'unsafe-inline'`, made possible by
+  the two attribute-to-CSSOM conversions above.
+- `img-src 'self' blob:` — `blob:` is real, not padding: Reel Kit's
+  `downloadShareCard()` loads a generated SVG into an `<img>` via a
+  `blob:` URL before drawing it to a canvas.
+- `connect-src 'self'` **plus the real, live `SUPABASE_URL`** when
+  configured — `public/auth.js`'s supabase-js client talks to that origin
+  directly from the browser for Auth REST calls, not through this
+  server, so it has to be allow-listed explicitly; it's operator config
+  (an env var this deploy's own admin set), read the same way
+  `/api/config` already exposes it, not user input needing extra
+  sanitizing.
+- `worker-src 'self'` — explicit rather than left to the
+  `script-src`/`child-src` fallback chain, specifically because that
+  fallback ambiguity is exactly the kind of thing that works in some
+  browsers and silently breaks the PWA's service-worker registration in
+  others.
+- `base-uri 'none'`, `form-action 'self'` (checked: every real form in
+  this app is JS-intercepted via `event.preventDefault()`, so this never
+  actually fires — `'self'` rather than `'none'` in case that ever
+  changes), `frame-ancestors 'none'` (the modern CSP equivalent of the
+  `X-Frame-Options: DENY` already sent for every response),
+  `object-src 'none'`.
+
+**Regression tests** (`test/server.test.mjs`, real HTTP requests against
+a real running server, same as every other test in that file — not
+assumed from reading the source): a fresh nonce per request; the exact
+same nonce on every real `<script>` tag in the body, checked by parsing
+what actually came back over the wire; two concurrent requests get two
+different nonces; `/chat` (an SPA-shell route) gets the same treatment,
+not just `/`; no `'unsafe-inline'` or bare `*` in `script-src`;
+`frame-ancestors`/`object-src` both locked down; a plain static asset
+gets no CSP header at all; the three baseline security headers from the
+previous QA batch still ride alongside the new CSP header. 40/40 passing
+(6 new).
+
+**Live, page-by-page verification that nothing silently broke** — the
+real risk this task named explicitly: a missed inline tag doesn't crash
+anything visible, it just gets silently blocked, which only shows up as
+a `securitypolicyviolation` event (or, inconsistently, a console
+message) — never a non-200 response or an obvious rendering failure. Two
+layers, not one:
+1. A new `qa/tests/csp.spec.js` registers a real
+   `securitypolicyviolation` listener via `page.addInitScript()` (so
+   nothing during initial load can be missed) on every static page (`/`,
+   `/today`, `/plans`, `/outlines`, `/subscription`, `/sources`), on a
+   hard-refresh direct navigation to each (confirming the nonce actually
+   regenerates per request rather than being cached), on opening the
+   site menu (exercises `auth.js`'s Supabase client setup), on the
+   service worker's real registration promise (confirms `worker-src`
+   didn't silently break PWA installability), and on the exact blob:→
+   `<img>` path Reel Kit uses (confirms `img-src blob:` actually works,
+   without needing a real chat message on screen to click a real button).
+   10/10 passing, zero violations anywhere.
+2. `chat-flow.spec.js`'s existing three real-Anthropic-call tests were
+   extended (not duplicated at extra real-API cost) to also assert zero
+   CSP violations, and — specifically for the two CSSOM-refactored
+   spots — to read back `el.style.width` / `el.style.strokeWidth` /
+   `el.style.opacity` and confirm they hold real, non-empty computed
+   values, not just "no violation happened" but "the chart still looks
+   like a chart." All three still passing.
+3. Manually, independently, via the sandboxed Browser pane (a separate
+   browser context from Playwright's own Chrome instance) rather than
+   trusting the automated suite alone: navigated to every one of the six
+   static pages and read the real console on each — zero messages,
+   every time. Opened the site menu live and screenshotted it (correctly
+   rendered, including a restored prior conversation). Fetched `/` with
+   a plain `curl -D -` against the real dev server (real `.env`, real
+   configured Supabase project) and confirmed the live header contains
+   the actual project's Supabase origin correctly interpolated into
+   `connect-src`, not just a placeholder.
+
+42/42 Playwright tests passing (10 new), full 341-test unit suite
+(6 new) unaffected.
+
+**One infrastructure flake found and fixed along the way, unrelated to
+the CSP itself**: running the full 42-test suite with Playwright's
+default multi-worker parallelism produced one transient failure in
+`responsive.spec.js`'s overflow check — several concurrent real browsers
+plus several concurrent real Anthropic calls against the one shared dev
+server caused a reflow blip at the exact moment that test measured
+`scrollWidth`. Confirmed as a timing artifact, not a real CSS bug, by
+re-running that exact test alone (passed cleanly, repeatedly). Since this
+suite's whole design already centers on one shared real server and real,
+rate-limited external APIs, `playwright.config.js` now pins `workers: 1`
+— slower wall-clock time, but a suite whose entire point is trustworthy
+results against a real backend shouldn't also be racing itself. Full
+42/42 passing, repeatedly, once serialized.
+
 ## Not yet built (spec items, honestly tracked, not silently dropped)
 
 In spec priority order, each with why it's not done yet — everything is

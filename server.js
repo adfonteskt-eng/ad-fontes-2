@@ -188,6 +188,7 @@
 //   conversationId is null for an anonymous request.
 
 import { createServer } from "node:http";
+import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -274,6 +275,99 @@ function sendJson(res, status, data) {
   res.end(body);
 }
 
+// Nonce-based CSP for index.html (the one HTML document this server ever
+// serves — every "page" is really this same file, client-routed, see the
+// SPA-shell comment near the top of this file). A fresh, unguessable
+// nonce is generated per request (never cached, never reused across
+// requests — reusing one would let an attacker who got it once replay it
+// against a later response) and stamped onto every real <script> tag in
+// the file; the exact same value goes into the response's
+// Content-Security-Policy header, so only script tags this server itself
+// just wrote are trusted, not anything an injected-content attack might
+// add to the page afterward.
+//
+// Audited (see docs/DECISIONS.md's 2026-09-24 CSP entry for the full
+// walkthrough) rather than assumed: index.html has no inline <script> or
+// <style> *tags* at all (every script is `src="..."`, all CSS is the
+// external style.css) — the two places public/app.js writes a literal
+// `style="..."` attribute (the cross-reference SVG edges' stroke-width/
+// opacity, the word-study chart's bar width) were changed to set those via
+// the CSSOM (`el.style.property = value`) after insertion instead (see
+// applyComputedStyles() in app.js), specifically so style-src can stay
+// `'self'` with no `'unsafe-inline'` needed — nonces don't cover inline
+// style *attributes* the way they cover <style>/<script> *elements*, so
+// removing the attributes entirely was the only way to keep style-src
+// strict.
+function buildContentSecurityPolicy(nonce) {
+  // connect-src needs the real Supabase project origin when configured —
+  // public/auth.js's supabase-js client talks to it directly from the
+  // browser (Auth REST calls), not through this server. It's operator
+  // config (an env var this deploy's own admin set), not user input, so
+  // no extra sanitizing beyond what /api/config already does for the same
+  // value.
+  const supabaseUrl = process.env.SUPABASE_URL || "";
+  const directives = [
+    "default-src 'self'",
+    // 'strict-dynamic' makes the nonce the actual trust anchor — a script
+    // this page loads WITH a valid nonce can itself load further scripts
+    // (from any origin) without those needing their own nonce or a host
+    // allowlist entry. Nothing here dynamically injects a <script> today
+    // (checked directly, not assumed), so this is currently inert
+    // future-proofing, not something load-bearing yet. `https:` is the
+    // standard fallback for a browser that understands nonces but not
+    // strict-dynamic yet — ignored entirely by any browser that
+    // understands strict-dynamic, per spec.
+    `script-src 'nonce-${nonce}' 'strict-dynamic' https:`,
+    "style-src 'self'",
+    // blob: is real, not defensive padding — Reel Kit (public/app.js's
+    // downloadShareCard()) loads a generated SVG into an <img> via a
+    // blob: URL before drawing it to a canvas.
+    "img-src 'self' blob:",
+    `connect-src 'self'${supabaseUrl ? ` ${supabaseUrl}` : ""}`,
+    // Explicit rather than left to the script-src fallback chain: worker
+    // registration (public/app.js's navigator.serviceWorker.register())
+    // is governed by worker-src specifically once it's present, and
+    // leaving this ambiguous is exactly the kind of thing that fails
+    // silently in some browsers and not others.
+    "worker-src 'self'",
+    "base-uri 'none'",
+    // Every real form in this app (sign-up/in, chat) is JS-intercepted
+    // (event.preventDefault(), then fetch/supabase-js) — checked directly
+    // in public/auth.js, not assumed — so this never actually fires, but
+    // 'self' is the safe default if that ever changes rather than 'none'
+    // silently breaking a future real form submission.
+    "form-action 'self'",
+    // Belt-and-suspenders with the X-Frame-Options: DENY already sent for
+    // every response (see applyBaselineSecurityHeaders) — frame-ancestors
+    // is the modern CSP equivalent and takes precedence in browsers that
+    // support both.
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+  ];
+  return directives.join("; ");
+}
+
+// Matches "<script" followed by whitespace or ">" (a lookahead, so it
+// isn't consumed and doesn't need to be re-added) — catches both
+// `<script src="...">` (this file's only real shape today) and a bare
+// `<script>`, across any attribute formatting, rather than depending on
+// index.html's exact current spacing.
+const SCRIPT_TAG_OPEN = /<script(?=[\s>])/gi;
+
+function stampScriptNonces(html, nonce) {
+  return html.replace(SCRIPT_TAG_OPEN, `<script nonce="${nonce}"`);
+}
+
+async function serveIndexHtml(res, filePath) {
+  const nonce = randomBytes(16).toString("base64");
+  const html = await readFile(filePath, "utf8");
+  res.writeHead(200, {
+    "content-type": "text/html; charset=utf-8",
+    "content-security-policy": buildContentSecurityPolicy(nonce),
+  });
+  res.end(stampScriptNonces(html, nonce));
+}
+
 async function serveStatic(res, pathname) {
   const relativePath = pathname === "/" ? "index.html" : pathname.slice(1);
   const filePath = join(PUBLIC_DIR, relativePath);
@@ -286,6 +380,10 @@ async function serveStatic(res, pathname) {
   }
 
   try {
+    if (relativePath === "index.html") {
+      await serveIndexHtml(res, filePath);
+      return;
+    }
     const body = await readFile(filePath);
     const type = CONTENT_TYPES[extname(filePath)] ?? "application/octet-stream";
     res.writeHead(200, { "content-type": type });

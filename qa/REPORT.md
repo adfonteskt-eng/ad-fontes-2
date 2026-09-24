@@ -1,10 +1,11 @@
 # Phase 3 QA report
 
 **Date**: 2026-09-24
-**Scope**: the full application as of commit `96db5ee` — all 13 of the
-incoming spec's Phase 2 features (shipped across this session, see
-`docs/DECISIONS.md`) plus the pre-existing app (chat, accounts, notes,
-outlines, reading plans, subscription/billing, PWA/push).
+**Scope**: the full application, including all 13 of the incoming spec's
+Phase 2 features (shipped across this session, see `docs/DECISIONS.md`),
+the pre-existing app (chat, accounts, notes, outlines, reading plans,
+subscription/billing, PWA/push), and the nonce-based CSP built as a
+same-day follow-up to this QA pass's own security findings.
 **Method**: real, automated Playwright tests against a real running
 instance of `server.js` (real STEPBible/openbible.info data, real
 YouVersion translations, real Anthropic model calls where noted), driving
@@ -16,9 +17,11 @@ This file is the synthesis of both.
 
 ## Headline result
 
-**Two real bugs found, both fixed, both verified fixed.** Nothing else
-broke. The full pre-existing 335-test unit suite is unaffected by any
-change made during this QA pass.
+**Two real bugs found, both fixed, both verified fixed. One follow-up
+security recommendation (a nonce-based CSP) built as a dedicated piece of
+work and verified live, page by page.** Nothing else broke. The full
+pre-existing unit suite is unaffected by any change made during this QA
+pass.
 
 ## What was tested, and how
 
@@ -29,6 +32,12 @@ change made during this QA pass.
 | Core chat flow (real Anthropic calls) | `chat-flow.spec.js` | 3 | 3/3 ✅ |
 | Responsive/visual (320–1440px) | `responsive.spec.js` | 3 | 3/3 ✅ |
 | Security | `security.spec.js` | 9 | 9/9 ✅ |
+| CSP regression (browser-level) | `csp.spec.js` | 10 | 10/10 ✅ |
+
+Plus 6 new nonce/CSP-mechanics tests in `test/server.test.mjs` (the
+existing unit suite, real HTTP requests against a real running server —
+not a Playwright file, but part of the same CSP verification effort).
+42 Playwright tests total, all passing, alongside a 341-test unit suite.
 
 Real-Anthropic-calling tests were deliberately kept to a small,
 representative set (this is a live, billed app — see `docs/STATE.md`).
@@ -85,16 +94,32 @@ than this module's own internals.
 Full writeups, including exact repro and verification steps, in
 `BUGS.md`.
 
-### Open recommendation (not a bug, not fixed here)
+### Follow-up completed: nonce-based Content-Security-Policy
 
-**No `Content-Security-Policy`.** This app has no build step and relies
-on inline `<script>`/`<style>` throughout `public/index.html` by design
-(see that file's own comments on why). A real CSP needs either
-`'unsafe-inline'` (which defeats most of what CSP is actually for) or a
-nonce-based rework of every inline script/style tag in the app — a real,
-separate piece of work with its own testing burden, not something
-appropriate to add unilaterally inside a QA pass. Recommended as a
-follow-up with its own dedicated session.
+The "no CSP" recommendation above was built as a dedicated follow-up
+(2026-09-24): a fresh, unguessable nonce generated per request, stamped
+onto every real `<script>` tag, with a matching `Content-Security-Policy`
+header. The audit that made this possible found index.html actually has
+*no* inline `<script>`/`<style>` **tags** at all (every script is
+`src="..."`) — the real inline content was two `style="..."` **attributes**
+in dynamically-rendered chart/diagram markup, which nonces can't cover at
+all (that's an element-level mechanism, not an attribute-level one).
+Both were converted to plain `data-*` attributes with the real value
+applied via the CSSOM after insertion, which is what let `style-src` end
+up as a strict `'self'` with no `'unsafe-inline'` needed anywhere.
+
+Verified two ways: (1) automated — `test/server.test.mjs` checks the
+nonce mechanics against real HTTP responses, `qa/tests/csp.spec.js`
+registers a real `securitypolicyviolation` listener and drives it across
+every static page, a hard refresh on each, the site menu, the service
+worker, and Reel Kit's blob: image path, and `chat-flow.spec.js`'s
+existing real-call tests were extended to check for violations and to
+confirm the CSSOM-set styles hold real values, not blank ones; (2) manual
+— every real page console-checked live via a separate browser context,
+plus a direct `curl -D -` against the real dev server confirming the
+actual configured Supabase origin is correctly interpolated into
+`connect-src`. Full reasoning and the complete directive-by-directive
+audit in `docs/DECISIONS.md`'s 2026-09-24 entry.
 
 ### Non-findings worth stating plainly
 
@@ -143,10 +168,16 @@ either, and Render's production build never installs devDependencies.
 
 ## Suggested next steps (not done in this pass)
 
-1. A real CSP, as a dedicated follow-up (see above).
-2. Automating the "verified live but not yet automated" list above as
+1. Automating the "verified live but not yet automated" list above as
    real Playwright specs, budgeted against real-API cost the same way
    this pass's `chat-flow.spec.js` was.
-3. A real signed-in-account E2E pass, if and when there's a sanctioned
+2. A real signed-in-account E2E pass, if and when there's a sanctioned
    way to provision a disposable test account without this session
    creating one unattended.
+3. If this app ever adds a feature that needs to dynamically inject a
+   `<script>` tag or render an inline `<style>` block, revisit
+   `buildContentSecurityPolicy()` in `server.js` — the current policy's
+   `'strict-dynamic'` already covers the former case, but a genuinely new
+   inline `<style>` block would need its own nonce added to
+   `stampScriptNonces()`'s sibling logic (not written yet, since nothing
+   needs it today).

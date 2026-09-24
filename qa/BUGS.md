@@ -62,3 +62,25 @@ bolt on inside a QA pass. Recorded as an explicit, open recommendation in
 confirmed all three headers present; a new Playwright test asserts the
 same for both response types; the full existing 335-test unit suite and
 the rest of the Playwright suite are unaffected.
+
+### 3. (Not a bug — the deferred CSP recommendation from finding #2, now built)
+
+**What was done**: a real, nonce-based `Content-Security-Policy`, generated
+fresh per request. Full writeup — the directive-by-directive reasoning,
+the two inline `style="..."` attributes found and converted to CSSOM-set
+styles so `style-src` could stay strict, and every verification step — is
+in `docs/DECISIONS.md`'s 2026-09-24 entry, since it's substantial enough
+to belong there rather than duplicated here. This entry exists so
+`BUGS.md`'s own numbering stays a complete, chronological record of every
+real thing found and acted on during this QA pass, not just the ones that
+were technically "bugs."
+
+**Verified**: `test/server.test.mjs` (6 new tests, real HTTP requests) +
+`qa/tests/csp.spec.js` (10 new tests, a real `securitypolicyviolation`
+listener across every real page) + CSP-violation assertions added to
+`chat-flow.spec.js`'s existing real-call tests — 42/42 Playwright tests
+and the full 341-test unit suite passing. Also manually verified live via
+the sandboxed Browser pane (console-checked on every static page
+independently of the automated suite) and a direct `curl -D -` against
+the real dev server confirming the live, real Supabase project origin is
+correctly interpolated into `connect-src`.
