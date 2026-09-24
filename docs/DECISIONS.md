@@ -568,6 +568,77 @@ and the same drag-select-and-ask flow works cleanly at mobile width
 This closes out every item in the spec's Phase 2 priority list (1
 through 13) — see the tracker below for the final status of each.
 
+## 2026-09-24 — Phase 3 QA started: Playwright + axe-core, first batch
+(navigation, accessibility, core chat flow) shipped, one real bug found
+and fixed
+
+**Playwright setup.** Added `@playwright/test` as this project's one
+QA-only devDependency (pre-approved for exactly this point — see the
+2026-09-21 pacing entry above). Installed with
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` and configured with
+`channel: "chrome"` so it drives the real, already-installed Google
+Chrome on this machine rather than downloading its own bundled Chromium —
+verified standalone (`chromium.launch({ channel: "chrome" })` against a
+data: URL) before writing a single real test, matching this project's own
+"verify the sanctioned tool actually works before relying on it" habit.
+`playwright.config.js`'s `webServer` block starts and stops the real
+`node server.js` declaratively around the whole test run (port 3100, to
+avoid clashing with anyone's real local dev server on 3000) — no manually
+backgrounded process for a future session to find still running.
+
+**Second QA-only dependency, not pre-approved, added and documented per
+this session's own "use your judgment, document it" instruction**:
+`@axe-core/playwright`, for accessibility scanning. Not explicitly named
+in the original QA instructions, but hand-checking contrast ratios and
+ARIA structure across a dozen pages isn't a serious substitute for the
+standard tool built for exactly this, which Playwright's own docs
+recommend pairing with itself. Small, pure JS, no browser download of its
+own — same "QA-only, never touches production" boundary as Playwright
+itself.
+
+**Real accounts are out of scope for this QA pass**, for the same reason
+they were out of scope during Phase 2's own live verification: creating a
+real Supabase test account is a prohibited unattended action under this
+session's standing safety rules. Everything gated on being signed-in/paid
+is checked at the signed-out/free-tier level (does the lock/upsell state
+render correctly) rather than with a real authenticated round trip — see
+`qa/CHECKLIST.md`'s tooling-decisions section for the full reasoning.
+
+**First real finding, found and fixed**: `#chat-input`'s only accessible
+name came from its `placeholder` attribute, which `clearInputPlaceholder()`
+blanks the moment a first message is sent — meaning a screen-reader user
+lost the field's name entirely partway through a real conversation, not
+on first load. A plain "does the home page pass axe" check couldn't have
+caught this (the placeholder is still present then); a real chat-flow
+scan, on a page state after an actual message, did. Fixed with a
+permanent `aria-label="Message"` on the textarea, independent of
+placeholder state. Full writeup in `qa/BUGS.md`.
+
+**Real-API budget**: chat-flow tests hit the real Anthropic API and cost
+real tokens (this is a live, billed app — see docs/STATE.md), so
+`qa/tests/chat-flow.spec.js` is deliberately a small, representative
+sample (3 tests: a bare-reference gather, a word study, a cross-reference
+lookup) rather than one test per feature. Every individual tool's own
+logic already has real unit-test coverage with stubbed Anthropic
+responses in `test/chat.test.mjs`; the E2E layer's job is confirming the
+real integration renders correctly, not re-proving each tool's logic a
+second time. Passage Briefing, Observe/Interpret/Apply, Reel Kit,
+Alphabet Mode, the manuscript-variant layer, and the select-anywhere
+popover were each already verified live with screenshots during their own
+implementation earlier this session (see this file's own 2026-09-22/23
+entries for the specifics) and aren't re-verified here just to spend more
+real API calls proving the same ground twice — `qa/CHECKLIST.md` marks
+each of these explicitly rather than silently, so "not yet automated" and
+"never verified at all" stay clearly distinguishable at a glance.
+
+21/21 Playwright tests passing (13 navigation, 5 accessibility, 3 chat
+flow) plus the full existing 335-test unit suite, unaffected.
+Word-study-request timing needed a more generous timeout (100s, not the
+initial 45s) once actually measured — a real multi-tool chain
+(search_lexicon → find_occurrences) genuinely takes over a minute
+sometimes, not a bug, just an under-estimated assumption in the test
+itself.
+
 ## Not yet built (spec items, honestly tracked, not silently dropped)
 
 In spec priority order, each with why it's not done yet — everything is

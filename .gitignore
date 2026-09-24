@@ -19,3 +19,10 @@ npm-debug.log*
 
 # OS cruft
 .DS_Store
+
+# Phase 3 QA (Playwright) — generated per-run, not part of the checked-in
+# suite (qa/tests/, qa/CHECKLIST.md, qa/BUGS.md, qa/REPORT.md all are).
+qa/playwright-report/
+qa/screenshots/
+/test-results/
+blob-report/

@@ -11,7 +11,8 @@
     "fetch-data": "node scripts/fetch-data.js",
     "digest": "node scripts/send-daily-digest.js",
     "push": "node scripts/send-daily-push.js",
-    "test": "node --test"
+    "test": "node --test",
+    "test:e2e": "playwright test"
   },
   "engines": {
     "node": ">=20.12"
@@ -20,5 +21,9 @@
     "docx": "^9.7.1",
     "pdfkit": "^0.19.1",
     "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0"
   }
 }
