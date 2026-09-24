@@ -639,6 +639,51 @@ initial 45s) once actually measured — a real multi-tool chain
 sometimes, not a bug, just an under-estimated assumption in the test
 itself.
 
+## 2026-09-24 — Phase 3 QA, second batch: responsive + security, one more
+real bug found and fixed
+
+**Responsive** (`qa/tests/responsive.spec.js`, 3/3 passing): checked for
+horizontal overflow at 320/375/768/1024/1440px on the home view and on a
+loaded conversation — one real chat call reused across every breakpoint
+via `setViewportSize`, not five separate calls. Clean at every
+breakpoint, including a cross-reference SVG diagram the test's own real
+request happened to trigger (confirming the radial chart itself, not
+just text content, survives 320px). No findings.
+
+**Security** (`qa/tests/security.spec.js`, 9/9 passing). One test-
+authoring mistake surfaced and corrected along the way, not a real bug:
+`GET /api/outlines` returns 200 with `{ outlines: [], locked: true }` for
+an anonymous request rather than 401 — this is `server.js`'s own
+documented "still 200, upsell is not an error" design (same pattern as
+`/api/reading-plans`), not a leak; the test was rewritten to check for
+exactly that shape (empty data, `locked: true`) instead of asserting the
+wrong status code.
+
+**Real finding, found and fixed**: no security response headers were set
+on any route at all — no `X-Content-Type-Options`, `X-Frame-Options`,
+`Referrer-Policy`, or `Content-Security-Policy`, confirmed with a plain
+`curl -D -` while writing the header-check test (not something axe or a
+functional test would surface, since it's about HTTP headers, not page
+content). Added the three headers that are safe to set unconditionally
+(`nosniff`, `DENY`, `strict-origin-when-cross-origin`) globally, via one
+`res.setHeader()` call at the top of `server.js`'s request handler —
+Node merges headers set this way into whatever a specific route's
+`writeHead()` call later specifies, so this needed touching only one
+place rather than every `res.writeHead()` site in the file. Deliberately
+did **not** add a real `Content-Security-Policy`: this app has no build
+step and relies on inline `<script>`/`<style>` throughout
+`public/index.html` by design, so a real CSP needs either
+`'unsafe-inline'` (defeating most of its own point) or a nonce-based
+rework of every inline tag — real, separate work deserving its own
+careful pass and testing, not something to bolt on inside a QA pass.
+Recorded as an open recommendation for `qa/REPORT.md`, not silently
+dropped. Full writeup of both findings in `qa/BUGS.md`.
+
+32/32 Playwright tests now passing across five spec files (navigation,
+accessibility, chat flow, responsive, security), plus the full existing
+335-test unit suite, unaffected by either header change or the
+`aria-label` fix from the previous batch.
+
 ## Not yet built (spec items, honestly tracked, not silently dropped)
 
 In spec priority order, each with why it's not done yet — everything is

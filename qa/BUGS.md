@@ -30,3 +30,35 @@ but a real chat-flow scan did.
 
 **Verified**: re-ran the same chat-flow accessibility scan after the fix —
 0 critical/serious violations on a loaded conversation.
+
+### 2. No security response headers set at all
+
+**Found by**: a plain `curl -D -` against a running server while writing
+`qa/tests/security.spec.js`'s security-header checks — not something axe
+or a functional test surfaces, since it's about HTTP response headers,
+not page content.
+
+**What was wrong**: no `X-Content-Type-Options`, `X-Frame-Options`,
+`Referrer-Policy`, or `Content-Security-Policy` header on any route.
+
+**Fix**: added the three safe-to-add-unconditionally headers
+(`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+`Referrer-Policy: strict-origin-when-cross-origin`) globally, via one
+`res.setHeader()` call at the very top of `server.js`'s request handler
+(Node merges headers set this way into whatever `writeHead()` a specific
+route handler later calls, so this needed touching only one place, not
+every `res.writeHead()` call site in the file).
+
+**Deliberately NOT fixed here**: a real `Content-Security-Policy`. This
+app has no build step and relies on inline `<script>`/`<style>`
+throughout `public/index.html` by design — a CSP would need either
+`'unsafe-inline'` (which defeats most of what CSP is for) or a real
+nonce-based rework of every inline tag, which is its own separate piece
+of work deserving a dedicated pass with its own testing, not something to
+bolt on inside a QA pass. Recorded as an explicit, open recommendation in
+`REPORT.md`, not silently dropped.
+
+**Verified**: `curl -D -` against both a page route and an API route
+confirmed all three headers present; a new Playwright test asserts the
+same for both response types; the full existing 335-test unit suite and
+the rest of the Playwright suite are unaffected.

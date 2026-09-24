@@ -1281,7 +1281,31 @@ async function handleChat(req, res) {
   }
 }
 
+// Applied to every response, regardless of which handler below eventually
+// calls writeHead/end — Node merges a setHeader() made before writeHead()
+// into whatever that call specifies, so this is the one place these need
+// to live rather than repeating them at each of the many res.writeHead
+// call sites throughout this file. Deliberately NOT a full
+// Content-Security-Policy: this app has no build step and relies on
+// inline <script>/<style> throughout public/index.html by design (see
+// that file's own comments) — a real CSP here would need either
+// 'unsafe-inline' (defeating most of its own purpose) or a nonce-based
+// rework of every inline tag, which is a real, separate piece of work
+// deserving its own careful pass, not something to bolt on inside a QA
+// pass. These three are the safe subset: they add real defense-in-depth
+// (clickjacking, MIME-sniffing, referrer leakage) with no risk of
+// breaking this app's existing inline-script/style architecture. Found
+// missing entirely during Phase 3 QA (see qa/CHECKLIST.md's security
+// section) — noted as a recommendation, and the safe part of it acted on;
+// the CSP itself stays an explicit, documented gap, not a silent omission.
+function applyBaselineSecurityHeaders(res) {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+}
+
 const server = createServer(async (req, res) => {
+  applyBaselineSecurityHeaders(res);
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   try {
