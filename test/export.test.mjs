@@ -13,6 +13,7 @@ import {
   outlineExportModel,
   noteExportModel,
   conversationExportModel,
+  studyTrailExportModel,
   renderAsText,
   renderAsMarkdown,
   renderAsPdf,
@@ -73,6 +74,76 @@ test("conversationExportModel defaults to \"Conversation\" when untitled and han
   const model = conversationExportModel({ title: null, updatedAt: null, renderLog: [] });
   assert.equal(model.title, "Conversation");
   assert.deepEqual(model.blocks, []);
+});
+
+// --- studyTrailExportModel (spec item 11: Study Trail) --------------------
+// No new recording mechanism -- see lib/export.js's own comment -- so
+// what's worth testing is the walk-and-dedupe logic over a render_log
+// shaped exactly like lib/chat.js's chatTurn() actually persists it.
+
+test("studyTrailExportModel distills every artifact type from a render_log, one stop each, in encounter order", () => {
+  const model = studyTrailExportModel({
+    title: "James study",
+    updatedAt: "2026-01-01T00:00:00Z",
+    renderLog: [
+      { role: "user", text: "Tell me about James" },
+      {
+        role: "assistant",
+        text: "...",
+        briefings: [{ reference: "JAS", genre: "Wisdom literature" }],
+        gathered: [{ reference: { usfm: "JAS.1.19" } }],
+      },
+      { role: "user", text: "What connects to it?" },
+      {
+        role: "assistant",
+        text: "...",
+        crossReferences: [{ reference: "JAS.1.19", results: [], totalCount: 8 }],
+        maps: [{ title: "Paul's First Missionary Journey" }],
+        wordStudies: [{ strongsNumber: "G3709", totalCount: 36 }],
+      },
+    ],
+  });
+
+  assert.equal(model.title, "Study Trail — James study");
+  assert.deepEqual(
+    model.blocks.map((b) => b.label),
+    ["Briefing", "Passage studied", "Cross-references", "Map", "Word study"],
+  );
+  assert.equal(model.blocks[0].text, "JAS — Wisdom literature");
+  assert.equal(model.blocks[1].text, "JAS.1.19");
+  assert.match(model.blocks[2].text, /JAS\.1\.19 — 8 connections/);
+  assert.equal(model.blocks[3].text, "Paul's First Missionary Journey");
+  assert.match(model.blocks[4].text, /G3709 — 36 occurrences/);
+});
+
+test("studyTrailExportModel deduplicates a passage/map/etc. gathered more than once across turns, keeping first occurrence", () => {
+  const model = studyTrailExportModel({
+    title: "Repeat study",
+    renderLog: [
+      { role: "assistant", text: "...", gathered: [{ reference: { usfm: "JHN.3.16" } }] },
+      { role: "assistant", text: "...", gathered: [{ reference: { usfm: "JHN.3.16" } }, { reference: { usfm: "ROM.5.8" } }] },
+    ],
+  });
+  assert.equal(model.blocks.length, 2);
+  assert.equal(model.blocks[0].text, "JHN.3.16");
+  assert.equal(model.blocks[1].text, "ROM.5.8");
+});
+
+test("studyTrailExportModel ignores user-role entries and ones with no structured artifacts", () => {
+  const model = studyTrailExportModel({
+    title: "Chit-chat",
+    renderLog: [
+      { role: "user", text: "Hi" },
+      { role: "assistant", text: "Hello! What would you like to study?" },
+    ],
+  });
+  assert.equal(model.blocks.length, 1);
+  assert.match(model.blocks[0].text, /fills in as you study/);
+});
+
+test("studyTrailExportModel defaults to a plain \"Study Trail\" title when the conversation is untitled", () => {
+  const model = studyTrailExportModel({ title: null, renderLog: [] });
+  assert.equal(model.title, "Study Trail");
 });
 
 const SAMPLE_MODEL = {

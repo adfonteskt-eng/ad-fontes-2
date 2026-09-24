@@ -461,6 +461,84 @@ flagged by the existing red/hidden variant treatment since it *is*
 NA28 text), and got the correct "Ancient text differs from the
 Traditional (KJV) text" note rendered inline with its morphology.
 
+## 2026-09-23 — Study Trail shipped; Reel Kit shipped with the
+image-generation decision resolved (client-side SVG → canvas → PNG)
+
+**Study Trail.** The "session-path recorder" this item's blocker named
+turned out to already exist in substance, the same way the manuscript-
+variant significance data did: every structured artifact a study session
+touches (gathered passages, cross-references, maps, passage briefings,
+word studies) is already persisted per-turn on a conversation's
+`render_log` — most of it added by earlier features *in this same
+session's pass* (Passage Briefing, Word-Study Web, Cross-Reference
+types). So Study Trail needed no new recording mechanism at all: a new
+`studyTrailExportModel()` in `lib/export.js` just walks that existing log
+and distills it into an ordered, deduplicated (first-occurrence-wins)
+list of "stops" — one entry per distinct passage/cross-reference-lookup/
+map/briefing/word-study actually touched, in the order they first came
+up. It reuses every existing renderer (`renderAsText`/Markdown/PDF/docx)
+unchanged, since they only ever consume the generic `{title, meta,
+blocks}` shape — zero new rendering code. Wired into `server.js`'s
+existing `GET /api/export/:type/:id` as a fourth `:type=trail` value
+alongside outline/note/conversation, same Pro gate, same everything.
+Frontend: a second labeled export row right next to the existing
+whole-conversation export control, not a separate UI section, since it's
+genuinely the same feature with a different distillation. Verified with
+unit tests covering every artifact type, dedup across turns, and the
+empty-trail fallback message; the real signed-in export round trip
+itself isn't live-tested for the same reason `home_tradition`/
+`depth_level`'s signed-in paths weren't — creating a real test account is
+outside what I'll do unattended.
+
+**Reel Kit — the image-generation decision.** Chose client-side SVG →
+canvas → PNG download, no server-side rendering and no third-party
+service, for reasons specific to this project: this app already draws
+its map and cross-reference diagrams as inline SVG in the browser (real,
+established precedent, not a new pattern); a server-side image library
+(node-canvas, sharp, etc.) would be exactly the kind of heavy, native-
+binary dependency this project's README already brags about having none
+of, and a real new Render-deploy risk; and a third-party image-generation
+service would mean ongoing cost and a new data flow (sending Scripture
+text to a third party) for something a browser already does for free.
+The one thing server-side rendering would have bought — pixel-perfect
+custom-font control — doesn't matter here, since the card's fonts are
+already plain web-safe serif/sans stacks with no custom `@font-face` to
+begin with.
+
+Implementation (`public/app.js`): `buildShareCardSvg()` builds a
+1080×1920 (vertical "story" ratio, matching what "Reel" actually implies)
+SVG card — verse text, reference, translation abbreviation, an "ad
+fontes" wordmark — using the real hex values from `style.css`'s `:root`
+palette (hardcoded, since a detached `<img>` never resolves CSS custom
+properties). `downloadShareCard()` loads that SVG into an `Image`, draws
+it onto an offscreen `<canvas>`, and downloads the canvas as a PNG via
+the same Blob-URL-plus-throwaway-`<a download>` trick `triggerExport()`
+already uses for file exports. A "Share as image" button sits under each
+translation; verse text is read back out of the already-rendered,
+already-verbatim `<p>` at click time — never re-typed, re-fetched, or
+model-generated, so the card can never drift from the real gathered
+text. Deliberately NOT read from a `data-*` attribute: `escapeHtml()`
+(used everywhere else in this file for attribute values) doesn't escape
+literal quote characters, which real Scripture dialogue very often
+contains — embedding verse text in a quoted HTML attribute that way
+would have been a real attribute-breaking/injection bug. Free for
+everyone, signed in or not, unlike Study export — this does zero server
+work, so there's no cost basis for gating it.
+
+Verified live: rendered a real card for Matthew 5:32 and for John 3:16,
+confirmed correct text wrapping and layout at the real target size,
+confirmed the canvas→PNG step actually produces a valid, non-trivial PNG
+blob (140KB for a two-sentence verse), and confirmed a verse containing
+a literal `"` renders correctly in the SVG text (unlike a data-attribute
+approach would have).
+
+**Explicitly deferred**: a true multi-card/multi-slide "kit" (batching
+several cards from a whole Study Trail at once, or a carousel) — this
+pass ships the single-card generator, the actual value-generating unit,
+and leaves batching for later, the same "ship the focused slice, defer
+the bigger UI feature honestly" call as the Cross-Reference multi-hop
+graph.
+
 ## Not yet built (spec items, honestly tracked, not silently dropped)
 
 In spec priority order, each with why it's not done yet:
@@ -483,9 +561,9 @@ In spec priority order, each with why it's not done yet:
 9. ~~Manuscript variant "how much this matters" layer~~ — done as of
    2026-09-23, see above.
 10. (Voices Through History) — effectively already shipped; not re-listed.
-11. Study Trail + export — export plumbing exists (`lib/export.js`); needs
-    a session-path recorder. Reel Kit needs an image-generation decision
-    (canvas/SVG-to-PNG vs. an external service) not yet made.
+11. ~~Study Trail + Reel Kit~~ — done as of 2026-09-23, see above (the
+    single-card Reel Kit generator; batch/multi-card export deferred, see
+    above).
 12. Select-anywhere popover — pure frontend feature, no backend blocker.
 
 **Built since this was first written:**

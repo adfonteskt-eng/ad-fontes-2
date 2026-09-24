@@ -151,12 +151,13 @@
 // GET /api/export/:type/:id?format=pdf|docx|md|txt -> the rendered file,
 //   with Content-Type set per format and Content-Disposition: attachment so
 //   the browser downloads it rather than trying to display it inline. :type
-//   is one of outline, note, conversation; :id is that row's own id (an
-//   outline/note id is a plain integer, a conversation id is a uuid --
-//   matching GET /api/conversations/:id and DELETE /api/outlines|notes/:id).
-//   401 with no Authorization header; 403 if signed in but not paid; 404 if
-//   :id doesn't exist or isn't the signed-in user's own; 400 for an
-//   unrecognized :type or format.
+//   is one of outline, note, conversation, trail; :id is that row's own id
+//   (an outline/note id is a plain integer, a conversation or trail id is a
+//   uuid, since "trail" reads the same conversation row just distilled
+//   differently -- matching GET /api/conversations/:id and DELETE
+//   /api/outlines|notes/:id). 401 with no Authorization header; 403 if
+//   signed in but not paid; 404 if :id doesn't exist or isn't the signed-in
+//   user's own; 400 for an unrecognized :type or format.
 //
 // GET /chat, /today, /plans, /outlines, /subscription, /sources -> all serve
 //   the same index.html as GET / -- the frontend is a single-page app with
@@ -196,7 +197,7 @@ import { chatTurn } from "./lib/chat.js";
 import { getDailyPassage } from "./lib/daily-passage.js";
 import { gatherPassage } from "./lib/gather.js";
 import { CHAT_DAILY_LIMIT, SUMMARY_DAILY_LIMIT, checkAndIncrement } from "./lib/rate-limit.js";
-import { EXPORT_FORMATS, conversationExportModel, exportModel, noteExportModel, outlineExportModel } from "./lib/export.js";
+import { EXPORT_FORMATS, conversationExportModel, exportModel, noteExportModel, outlineExportModel, studyTrailExportModel } from "./lib/export.js";
 import { getReadingPlan, isValidPlanDay, READING_PLANS } from "./lib/reading-plans.js";
 import { summarizePassage } from "./lib/summarize.js";
 import { createCheckoutSession, createPortalSession, isStripeConfigured, verifyWebhookEvent } from "./lib/stripe.js";
@@ -708,6 +709,16 @@ async function handleExport(req, res, type, id, searchParams) {
       return;
     }
     model = conversationExportModel({ title: row.title, updatedAt: row.updated_at, renderLog: row.render_log ?? [] });
+  } else if (type === "trail") {
+    // Study Trail (spec item 11) -- same conversation row as "conversation"
+    // above, just distilled differently; see lib/export.js's
+    // studyTrailExportModel() for why no separate storage is needed.
+    const row = await getConversation(user.id, id);
+    if (!row) {
+      sendJson(res, 404, { error: "Conversation not found." });
+      return;
+    }
+    model = studyTrailExportModel({ title: row.title, updatedAt: row.updated_at, renderLog: row.render_log ?? [] });
   } else {
     sendJson(res, 400, { error: `Unknown export type "${type}".` });
     return;

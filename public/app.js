@@ -126,9 +126,16 @@ function renderTranslations(translations) {
           <p>Unavailable: ${escapeHtml(error)}</p>
         </div>`;
       }
+      // Share as image (Reel Kit, spec item 11) reads its verse text back
+      // out of this <p> at click time rather than from a data-* attribute
+      // -- see downloadShareCard()'s own comment for why (a data attribute
+      // would need real Scripture text, dialogue and all, to survive
+      // being re-embedded in an HTML attribute, which escapeHtml() here
+      // doesn't safely do for embedded quote characters).
       return `<div class="translation">
         <h3>${escapeHtml(translation.abbr)} — ${escapeHtml(translation.name)}</h3>
         <p>${escapeHtml(content)}</p>
+        <button type="button" class="share-image-button" data-abbr="${escapeHtml(translation.abbr)}">Share as image</button>
       </div>`;
     })
     .join("");
@@ -268,6 +275,136 @@ function renderNotesSection(reference) {
     </div>
     <ul class="notes-list"></ul>
   </div>`;
+}
+
+// --- Reel Kit (spec item 11: Study→Reel Kit) ------------------------------
+// A shareable vertical image card for one verse, generated entirely
+// client-side: build an SVG string -> load it into an <img> -> draw that
+// onto a <canvas> -> export the canvas as a PNG the browser downloads.
+// Deliberately not server-side rendering (a native image library like
+// node-canvas is exactly the kind of heavy, native-binary dependency this
+// project's README already brags about having none of, and would need
+// its own careful Render deploy story) and not a third-party image-
+// generation service (real ongoing cost and a new data flow for
+// something a browser already does for free) — see docs/DECISIONS.md's
+// entry on this decision for the fuller reasoning. Free for everyone,
+// signed in or not: unlike PDF/DOCX export, this does zero server work,
+// so there's no cost basis for gating it the way Study export is gated.
+// Verse text always comes from the already-rendered, already-verbatim
+// translation <p> already on screen (see renderTranslations above) —
+// never re-typed, re-fetched, or model-generated — so the card can't
+// drift from the real gathered text.
+
+const SHARE_CARD_WIDTH = 1080;
+const SHARE_CARD_HEIGHT = 1920;
+// Same real palette as public/style.css's :root — hardcoded because the
+// SVG is rendered into a standalone <img>, detached from the page, where
+// CSS custom properties don't resolve.
+const SHARE_CARD_COLORS = {
+  paper: "#e2d3ab",
+  panel: "#f3ebd6",
+  ink: "#241c12",
+  inkSoft: "#5c4f3a",
+  accent: "#6b4f2a",
+  line: "#7a6438",
+};
+const SHARE_CARD_SERIF = "'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif";
+
+// SVG text content needs its own escaping (this builds a raw SVG string,
+// not going through the DOM the way escapeHtml() does) — &/</> only,
+// since this never lands inside a quoted attribute the way
+// renderTranslations' data-abbr does.
+function escapeXml(text) {
+  return String(text ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// SVG <text> doesn't auto-wrap, so long verses need manual line-breaking.
+// maxCharsPerLine is an estimate (average glyph width ~0.52em for this
+// serif at typical sizes), generous enough that real verses wrap
+// reasonably without needing exact font-metrics measurement.
+function wrapTextToLines(text, maxCharsPerLine) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length > maxCharsPerLine && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function buildShareCardSvg({ reference, abbr, content }) {
+  const margin = 100;
+  const usableWidth = SHARE_CARD_WIDTH - margin * 2;
+
+  // Longer verses shrink to keep the card legible rather than overflowing.
+  const fontSize = content.length <= 100 ? 64 : content.length <= 200 ? 52 : content.length <= 320 ? 42 : 34;
+  const lineHeight = fontSize * 1.45;
+  const maxCharsPerLine = Math.max(10, Math.floor(usableWidth / (fontSize * 0.52)));
+  const lines = wrapTextToLines(content, maxCharsPerLine);
+
+  const textBlockHeight = lines.length * lineHeight;
+  const startY = SHARE_CARD_HEIGHT / 2 - textBlockHeight / 2;
+  const verseTspans = lines
+    .map((line, i) => `<tspan x="${SHARE_CARD_WIDTH / 2}" y="${(startY + i * lineHeight).toFixed(1)}">${escapeXml(line)}</tspan>`)
+    .join("");
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${SHARE_CARD_WIDTH}" height="${SHARE_CARD_HEIGHT}" viewBox="0 0 ${SHARE_CARD_WIDTH} ${SHARE_CARD_HEIGHT}">
+    <rect width="${SHARE_CARD_WIDTH}" height="${SHARE_CARD_HEIGHT}" fill="${SHARE_CARD_COLORS.paper}"/>
+    <rect x="${margin / 2}" y="${margin / 2}" width="${SHARE_CARD_WIDTH - margin}" height="${SHARE_CARD_HEIGHT - margin}" fill="${SHARE_CARD_COLORS.panel}" stroke="${SHARE_CARD_COLORS.line}" stroke-width="2"/>
+    <text x="${SHARE_CARD_WIDTH / 2}" y="${margin + 60}" text-anchor="middle" font-family="${SHARE_CARD_SERIF}" font-style="italic" font-size="40" fill="${SHARE_CARD_COLORS.accent}">ad fontes</text>
+    <text text-anchor="middle" font-family="${SHARE_CARD_SERIF}" font-size="${fontSize}" fill="${SHARE_CARD_COLORS.ink}">${verseTspans}</text>
+    <text x="${SHARE_CARD_WIDTH / 2}" y="${(startY + textBlockHeight + 90).toFixed(1)}" text-anchor="middle" font-family="${SHARE_CARD_SERIF}" font-weight="bold" font-size="46" fill="${SHARE_CARD_COLORS.accent}">${escapeXml(reference)}</text>
+    <text x="${SHARE_CARD_WIDTH / 2}" y="${(startY + textBlockHeight + 140).toFixed(1)}" text-anchor="middle" font-family="${SHARE_CARD_SERIF}" font-size="30" fill="${SHARE_CARD_COLORS.inkSoft}">${escapeXml(abbr)}</text>
+  </svg>`;
+}
+
+// Standard client-side SVG -> canvas -> PNG-download recipe: an <img>
+// loaded from a Blob URL can be drawn onto a canvas once decoded (an
+// inline data: URI works too, but a Blob URL handles a verse's arbitrary
+// Unicode content without any base64/URI-encoding step), and
+// canvas.toBlob() produces the downloadable PNG. Failure (an unsupported
+// browser, a malformed SVG) surfaces as a plain alert rather than a
+// silently missing download.
+function downloadShareCard({ reference, abbr, content }) {
+  const svg = buildShareCardSvg({ reference, abbr, content });
+  const svgUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+  const img = new Image();
+  img.onload = () => {
+    URL.revokeObjectURL(svgUrl);
+    const canvas = document.createElement("canvas");
+    canvas.width = SHARE_CARD_WIDTH;
+    canvas.height = SHARE_CARD_HEIGHT;
+    canvas.getContext("2d").drawImage(img, 0, 0);
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        alert("Couldn't generate the share image. Try again, or take a screenshot instead.");
+        return;
+      }
+      const pngUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = pngUrl;
+      a.download = `${reference.replace(/[^\w-]/g, "_") || "verse"}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(pngUrl);
+    }, "image/png");
+  };
+  img.onerror = () => {
+    URL.revokeObjectURL(svgUrl);
+    alert("Couldn't generate the share image. Try again, or take a screenshot instead.");
+  };
+  img.src = svgUrl;
 }
 
 // One gathered passage (translations + original language + commentary) as a
@@ -710,9 +847,19 @@ if (depthControl) {
 // auth.js's loadPreferences()). Called from every place chatConversationId
 // changes, and exposed for auth.js to call once isPaid itself becomes known
 // (sign-in/out can happen after a conversation's already on screen).
+// Study Trail (spec item 11) reuses the exact same export plumbing as a
+// full conversation export -- same row (:type=trail vs. :type=conversation
+// against the same conversation id), same format picker, same download
+// mechanics -- it's just a different distillation of the same render_log
+// server-side (see lib/export.js's studyTrailExportModel()). So it's shown
+// as a second labeled row right alongside the conversation export, not a
+// separate feature with its own UI section.
 function updateConversationExportControl() {
   if (chatConversationId && window.adFontesAuth.isPaid) {
-    conversationExportContainer.innerHTML = exportControlHtml("conversation", chatConversationId);
+    conversationExportContainer.innerHTML = `
+      <div class="export-row"><span class="export-row-label">Conversation</span>${exportControlHtml("conversation", chatConversationId)}</div>
+      <div class="export-row"><span class="export-row-label">Study Trail</span>${exportControlHtml("trail", chatConversationId)}</div>
+    `;
     conversationExportContainer.hidden = false;
   } else {
     conversationExportContainer.hidden = true;
@@ -932,6 +1079,19 @@ chatLog.addEventListener("keydown", (event) => {
   chatInput.value = node.dataset.reference;
   clearInputPlaceholder();
   chatInput.focus();
+});
+
+// Reel Kit's "Share as image" button (see downloadShareCard above) — reads
+// the reference and verse text straight back out of the already-rendered
+// DOM around the button, same delegation pattern as everything else in
+// this section.
+chatLog.addEventListener("click", (event) => {
+  const button = event.target.closest(".share-image-button");
+  if (!button) return;
+  const translationDiv = button.closest(".translation");
+  const content = translationDiv?.querySelector("p")?.textContent ?? "";
+  const reference = button.closest(".source-passage")?.querySelector("summary")?.textContent ?? "";
+  downloadShareCard({ reference, abbr: button.dataset.abbr ?? "", content });
 });
 
 // --- Notes (signed-in users can save their own notes on a passage) --------
