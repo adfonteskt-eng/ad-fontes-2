@@ -630,6 +630,20 @@ test("listNotes scopes to the given user and exact reference, newest first", asy
   assert.ok(results.every((n) => n.body !== "different verse" && n.body !== "someone else's"));
 });
 
+test("listNotes with no reference lists every note for the user, across every reference (the My Notes page)", async () => {
+  const { notes } = stubSupabase();
+  notes.push(
+    { id: 1, user_id: "user-1", reference: "JHN.3.16", body: "on John", created_at: "2026-01-01T00:00:00Z" },
+    { id: 2, user_id: "user-1", reference: "ROM.8.28", body: "on Romans", created_at: "2026-02-01T00:00:00Z" },
+    { id: 3, user_id: "user-2", reference: "JHN.3.16", body: "someone else's", created_at: "2026-02-03T00:00:00Z" },
+  );
+
+  const results = await listNotes("user-1");
+  assert.equal(results.length, 2);
+  assert.equal(results[0].body, "on Romans", "should be newest-first");
+  assert.ok(results.every((n) => n.body !== "someone else's"));
+});
+
 test("getNote returns the row when it belongs to the given user", async () => {
   const { notes } = stubSupabase();
   notes.push({ id: 1, user_id: "user-1", reference: "JHN.3.16", body: "mine", created_at: "2026-01-01T00:00:00Z" });

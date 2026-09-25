@@ -107,6 +107,7 @@ const menuHomeButton = document.getElementById("menu-home-button");
 const menuTodayButton = document.getElementById("menu-today-button");
 const menuPlansButton = document.getElementById("menu-plans-button");
 const menuOutlinesButton = document.getElementById("menu-outlines-button");
+const menuNotesButton = document.getElementById("menu-notes-button");
 const menuSubscriptionButton = document.getElementById("menu-subscription-button");
 const menuSourcesButton = document.getElementById("menu-sources-button");
 const menuNewChatButton = document.getElementById("menu-new-chat-button");
@@ -179,6 +180,11 @@ menuPlansButton.addEventListener("click", () => {
 
 menuOutlinesButton.addEventListener("click", () => {
   window.adFontesChat?.goToOutlines();
+  closeMenu();
+});
+
+menuNotesButton.addEventListener("click", () => {
+  window.adFontesChat?.goToNotesPage();
   closeMenu();
 });
 
@@ -802,6 +808,7 @@ async function initAuth() {
     }
     window.adFontesReadingPlans?.refresh();
     window.adFontesOutlines?.refresh();
+    window.adFontesNotesPage?.refresh();
     window.adFontesSubscription?.refresh();
   });
 
@@ -946,6 +953,7 @@ async function initAuth() {
         loadPreferences();
         window.adFontesReadingPlans?.refresh();
         window.adFontesOutlines?.refresh();
+        window.adFontesNotesPage?.refresh();
         window.adFontesSubscription?.refresh();
       } else {
         showSignedOut();
@@ -983,6 +991,7 @@ async function initAuth() {
       loadPreferences();
       window.adFontesReadingPlans?.refresh();
       window.adFontesOutlines?.refresh();
+      window.adFontesNotesPage?.refresh();
       window.adFontesSubscription?.refresh();
     }
   } catch (error) {

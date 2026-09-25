@@ -926,6 +926,72 @@ overflow note). `qa/tests/chat-flow.spec.js`'s existing real-call Genesis
 non-empty) at zero extra API cost, confirming the real integration path
 too, not just the synthetic-fixture one.
 
+## 2026-09-24 — My Notes: a standalone page, closing a real audited gap
+
+Priority 2 of the same design/UX brief asked to confirm Notes and the
+Depth slider are genuinely easy to find, not buried — direct answers to
+two competitors' named weaknesses (YouVersion's buried Notes, Logos's
+overwhelming-for-beginners problem).
+
+**Depth slider**: already a prominent, always-visible segmented control
+directly above the chat input (`#depth-control`). Verified, not changed —
+this was a check, not a gap.
+
+**Notes**: a real gap, confirmed by audit before writing any code. Notes
+were only ever rendered inline, one `.notes-section` per gathered passage
+(`renderNotesSection` in `public/app.js`) — there was no way to browse
+everything you'd ever saved in one place, unlike My Outlines' own page.
+`GET /api/notes` even required a `ref` query param, so the data layer
+itself had no "list everything" shape yet. That's exactly the "buried"
+failure mode the competitive research named in YouVersion, just with a
+different UI (contextual instead of a hidden menu) producing the same
+practical outcome: you can only find a note again by remembering, and
+revisiting, the exact passage you wrote it on.
+
+**Built**: a standalone My Notes page, mirroring My Outlines' existing
+page/menu/data-loading pattern as closely as possible rather than
+inventing a new one:
+- `lib/supabase.js`'s `listNotes(userId, reference)` — `reference` is now
+  optional (omitted, it lists every note for the user, newest first,
+  across every reference), the same optional-filter shape `listOutlines`
+  already had. `server.js`'s `GET /api/notes` no longer 400s without
+  `?ref=` — it lists everything instead.
+- Unlike My Outlines/Reading Plans, notes are a **free** feature (see the
+  Subscription page's own plan list), so this page has a "sign in" empty
+  state, not a Pro-upsell lock — a deliberate, small deviation from the
+  Outlines template it otherwise copies exactly.
+- `public/app.js`'s `renderNoteItem` (already shared by every inline
+  notes-section) gained an opt-in `showReference` flag so the standalone
+  page's list can show which passage each note belongs to — inline, that
+  context is already implicit from the passage it sits under. Clicking the
+  reference asks about that passage in chat (`sendChatMessage`), the same
+  pattern already used by the reading-plan-day and daily-passage buttons
+  (both also standalone-page controls that route into chat rather than
+  filling the input).
+- New route `/notes`, wired the same way `/today`/`/plans`/`/outlines` are:
+  a `VIEW_PATHS` entry, `server.js` serving the same `index.html` shell on
+  a hard refresh, and a menu button between Reading Plans and My Outlines.
+
+**Verified live**: sandboxed Browser pane, both signed-out (`/notes` shows
+the sign-in prompt, no crash, no data leak) and a simulated signed-in state
+(stubbing `window.adFontesAuth.getAccessToken` and the `GET /api/notes`
+response after real page load, rather than creating an actual Supabase
+test account — see this session's standing rule against that) — two notes
+across two different references rendered newest-first, each labeled and
+clickable; clicking a reference correctly asked a real question in chat and
+got a real reply; no horizontal overflow at 320px; no console errors.
+
+**Regression tests**: `qa/tests/notes-page.spec.js` (8 new tests) using the
+same route-interception/getAccessToken-stub technique used for the live
+verification above — signed-out sign-in-prompt state, hard refresh, menu
+presence/navigation, a populated list (newest-first, each reference
+labeled), the empty state, reference-click-asks-in-chat (with `POST
+/api/chat` also stubbed, so this costs nothing real), and delete-removes-
+the-item. `/notes` added to `navigation.spec.js`'s hard-refresh loop and
+`csp.spec.js`'s static-route list. `lib/supabase.js`'s new "list all"
+behavior covered in `test/supabase.test.mjs`. 342/342 unit tests, 56/56
+Playwright tests passing.
+
 ## Not yet built (spec items, honestly tracked, not silently dropped)
 
 In spec priority order, each with why it's not done yet — everything is

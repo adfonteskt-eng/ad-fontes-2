@@ -20,7 +20,7 @@ async function expectNoCspViolations(page) {
   expect(violations, describeCspViolations(violations)).toEqual([]);
 }
 
-const STATIC_ROUTES = ["/", "/today", "/plans", "/outlines", "/subscription", "/sources"];
+const STATIC_ROUTES = ["/", "/today", "/plans", "/outlines", "/notes", "/subscription", "/sources"];
 
 for (const route of STATIC_ROUTES) {
   test(`${route}: no CSP violations on load`, async ({ page }) => {

@@ -51,6 +51,7 @@
       <button type="button" id="menu-home-button" class="menu-nav-item">Home</button>
       <button type="button" id="menu-today-button" class="menu-nav-item">Today's Passage</button>
       <button type="button" id="menu-plans-button" class="menu-nav-item">Reading Plans</button>
+      <button type="button" id="menu-notes-button" class="menu-nav-item">My Notes</button>
       <button type="button" id="menu-outlines-button" class="menu-nav-item">My Outlines</button>
 
       <!-- The conversations list (signed-in users, via GET /api/conversations)
@@ -320,6 +321,30 @@
           <p id="reading-plan-detail-description"></p>
           <ol id="reading-plan-days" class="reading-plan-days"></ol>
         </div>
+      </div>
+    </div>
+
+    <!-- My Notes -- its own page, reached from the top-left menu. Unlike
+         My Outlines/Reading Plans, notes are a free feature (see the
+         Subscription page's plan list) -- so this has a "sign in" state
+         for an anonymous visitor, not a Pro-upsell "locked" state. A
+         direct answer to a real, audited gap versus competitors (see
+         docs/DECISIONS.md's 2026-09-24 entry): notes were previously only
+         ever visible inline on the exact passage they were written on,
+         with no way to browse everything you've saved in one place --
+         exactly the "buried notes" weakness the competitive research
+         flagged in YouVersion. GET /api/notes with no `ref` query param
+         returns every note across every reference. -->
+    <div id="page-notes" class="page" hidden>
+      <div id="notes-page-signin" class="page-locked" hidden>
+        <h2 class="page-heading">My notes</h2>
+        <p>Sign in to see notes you've saved on passages you've studied -- and to add new ones as you go.</p>
+      </div>
+
+      <div id="notes-page" class="outlines" hidden>
+        <h2 class="outlines-heading">My notes</h2>
+        <p id="notes-page-empty" class="page-subhead" hidden>Nothing saved yet -- look for "+ Add note" under any passage's source material.</p>
+        <ul id="notes-page-list" class="outlines-list"></ul>
       </div>
     </div>
 

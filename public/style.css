@@ -1948,6 +1948,26 @@ table.interlinear th {
   background: var(--paper);
 }
 
+/* Only rendered on the standalone My Notes page (see app.js's
+   renderNoteItem's showReference option) -- an inline notes-section
+   already sits under its own passage, so the reference there is implicit. */
+.note-item-reference {
+  display: block;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0 0 0.25rem;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.note-item-reference:hover {
+  text-decoration: underline;
+}
+
 .note-body {
   margin: 0 0 0.3rem;
   font-size: 0.9rem;

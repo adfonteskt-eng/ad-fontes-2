@@ -64,7 +64,7 @@ test("/outlines shows the Pro upsell lock, not a broken/empty list, for a signed
 // A hard refresh (not an in-app client-side route change) on each of these
 // paths should still load the real app shell, not 404 -- server.js serves
 // the same index.html for this fixed list of client-side routes.
-for (const path of ["/chat", "/today", "/plans", "/outlines", "/subscription", "/sources"]) {
+for (const path of ["/chat", "/today", "/plans", "/outlines", "/notes", "/subscription", "/sources"]) {
   test(`direct navigation (hard refresh) to ${path} serves the app shell, not a 404`, async ({ page }) => {
     const response = await page.goto(path);
     expect(response.ok()).toBeTruthy();

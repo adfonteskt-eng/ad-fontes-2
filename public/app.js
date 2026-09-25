@@ -1338,7 +1338,10 @@ document.addEventListener("mousedown", (event) => {
 // these blocks are inserted via innerHTML after the fact, both for a live
 // reply and for a restored/resumed conversation — see renderChatLog.
 
-function renderNoteItem(note) {
+// `showReference` is only true on the standalone My Notes page (see below)
+// -- an inline notes-section already sits directly under its own passage,
+// so the reference there is implicit from context and would be redundant.
+function renderNoteItem(note, { showReference = false } = {}) {
   const date = new Date(note.createdAt).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
@@ -1352,7 +1355,15 @@ function renderNoteItem(note) {
   // loadPreferences()), which is already populated by the time notes load
   // (both kick off from the same sign-in-state-change handler).
   const exportHtml = window.adFontesAuth.isPaid ? exportControlHtml("note", note.id) : "";
+  // Clicking the reference asks about that passage in chat -- same
+  // "jump back into the material" pattern as the reading-plan-day-ref and
+  // daily-passage-button, both of which also live on a standalone page and
+  // route into chat via sendChatMessage() rather than a click-to-ask fill.
+  const referenceHtml = showReference
+    ? `<button type="button" class="note-item-reference" data-reference="${escapeHtml(note.reference)}">${escapeHtml(note.reference)}</button>`
+    : "";
   return `<li class="note-item" data-note-id="${note.id}">
+    ${referenceHtml}
     <p class="note-body">${escapeHtml(note.body)}</p>
     <div class="note-meta">
       <span>${date}</span>
@@ -1382,7 +1393,7 @@ async function loadNotesForSection(section) {
     });
     if (!response.ok) return;
     const { notes } = await response.json();
-    section.querySelector(".notes-list").innerHTML = notes.map(renderNoteItem).join("");
+    section.querySelector(".notes-list").innerHTML = notes.map((note) => renderNoteItem(note)).join("");
   } catch {
     // Network hiccup — the section just stays empty, same as no notes yet.
   }
@@ -1648,6 +1659,7 @@ const examplesContainer = document.querySelector(".examples");
 const pageToday = document.getElementById("page-today");
 const pagePlans = document.getElementById("page-plans");
 const pageOutlines = document.getElementById("page-outlines");
+const pageNotesPage = document.getElementById("page-notes");
 const pageSubscription = document.getElementById("page-subscription");
 const pageSources = document.getElementById("page-sources");
 
@@ -1656,6 +1668,7 @@ const CONVERSATION_PATH = "/chat";
 const TODAY_PATH = "/today";
 const PLANS_PATH = "/plans";
 const OUTLINES_PATH = "/outlines";
+const NOTES_PATH = "/notes";
 const SUBSCRIPTION_PATH = "/subscription";
 const SOURCES_PATH = "/sources";
 
@@ -1665,6 +1678,7 @@ const VIEW_PATHS = {
   today: TODAY_PATH,
   plans: PLANS_PATH,
   outlines: OUTLINES_PATH,
+  notes: NOTES_PATH,
   subscription: SUBSCRIPTION_PATH,
   sources: SOURCES_PATH,
 };
@@ -1686,6 +1700,7 @@ function renderView(view) {
   const isToday = view === "today";
   const isPlans = view === "plans";
   const isOutlines = view === "outlines";
+  const isNotesPage = view === "notes";
   const isSubscription = view === "subscription";
   const isSources = view === "sources";
 
@@ -1695,6 +1710,7 @@ function renderView(view) {
   pageToday.hidden = !isToday;
   pagePlans.hidden = !isPlans;
   pageOutlines.hidden = !isOutlines;
+  pageNotesPage.hidden = !isNotesPage;
   pageSubscription.hidden = !isSubscription;
   pageSources.hidden = !isSources;
   // The message box only makes sense on the chat-flow views -- the
@@ -1731,6 +1747,10 @@ function goToPlansView(options) {
 
 function goToOutlinesView(options) {
   goToView("outlines", options);
+}
+
+function goToNotesPageView(options) {
+  goToView("notes", options);
 }
 
 function goToSubscriptionView(options) {
@@ -2060,6 +2080,69 @@ async function loadOutlines() {
 }
 
 window.adFontesOutlines = { refresh: loadOutlines };
+
+// --- My Notes (standalone page) ------------------------------------------
+// A free feature (see the Subscription page's plan list -- unlike Outlines/
+// Reading Plans, nothing here is Pro-gated), so this has a "sign in" state
+// for an anonymous visitor rather than a locked-upsell one. Reuses
+// renderNoteItem/handleNoteDeleteClick from the inline notes-section above
+// (this is the same note data, just browsed across every reference instead
+// of scoped to the one passage currently on screen) -- see
+// docs/DECISIONS.md's 2026-09-24 entry for why this page exists at all.
+const notesPageSignin = document.getElementById("notes-page-signin");
+const notesPageContainer = document.getElementById("notes-page");
+const notesPageEmpty = document.getElementById("notes-page-empty");
+const notesPageList = document.getElementById("notes-page-list");
+
+function renderNotesPageList(notes) {
+  notesPageEmpty.hidden = notes.length > 0;
+  notesPageList.innerHTML = notes.map((note) => renderNoteItem(note, { showReference: true })).join("");
+}
+
+// Called on initial page load and whenever sign-in state changes (auth.js
+// calls window.adFontesNotesPage.refresh() alongside its other refresh
+// calls) -- same reasoning as loadOutlines().
+async function loadNotesPage() {
+  try {
+    const accessToken = await window.adFontesAuth.getAccessToken();
+    if (!accessToken) {
+      notesPageContainer.hidden = true;
+      notesPageSignin.hidden = false;
+      return;
+    }
+
+    const response = await fetch("/api/notes", { headers: { authorization: `Bearer ${accessToken}` } });
+    if (!response.ok) return;
+    const { notes } = await response.json();
+
+    notesPageSignin.hidden = true;
+    renderNotesPageList(notes ?? []);
+    notesPageContainer.hidden = false;
+  } catch {
+    // Network hiccup or the endpoint being briefly unavailable shouldn't
+    // block or clutter the rest of the page -- same reasoning as
+    // loadOutlines/loadReadingPlans.
+  }
+}
+
+window.adFontesNotesPage = { refresh: loadNotesPage };
+
+notesPageList.addEventListener("click", (event) => {
+  const exportButton = event.target.closest(".export-control .export-button");
+  if (exportButton) {
+    triggerExport(exportButton.closest(".export-control"));
+    return;
+  }
+  const referenceButton = event.target.closest(".note-item-reference");
+  if (referenceButton) {
+    sendChatMessage(`What does ${referenceButton.dataset.reference} mean?`);
+    return;
+  }
+  const deleteButton = event.target.closest(".note-delete-button");
+  if (deleteButton) {
+    handleNoteDeleteClick(deleteButton.closest(".note-item"));
+  }
+});
 
 // --- Subscription (Stripe Checkout/Portal) ----------------------------------
 // See README -> Subscription / paid tier and lib/stripe.js for the server
@@ -2423,6 +2506,7 @@ window.adFontesChat = {
   goToToday: () => goToTodayView(),
   goToPlans: () => goToPlansView(),
   goToOutlines: () => goToOutlinesView(),
+  goToNotesPage: () => goToNotesPageView(),
   goToSubscription: () => goToSubscriptionView(),
   goToSources: () => goToSourcesView(),
   // Called by auth.js once window.adFontesAuth.isPaid is (re-)known --
@@ -2459,7 +2543,7 @@ const CURRENT_SEARCH_AND_HASH = location.search + location.hash;
 
 renderExamples();
 const hasSavedConversation = restoreChatState();
-// /today, /plans, /outlines, and /subscription are real, linkable/
+// /today, /plans, /outlines, /notes, and /subscription are real, linkable/
 // refreshable pages (see server.js's routes for each), not just menu-only
 // states -- landing directly on one (a fresh tab, a bookmark, or clicking
 // a link to it, like the Reading Plans lock screen's "See Subscription
@@ -2496,4 +2580,5 @@ if (initialView === "home") chatInput.focus({ preventScroll: true });
 loadDailyPassage();
 loadReadingPlans();
 loadOutlines();
+loadNotesPage();
 loadSubscriptionState();

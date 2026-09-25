@@ -37,8 +37,9 @@
 //
 // GET /api/notes?ref=JHN.3.16 -> { notes: [{ id, reference, body,
 //   createdAt }] }, newest first, for the signed-in user's own notes on
-//   that exact reference. Requires a valid Authorization header — 401
-//   without one.
+//   that exact reference. `ref` is optional — omit it to list every note
+//   the user has ever saved, across every reference (the My Notes page).
+//   Requires a valid Authorization header — 401 without one.
 //
 // POST /api/notes { reference, body } -> the created note ({ id, reference,
 //   body, createdAt }). Requires a valid Authorization header — 401 without
@@ -536,12 +537,10 @@ async function handleListNotes(req, res, searchParams) {
   const user = await requireUser(req, res);
   if (!user) return;
 
-  const reference = searchParams.get("ref");
-  if (!reference) {
-    sendJson(res, 400, { error: "Missing required query param: ref (e.g. ?ref=JHN.3.16)" });
-    return;
-  }
-
+  // `ref` is optional -- present, this scopes to one passage (the inline
+  // notes-section under a gathered passage); absent, it lists every note
+  // the user has ever saved (the standalone My Notes page).
+  const reference = searchParams.get("ref") || undefined;
   const rows = await listNotes(user.id, reference);
   sendJson(res, 200, { notes: rows.map(toNoteJson) });
 }
@@ -1500,7 +1499,7 @@ const server = createServer(async (req, res) => {
       await handleStripeWebhook(req, res);
       return;
     }
-    if (req.method === "GET" && ["/chat", "/today", "/plans", "/outlines", "/subscription", "/sources"].includes(url.pathname)) {
+    if (req.method === "GET" && ["/chat", "/today", "/plans", "/outlines", "/notes", "/subscription", "/sources"].includes(url.pathname)) {
       await serveStatic(res, "/"); // same file as the homepage -- see the GET /chat doc comment above
       return;
     }
