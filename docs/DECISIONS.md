@@ -825,6 +825,107 @@ rate-limited external APIs, `playwright.config.js` now pins `workers: 1`
 results against a real backend shouldn't also be racing itself. Full
 42/42 passing, repeatedly, once serialized.
 
+## 2026-09-24 — Source chips: a Perplexity-style citation strip, evolving
+Receipts Mode's quote badge rather than sitting beside it
+
+Competitive research (YouVersion, Blue Letter Bible, Logos) came back with
+one clear, high-leverage UI gap: none of them show *how well-grounded* a
+reply is before you click into it. Blue Letter Bible's cross-references are
+a flat sidebar list; YouVersion's Notes are polished but buried; Logos has
+real depth but a steep learning curve. The brief asked for a Perplexity-
+style fix — small labeled citation chips, a visible "N sources" count,
+tap-to-preview the excerpt — applied broadly (translations, commentary,
+cross-references, word studies), evolving Receipts Mode's existing
+verified/flagged quote badge into the new pattern instead of building a
+second, parallel citation system next to it.
+
+**The real design fork, flagged rather than guessed on**: how to generate
+the chips at all.
+
+- *Option A — parse Claude's own prose for inline citation markers*, the
+  literal Perplexity match: the model emits "[1]", "[2]" correlated to
+  specific claims, the frontend parses them out and resolves them against
+  real source data. Rejected. This app's entire design philosophy —
+  Tradition Lens, Passage Briefing's disclosure, Word-Study Web's validated
+  sense-clustering, Receipts Mode itself — is "never present something as
+  grounded unless it's checked against real data." Trusting the model to
+  correctly correlate a citation marker to the right source index is a new,
+  unvalidated failure mode (wrong index, inconsistent citing, drift) for a
+  UI-only improvement. Not worth it.
+- *Option B — synthesize chips from data already gathered this turn*
+  (`gathered.translations`, `.commentary.entries`, `.originalLanguage`,
+  `crossReferences`, `wordStudies`, `briefings`) — no prose parsing at all.
+  **Chosen.** Every chip traces to something the app already fetched and
+  already trusts; the "hover/tap preview" requirement is satisfied by
+  reusing this app's one existing disclosure interaction (click/tap — no
+  new hover-only affordance needed for touch parity) rather than a second
+  mechanism. Consistent with how the Reel Kit and Tradition Lens forks were
+  resolved earlier this session: the safer, already-grounded version wins
+  over the more literal competitor-match.
+
+**Implementation** (`public/app.js`'s `buildSourceChips`/`renderSourceChips`,
+replacing the old standalone `renderQuoteVerification`): one chip per
+distinct source for a turn — quote-verification chips first (the strongest
+trust signal), then translations, original-language text, commentary
+entries, cross-reference sets, and word studies, in the same order the full
+source cards below already render in. Passage Briefing chips are visually
+distinguished (dashed border, same convention `.map-marker-disputed`
+already uses for "not fully verified") since that's the one card with no
+real dataset behind it. Chips are plain `<button>`s sharing one preview
+panel below the strip, not individually-expanding `<details>` — with many
+small chips in a wrapping flex row, letting each expand its own content
+inline reflows the whole line unpredictably; one shared panel is
+predictable and identical on touch and pointer.
+
+**A real bug found during live verification, fixed same-session**: the
+first version generated one chip per translation/commentary *per gathered
+passage*. A passage-briefing-style reply (e.g. "brief me on the book of
+James, plus cross-references and a word study") calls `gather_passage`
+once per verse it cites — a dozen or more times for a whole-book request —
+and since this app always fetches the same fixed translation set and the
+same fixed five commentaries for every passage, that produced ~100
+near-duplicate "BSB"/"WEB"/"Barnes' Notes" chips, drowning the one useful
+verified/flagged signal. Fixed by deduping chips by `(kind, label)`,
+keeping the first passage's excerpt (tagged with its reference) as the
+preview; confirmed live (see below) that a 12-passage James briefing went
+from ~100 chips to the correct 13 distinct ones. A hard display cap (14)
+plus a plain-text "N more below" note was added on top as a safety net for
+genuinely distinct sources (e.g. many different cross-reference lookups in
+one turn) that dedup can't collapse.
+
+**Verified live** (sandboxed Browser pane, real dev server): a restored
+Matthew 5:32 conversation (15 real chips, including six real flagged-quote
+chips from Receipts Mode) rendered correctly after a stale service-worker
+cache was cleared (a real gotcha hit during this verification — this app's
+PWA service worker was serving the previous `app.js` until explicitly
+unregistered, which is worth remembering for any future frontend change
+verified against a long-running local server); click-to-preview toggling
+correctly shows exactly one panel at a time; a live real-Anthropic call
+("brief me on James, plus cross-references and a word study on faith")
+triggered the dedup bug, which was fixed and re-verified live producing 13
+correct chips across all five chip kinds (verified quote, flagged quote,
+source, background); confirmed no horizontal overflow at 320px.
+
+**Depth slider audit (Priority 2)**: already a prominent, always-visible
+segmented control directly above the chat input (`#depth-control`,
+`public/app.js`) — not buried in a menu. No change needed; this was a
+verify-not-broken check, not a gap.
+
+**Regression tests**: `qa/tests/source-chips.spec.js` (4 new tests) seeds
+`localStorage` directly with a synthetic `chatLogData` entry in the exact
+shape `saveChatState()` writes, then loads the page so the real
+`restoreChatState()` → `renderChatLog()` → `renderSourceChips()` path runs
+against deterministic fixture data — no Anthropic cost, and the only
+practical way to regression-test the dedup/cap logic itself (reproducing a
+12-gathered-passage reply via a real API call every test run would be
+slow, costly, and non-deterministic). Covers: correct chip count/kinds for
+a mixed-source reply, click-to-preview toggling, the dedup fix (12 passages
+→ 4 chips), and the display cap (20 distinct cross-refs → 14 chips + an
+overflow note). `qa/tests/chat-flow.spec.js`'s existing real-call Genesis
+1:1 test was extended with two assertions (strip visible, first chip
+non-empty) at zero extra API cost, confirming the real integration path
+too, not just the synthetic-fixture one.
+
 ## Not yet built (spec items, honestly tracked, not silently dropped)
 
 In spec priority order, each with why it's not done yet — everything is

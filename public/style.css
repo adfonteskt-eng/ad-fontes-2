@@ -1471,64 +1471,92 @@ table.interlinear th {
   border-top: 1px solid var(--line);
 }
 
-/* --- Receipts Mode: quote verification (lib/verify.js) ------------------- */
+/* --- Source chips strip (Perplexity-style citation summary) --------------
+   Evolves the old standalone "Receipts Mode" quote-verification badge into
+   chips in this same strip (see renderSourceChips in app.js for the full
+   reasoning) -- .quote-verified/.quote-unverified chips reuse the site's
+   existing verified/flagged visual language (accent check vs. the site's
+   one --error use outside a hard failure state); .background chips (the
+   Passage Briefing's un-dataset-backed reading) reuse the dashed-border
+   "uncertain/not verified" convention already established by
+   .map-marker-disputed, so the same visual rule reads consistently
+   wherever this app shows something that isn't checked against real data. */
 
-.quote-verification {
+.source-chips-strip {
   margin-top: 0.6rem;
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  background: var(--panel);
-  font-size: 0.8rem;
-  overflow: hidden;
 }
 
-.quote-verification summary {
-  cursor: pointer;
-  padding: 0.45rem 0.75rem;
-  list-style: none;
+.source-chips-summary {
+  font-size: 0.75rem;
   color: var(--ink-soft);
+  margin-bottom: 0.35rem;
 }
 
-.quote-verification summary::-webkit-details-marker {
-  display: none;
+.source-chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
 }
 
-.quote-verification.verified summary::before {
+.source-chip {
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  color: var(--ink-soft);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.source-chip:hover,
+.source-chip:focus-visible {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+.source-chip[aria-expanded="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.source-chip.quote-verified::before {
   content: "\2713  ";
   color: var(--accent);
 }
 
-/* Deliberately the site's one --error use outside a hard failure state —
-   a mismatched quote is exactly the kind of thing that should stand out
-   from the calm, warm default rather than blend in with it. */
-.quote-verification.unverified {
+.source-chip.quote-unverified {
   border-color: var(--error);
-}
-
-.quote-verification.unverified summary {
   color: var(--error);
-  font-weight: 600;
 }
 
-.quote-verification.unverified summary::before {
+.source-chip.quote-unverified::before {
   content: "\26A0  ";
 }
 
-.quote-checks {
-  margin: 0;
-  padding: 0.5rem 0.9rem 0.7rem 1.6rem;
-  border-top: 1px solid var(--line);
+.source-chip.quote-unverified[aria-expanded="true"] {
+  background: var(--error);
+  border-color: var(--error);
+  color: var(--panel);
 }
 
-.quote-check {
-  margin: 0.3rem 0;
+.source-chip.background {
+  border-style: dashed;
   font-style: italic;
-  color: var(--ink-soft);
 }
 
-.quote-check.unverified {
-  color: var(--error);
-  font-style: normal;
+.source-chip-preview {
+  margin-top: 0.45rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--panel);
+  font-size: 0.8rem;
+  color: var(--ink-soft);
 }
 
 /* --- Passage Briefing card (generate_passage_briefing tool) -------------- */

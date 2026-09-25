@@ -428,44 +428,140 @@ function renderSources(gatheredList) {
   return `<div class="chat-sources">${gatheredList.map(renderSourcePassage).join("")}</div>`;
 }
 
-// --- Receipts Mode (lib/verify.js's quoteVerification result) ------------
-// Every span the reply presents as a direct Scripture quotation, checked
-// against the real translation text actually fetched this turn — see
-// lib/verify.js's header comment for exactly what this does and doesn't
-// prove. Renders nothing at all when there were no quoted spans to check
-// (most replies don't quote verbatim, and a badge on every message would
-// just be noise); a calm, collapsed confirmation when everything checked
-// out; an open, visible flag when something didn't.
-const QUOTE_PREVIEW_MAX_LENGTH = 90;
+// --- Source chips strip (Perplexity-style citation summary) --------------
+// A turn-level strip of small labeled chips, shown immediately under the
+// reply text, synthesized entirely from data this app already gathered and
+// already trusts (translations, original-language text, commentary,
+// cross-references, word-study counts) -- never by parsing citation
+// markers out of Claude's own prose. That's a deliberate choice: this app's
+// whole design philosophy (Tradition Lens, Passage Briefing's disclosure,
+// Word-Study Web's validated sense-clustering) is "never present something
+// as grounded unless it's checked against real data," and having the model
+// emit its own inline citation numbers would mean trusting it to correctly
+// correlate a claim with a source index -- a new failure mode with no real
+// validation, for a UI-only improvement. Reusing the already-structured
+// per-turn data sidesteps that risk entirely. See docs/DECISIONS.md's
+// 2026-09-24 "source chips" entry for the fuller reasoning.
+//
+// This also evolves Receipts Mode's old standalone quote-verification
+// badge (previously its own separate <details> block) into chips in this
+// same strip, rather than leaving a second, visually distinct citation
+// system sitting next to the new one. Quote-verification chips come first
+// (the strongest trust signal -- "does this reply's actual quote match
+// real text" -- deserves top billing over "what did it read"), then one
+// chip per translation/commentary entry/original-language block/cross-
+// reference set/word study, in the same order the full source cards below
+// render in. Passage Briefing chips are visually distinguished as
+// background reading, not verified fact -- same rule as the card itself.
+//
+// Each chip is a plain <button>, not a <details> -- with many small chips
+// in a horizontal wrapping row, letting each one expand its own content
+// inline (the pattern used everywhere else in this file) would reflow the
+// whole flex line unpredictably. Instead all chips share one preview panel
+// below the strip that shows whichever chip was last clicked/tapped (see
+// the delegated click handler near the other chatLog listeners) -- a
+// single predictable expansion point, and tap-first works identically on
+// touch and pointer devices without needing a separate hover affordance.
 
-function truncateForDisplay(text) {
-  return text.length > QUOTE_PREVIEW_MAX_LENGTH ? `${text.slice(0, QUOTE_PREVIEW_MAX_LENGTH).trimEnd()}…` : text;
+const CHIP_PREVIEW_MAX_LENGTH = 220;
+
+function truncateForDisplay(text, max = 90) {
+  const trimmed = (text ?? "").trim();
+  return trimmed.length > max ? `${trimmed.slice(0, max).trimEnd()}…` : trimmed;
 }
 
-function renderQuoteVerification(verification) {
-  if (!verification || verification.quotes.length === 0) return "";
+// A reply covering a whole book (a passage briefing, a multi-verse study)
+// can call gather_passage a dozen times over -- and this app always fetches
+// the same fixed translation set and the same fixed five commentaries for
+// every passage, so a naive one-chip-per-translation-per-passage approach
+// produces the same handful of labels repeated ~10x rather than a useful
+// summary. addChip dedupes by (kind, label): the FIRST passage a given
+// source (e.g. "Barnes' Notes") shows up for wins the preview, tagged with
+// its reference so it's still clear which passage that excerpt is from --
+// later occurrences of the same source just don't add a redundant chip.
+// Cross-references/word-studies/briefings already carry their own
+// reference in the label, so this same rule only dedupes genuine repeats.
+function buildSourceChips(entry) {
+  const seen = new Map();
+  function addChip(kind, label, preview) {
+    const key = `${kind}|${label}`;
+    if (!seen.has(key)) seen.set(key, { kind, label, preview });
+  }
 
-  const items = verification.quotes
-    .map((q) => {
-      if (q.verified) {
-        return `<li class="quote-check verified">“${escapeHtml(truncateForDisplay(q.span))}” — matches ${escapeHtml(q.source.translationAbbr)} ${escapeHtml(q.source.usfm)}</li>`;
-      }
-      return `<li class="quote-check unverified">“${escapeHtml(truncateForDisplay(q.span))}” — doesn't match any translation fetched this turn</li>`;
-    })
+  for (const q of entry.quoteVerification?.quotes ?? []) {
+    if (q.verified) {
+      addChip("quote-verified", "Quote verified", `“${truncateForDisplay(q.span)}” — matches ${q.source.translationAbbr} ${q.source.usfm}`);
+    } else {
+      addChip("quote-unverified", "Quote mismatch", `“${truncateForDisplay(q.span)}” — doesn't match any translation fetched this turn`);
+    }
+  }
+
+  for (const gathered of entry.gathered ?? []) {
+    const usfm = gathered.reference?.usfm ?? "";
+    for (const t of gathered.translations ?? []) {
+      if (t.error) continue;
+      addChip("source", t.translation.abbr, `${usfm} — ${truncateForDisplay(t.content, CHIP_PREVIEW_MAX_LENGTH)}`);
+    }
+    const ol = gathered.originalLanguage;
+    if (ol && !ol.error && !(ol.missingFiles && ol.missingFiles.length) && ol.words && ol.words.length > 0) {
+      const label = ol.type === "greek" ? "Greek (NA28)" : "Hebrew (Leningrad Codex)";
+      addChip("source", label, `${ol.words.length} words tagged for ${usfm}`);
+    }
+    for (const c of gathered.commentary?.entries ?? []) {
+      addChip("source", c.name, `${usfm} — ${truncateForDisplay(c.body, CHIP_PREVIEW_MAX_LENGTH)}`);
+    }
+  }
+
+  for (const cr of entry.crossReferences ?? []) {
+    if (!cr.results || cr.results.length === 0) continue;
+    const top = cr.results
+      .slice(0, 3)
+      .map((r) => r.reference)
+      .join(", ");
+    addChip("source", `Cross-refs: ${cr.reference}`, `${cr.totalCount} scholarly connection${cr.totalCount === 1 ? "" : "s"}, incl. ${top}`);
+  }
+
+  for (const ws of entry.wordStudies ?? []) {
+    addChip("source", `Word study: ${ws.strongsNumber}`, `${ws.totalCount} occurrence${ws.totalCount === 1 ? "" : "s"} across the tagged Greek/Hebrew text`);
+  }
+
+  for (const b of entry.briefings ?? []) {
+    addChip("background", `Briefing: ${b.reference}`, b.disclosure);
+  }
+
+  return [...seen.values()];
+}
+
+// A hard display cap on top of dedup -- a reply citing many genuinely
+// distinct cross-references/word-studies (each carries its own reference,
+// so dedup can't collapse them) could still produce more chips than a
+// strip should reasonably show. The overflow note is plain text, not
+// another interactive control -- the full source cards below already have
+// everything, so this only needs to say more exists, not summarize it.
+const MAX_VISIBLE_CHIPS = 14;
+
+function renderSourceChips(entry) {
+  const allChips = buildSourceChips(entry);
+  if (allChips.length === 0) return "";
+  const chips = allChips.slice(0, MAX_VISIBLE_CHIPS);
+  const overflow = allChips.length - chips.length;
+
+  const groundedCount = allChips.filter((c) => c.kind !== "background").length;
+  const summaryParts = [];
+  if (groundedCount > 0) summaryParts.push(`${groundedCount} source${groundedCount === 1 ? "" : "s"}`);
+  if (allChips.some((c) => c.kind === "quote-unverified")) summaryParts.push("a quote is flagged");
+  if (overflow > 0) summaryParts.push(`${overflow} more below`);
+
+  const chipButtons = chips
+    .map((c, i) => `<button type="button" class="source-chip ${c.kind}" data-chip-index="${i}" aria-expanded="false">${escapeHtml(c.label)}</button>`)
     .join("");
+  const previewPanels = chips.map((c, i) => `<div class="source-chip-preview" data-chip-index="${i}" hidden>${escapeHtml(c.preview)}</div>`).join("");
 
-  const summaryText = verification.allVerified
-    ? `Quote${verification.quotes.length > 1 ? "s" : ""} verified against the fetched text`
-    : `A quote above doesn't match the fetched text`;
-
-  // Open by default only when something needs attention -- a clean pass
-  // stays collapsed (available to check, not pushed in front of the
-  // reply it's confirming), same "closing is the deliberate action, seeing
-  // it is the default when it matters" reasoning as renderSourcePassage().
-  return `<details class="quote-verification ${verification.allVerified ? "verified" : "unverified"}" ${verification.allVerified ? "" : "open"}>
-    <summary>${escapeHtml(summaryText)}</summary>
-    <ul class="quote-checks">${items}</ul>
-  </details>`;
+  return `<div class="source-chips-strip">
+    ${summaryParts.length ? `<div class="source-chips-summary">${escapeHtml(summaryParts.join(" · "))}</div>` : ""}
+    <div class="source-chips-row">${chipButtons}</div>
+    ${previewPanels}
+  </div>`;
 }
 
 // --- Cross-reference diagrams (find_cross_references tool — see
@@ -1087,6 +1183,31 @@ function appendWordStudies(wordStudyList) {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
+// Toggles a source chip's preview panel (see renderSourceChips above) --
+// only one open per strip at a time, so clicking a second chip closes the
+// first rather than stacking previews. Delegated for the same reason as
+// every other handler in this section: chips are inserted via innerHTML
+// after render, for both a live reply and a restored conversation.
+chatLog.addEventListener("click", (event) => {
+  const chip = event.target.closest(".source-chip");
+  if (!chip) return;
+  const strip = chip.closest(".source-chips-strip");
+  if (!strip) return;
+  const index = chip.dataset.chipIndex;
+  const wasOpen = chip.getAttribute("aria-expanded") === "true";
+  for (const button of strip.querySelectorAll(".source-chip")) {
+    button.setAttribute("aria-expanded", "false");
+  }
+  for (const panel of strip.querySelectorAll(".source-chip-preview")) {
+    panel.hidden = true;
+  }
+  if (!wasOpen) {
+    chip.setAttribute("aria-expanded", "true");
+    const panel = strip.querySelector(`.source-chip-preview[data-chip-index="${index}"]`);
+    if (panel) panel.hidden = false;
+  }
+});
+
 // Clicking any cross-reference node/map marker (SVG dot+label, or its
 // plain-list counterpart) fills the chat input with that reference/place
 // rather than submitting it automatically — see this section's header
@@ -1448,8 +1569,14 @@ async function sendChatMessage(message) {
     chatConversationId = data.conversationId ?? null;
     updateConversationExportControl();
     const assistantEl = appendChatMessage("assistant", data.reply);
-    const quoteVerificationHtml = renderQuoteVerification(data.quoteVerification);
-    if (quoteVerificationHtml) assistantEl.insertAdjacentHTML("beforeend", quoteVerificationHtml);
+    const sourceChipsHtml = renderSourceChips({
+      gathered: data.gathered,
+      crossReferences: data.crossReferences,
+      wordStudies: data.wordStudies,
+      briefings: data.briefings,
+      quoteVerification: data.quoteVerification,
+    });
+    if (sourceChipsHtml) assistantEl.insertAdjacentHTML("beforeend", sourceChipsHtml);
     appendPassageBriefings(data.briefings);
     appendSources(data.gathered);
     appendCrossReferenceDiagrams(data.crossReferences);
@@ -2190,8 +2317,8 @@ function renderChatLog(entries) {
       appendChatMessage("user", entry.text);
     } else if (entry.role === "assistant") {
       const assistantEl = appendChatMessage("assistant", entry.text);
-      const quoteVerificationHtml = renderQuoteVerification(entry.quoteVerification);
-      if (quoteVerificationHtml) assistantEl.insertAdjacentHTML("beforeend", quoteVerificationHtml);
+      const sourceChipsHtml = renderSourceChips(entry);
+      if (sourceChipsHtml) assistantEl.insertAdjacentHTML("beforeend", sourceChipsHtml);
       if (entry.briefings) appendPassageBriefings(entry.briefings);
       if (entry.gathered) appendSources(entry.gathered);
       if (entry.crossReferences) appendCrossReferenceDiagrams(entry.crossReferences);

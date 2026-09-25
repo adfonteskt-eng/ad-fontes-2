@@ -40,6 +40,13 @@ test("a bare-reference message returns real gathered material, renders an inject
   await expect(page.locator(".source-passage").first()).toBeVisible({ timeout: 15_000 });
   await expect(page.locator(".translation p").first()).not.toHaveText("");
 
+  // Source chips (see docs/DECISIONS.md's 2026-09-24 entry) synthesize
+  // straight from this same gathered data -- confirm the real integration
+  // actually renders at least one real, labeled chip, not just that the
+  // synthetic-fixture tests in source-chips.spec.js pass.
+  await expect(page.locator(".source-chips-strip")).toBeVisible();
+  await expect(page.locator(".source-chip").first()).not.toHaveText("");
+
   const xssFired = await page.evaluate(() => window.__qaXssFired);
   expect(xssFired, "an injected <img onerror> in a chat message must never execute").toBe(false);
   // Also confirm it shows up as plain, harmless text rather than silently
