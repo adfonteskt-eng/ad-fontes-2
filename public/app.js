@@ -789,19 +789,29 @@ function renderMapDiagrams(mapList) {
 // string chatTurn() always attaches is rendered prominently (not buried in
 // a footnote) so this never reads as verified fact the way a gathered
 // translation or a real geocoded map does.
+//
+// A bento-grid of small blocks (2026 design-trend note: distinct visual
+// blocks scan faster than a stacked label/value list for exactly this
+// shape of data -- a handful of short facts plus one or two longer ones)
+// rather than the plain vertical row-list this used to be. Genre/author/
+// date are short enough to sit compactly side by side; structure/setting
+// usually run longer, so each spans the full grid width rather than being
+// squeezed into the same narrow column.
 function renderPassageBriefing(briefing) {
-  const settingRow = briefing.setting
-    ? `<div class="briefing-row"><span class="briefing-label">Setting</span><span>${escapeHtml(briefing.setting)}</span></div>`
+  const settingBlock = briefing.setting
+    ? `<div class="briefing-block briefing-block-wide"><span class="briefing-label">Setting</span><span class="briefing-value">${escapeHtml(briefing.setting)}</span></div>`
     : "";
 
   return `<details class="source-passage passage-briefing" open>
     <summary>Briefing: ${escapeHtml(briefing.reference)}</summary>
     <div class="source-body">
-      <div class="briefing-row"><span class="briefing-label">Genre</span><span>${escapeHtml(briefing.genre)}</span></div>
-      <div class="briefing-row"><span class="briefing-label">Traditional author</span><span>${escapeHtml(briefing.traditionalAuthor)}</span></div>
-      <div class="briefing-row"><span class="briefing-label">Approximate date</span><span>${escapeHtml(briefing.approximateDate)}</span></div>
-      <div class="briefing-row"><span class="briefing-label">Structure</span><span>${escapeHtml(briefing.structureNote)}</span></div>
-      ${settingRow}
+      <div class="briefing-grid">
+        <div class="briefing-block"><span class="briefing-label">Genre</span><span class="briefing-value">${escapeHtml(briefing.genre)}</span></div>
+        <div class="briefing-block"><span class="briefing-label">Traditional author</span><span class="briefing-value">${escapeHtml(briefing.traditionalAuthor)}</span></div>
+        <div class="briefing-block"><span class="briefing-label">Approximate date</span><span class="briefing-value">${escapeHtml(briefing.approximateDate)}</span></div>
+        <div class="briefing-block briefing-block-wide"><span class="briefing-label">Structure</span><span class="briefing-value">${escapeHtml(briefing.structureNote)}</span></div>
+        ${settingBlock}
+      </div>
       <p class="section-note briefing-disclosure">${escapeHtml(briefing.disclosure)}</p>
     </div>
   </details>`;

@@ -1565,23 +1565,35 @@ table.interlinear th {
    than an ordinary .section-note, since it's the thing keeping this card
    from reading as verified fact. */
 
-.briefing-row {
-  display: flex;
+.briefing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 0.6rem;
-  padding: 0.3rem 0;
-  border-bottom: 1px solid var(--line);
 }
 
-.briefing-row:last-of-type {
-  border-bottom: none;
+.briefing-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--paper);
+}
+
+.briefing-block-wide {
+  grid-column: 1 / -1;
 }
 
 .briefing-label {
-  flex: 0 0 9rem;
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--ink-soft);
+}
+
+.briefing-value {
+  font-size: 0.9rem;
 }
 
 .briefing-disclosure {

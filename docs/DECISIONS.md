@@ -992,6 +992,44 @@ the-item. `/notes` added to `navigation.spec.js`'s hard-refresh loop and
 behavior covered in `test/supabase.test.mjs`. 342/342 unit tests, 56/56
 Playwright tests passing.
 
+## 2026-09-24 — Passage Briefing card: bento-grid layout (Priority 3, lower
+priority, judged worth doing)
+
+The brief flagged this as speculative/nice-to-have and left it to
+judgment. The existing card (`renderPassageBriefing` in `public/app.js`)
+was already a label/value list, not literally "a wall of text," but it was
+a plain vertical stack — genre, author, date, and structure all competing
+for the same narrow column regardless of how short or long each fact
+actually was. Judged worth doing: it's a small, self-contained CSS/HTML
+change (no new data, no architecture risk, nothing else in the codebase
+references the old `.briefing-row`/`.briefing-label` class names), and it
+directly matches what the research described.
+
+**Built**: `.briefing-grid` (`display: grid; grid-template-columns:
+repeat(auto-fit, minmax(150px, 1fr))`) replacing the row stack. Short facts
+(genre, traditional author, approximate date) sit as compact blocks side
+by side; the longer ones (structure, and setting when present) each get
+`grid-column: 1 / -1` to span the full width rather than being squeezed
+into the same narrow column as a one-word genre. `auto-fit`/`minmax`
+collapses to a single column on its own at narrow widths — no separate
+mobile breakpoint needed. Same parchment palette/border treatment as every
+other block on this page (`--paper`/`--line`), per the brief's own note
+not to fight the existing aesthetic.
+
+**Verified live**: a real James briefing (no `setting` for this reference)
+renders three compact blocks then a full-width Structure block then the
+disclosure note, with no gap or broken row for the missing block; no
+console errors; no horizontal overflow at 320px (the grid drops to one
+column on its own, confirmed visually).
+
+**Tests**: no dedicated new Playwright test added — nothing in the existing
+suite asserted on the old `.briefing-row`/`.briefing-label` selectors (only
+`.briefing-disclosure`'s presence is implicitly exercised by the existing
+`.source-passage` visibility checks in `chat-flow.spec.js`/
+`responsive.spec.js`, both still passing), and this is a pure visual
+restyle of already-real, already-grounded data with no new logic to
+regress. 342/342 unit tests, 56/56 Playwright tests passing unaffected.
+
 ## Not yet built (spec items, honestly tracked, not silently dropped)
 
 In spec priority order, each with why it's not done yet — everything is
