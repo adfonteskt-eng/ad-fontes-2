@@ -1559,6 +1559,43 @@ table.interlinear th {
   color: var(--ink-soft);
 }
 
+/* --- "Go deeper" follow-up actions (progressive disclosure) --------------
+   Deliberately a different visual treatment than .source-chip -- these
+   send a real new message rather than revealing something already
+   fetched, so an accent-colored outline (vs. .source-chip's neutral
+   --line border) signals "this does something" rather than "this is a
+   passive label." See docs/DECISIONS.md's 2026-09-28 entry. */
+
+.followup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.followup-action {
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  color: var(--accent);
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 0.3rem 0.75rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.followup-action::before {
+  content: "+ ";
+}
+
+.followup-action:hover,
+.followup-action:focus-visible {
+  background: var(--accent);
+  color: var(--panel);
+}
+
 /* --- Passage Briefing card (generate_passage_briefing tool) -------------- */
 /* No real dataset behind this one (see lib/chat.js's PASSAGE_BRIEFING_TOOL
    comment) -- .briefing-disclosure is styled to stand out a little more

@@ -186,7 +186,15 @@ function renderWordBreakdown(word) {
   </details>`;
 }
 
+// A narrow question can ask gather_passage to skip this section entirely
+// (see lib/chat.js's GATHER_TOOL `sections` param and lib/gather.js's
+// SKIPPED_ORIGINAL_LANGUAGE, part of the 2026-09-28 over-gathering fix —
+// see docs/DECISIONS.md) -- render nothing at all in that case, same as an
+// omitted/empty translations array, rather than a "not found" message for
+// something that was never asked for in the first place.
 function renderOriginalLanguage(ol) {
+  if (ol.type === "skipped") return "";
+
   let heading = "";
   let body;
 
@@ -562,6 +570,64 @@ function renderSourceChips(entry) {
     <div class="source-chips-row">${chipButtons}</div>
     ${previewPanels}
   </div>`;
+}
+
+// --- "Go deeper" follow-up actions (progressive disclosure) ---------------
+// The 2026-09-28 fix for a real over-gathering complaint (see
+// docs/DECISIONS.md): replies now default to a narrow, focused set of tools
+// scoped to the actual question, rather than eagerly gathering everything a
+// passage's tools could produce. That narrowness must never be a dead end —
+// this computes a short list of what could reasonably come next but wasn't
+// automatically included this turn, and offers it as a small row of
+// buttons. Each one is a plain natural-language follow-up message routed
+// through sendChatMessage(), the same "chat is the only entry point"
+// pattern every other quick-action in this file already uses (the reading-
+// plan day button, the daily-passage button, cross-ref/map click-to-ask) —
+// not a side-channel fetch that would bypass the model's own tool-scoping
+// judgment on the very next turn.
+//
+// Deliberately scoped to only the LAST gathered passage this turn, not
+// every one -- a turn that gathered a dozen passages (a whole-book
+// briefing) would otherwise multiply this into the same kind of clutter
+// the source-chips dedup fix (see the 2026-09-24 entry) already solved
+// once for citations; "what would help with the passage we were just
+// discussing" is the right scope for a follow-up, not an exhaustive cross
+// product.
+function buildFollowUpActions(entry) {
+  const gatheredList = entry.gathered ?? [];
+  if (gatheredList.length === 0) return [];
+  const last = gatheredList[gatheredList.length - 1];
+  const usfm = last.reference.usfm;
+  const bookCode = usfm.split(".")[0];
+
+  const actions = [];
+  if (!last.translations || last.translations.length === 0) {
+    actions.push({ label: "Show translations", prompt: `Show me the translations for ${usfm}.` });
+  }
+  if (last.originalLanguage?.type === "skipped") {
+    actions.push({ label: "Show original language", prompt: `Show me the original language for ${usfm}.` });
+  }
+  if (last.commentary?.skipped) {
+    actions.push({ label: "Show commentary", prompt: `What do the commentaries say about ${usfm}?` });
+  }
+  const hasCrossRefs = (entry.crossReferences ?? []).some((cr) => cr.reference === usfm);
+  if (!hasCrossRefs) {
+    actions.push({ label: "See cross-references", prompt: `What are the cross-references for ${usfm}?` });
+  }
+  const hasBriefing = (entry.briefings ?? []).some((b) => b.reference.split(".")[0] === bookCode);
+  if (!hasBriefing) {
+    actions.push({ label: "Get a passage briefing", prompt: `Give me a passage briefing for ${usfm}.` });
+  }
+  return actions;
+}
+
+function renderFollowUpActions(entry) {
+  const actions = buildFollowUpActions(entry);
+  if (actions.length === 0) return "";
+  const buttons = actions
+    .map((a) => `<button type="button" class="followup-action" data-prompt="${escapeHtml(a.prompt)}">${escapeHtml(a.label)}</button>`)
+    .join("");
+  return `<div class="followup-actions">${buttons}</div>`;
 }
 
 // --- Cross-reference diagrams (find_cross_references tool — see
@@ -1218,6 +1284,15 @@ chatLog.addEventListener("click", (event) => {
   }
 });
 
+// A "go deeper" follow-up action (see renderFollowUpActions above) sends
+// its canned natural-language prompt as a real new chat message -- same
+// delegation pattern as everything else in this section.
+chatLog.addEventListener("click", (event) => {
+  const button = event.target.closest(".followup-action");
+  if (!button) return;
+  sendChatMessage(button.dataset.prompt);
+});
+
 // Clicking any cross-reference node/map marker (SVG dot+label, or its
 // plain-list counterpart) fills the chat input with that reference/place
 // rather than submitting it automatically — see this section's header
@@ -1590,14 +1665,17 @@ async function sendChatMessage(message) {
     chatConversationId = data.conversationId ?? null;
     updateConversationExportControl();
     const assistantEl = appendChatMessage("assistant", data.reply);
-    const sourceChipsHtml = renderSourceChips({
+    const turnSnapshot = {
       gathered: data.gathered,
       crossReferences: data.crossReferences,
       wordStudies: data.wordStudies,
       briefings: data.briefings,
       quoteVerification: data.quoteVerification,
-    });
+    };
+    const sourceChipsHtml = renderSourceChips(turnSnapshot);
     if (sourceChipsHtml) assistantEl.insertAdjacentHTML("beforeend", sourceChipsHtml);
+    const followUpActionsHtml = renderFollowUpActions(turnSnapshot);
+    if (followUpActionsHtml) assistantEl.insertAdjacentHTML("beforeend", followUpActionsHtml);
     appendPassageBriefings(data.briefings);
     appendSources(data.gathered);
     appendCrossReferenceDiagrams(data.crossReferences);
@@ -2412,6 +2490,8 @@ function renderChatLog(entries) {
       const assistantEl = appendChatMessage("assistant", entry.text);
       const sourceChipsHtml = renderSourceChips(entry);
       if (sourceChipsHtml) assistantEl.insertAdjacentHTML("beforeend", sourceChipsHtml);
+      const followUpActionsHtml = renderFollowUpActions(entry);
+      if (followUpActionsHtml) assistantEl.insertAdjacentHTML("beforeend", followUpActionsHtml);
       if (entry.briefings) appendPassageBriefings(entry.briefings);
       if (entry.gathered) appendSources(entry.gathered);
       if (entry.crossReferences) appendCrossReferenceDiagrams(entry.crossReferences);

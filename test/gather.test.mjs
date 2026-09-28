@@ -76,6 +76,35 @@ test("a different option combo for the same reference is not cached together", a
   assert.ok(fetchCount > before, "includeVariants should be part of the cache key");
 });
 
+test("includeTranslations: false skips the YouVersion fetch and returns an empty translations array", async () => {
+  clearGatherCache();
+  stubYouVersion();
+
+  const result = await gatherPassage("JHN.3.16", { appKey: "k", includeCommentary: false, includeTranslations: false });
+  assert.deepEqual(result.translations, []);
+  assert.equal(fetchCount, 0, "no YouVersion fetch should have happened");
+});
+
+test("includeOriginalLanguage: false skips the interlinear lookup and returns a skipped marker", async () => {
+  clearGatherCache();
+  stubYouVersion();
+
+  const result = await gatherPassage("JHN.3.16", { appKey: "k", includeCommentary: false, includeOriginalLanguage: false });
+  assert.equal(result.originalLanguage.type, "skipped");
+  assert.deepEqual(result.originalLanguage.words, []);
+});
+
+test("includeTranslations/includeOriginalLanguage are part of the cache key, so a narrower and a fuller request for the same reference don't collide", async () => {
+  clearGatherCache();
+  stubYouVersion();
+
+  const narrow = await gatherPassage("JHN.3.16", { appKey: "k", includeCommentary: false, includeTranslations: false });
+  const full = await gatherPassage("JHN.3.16", { appKey: "k", includeCommentary: false });
+
+  assert.deepEqual(narrow.translations, []);
+  assert.ok(full.translations.length > 0, "the fuller request should have actually fetched translations, not reused the narrow one's cached (empty) result");
+});
+
 test("a thrown parse error is not cached as a standing failure", async () => {
   clearGatherCache();
   globalThis.fetch = async () => {

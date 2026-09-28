@@ -9,6 +9,7 @@ import { access, rename } from "node:fs/promises";
 import { chatTurn, getSessionCount, clearSession, trimHistory } from "../lib/chat.js";
 import { dataFile } from "../scripts/fetch-data.js";
 import { BSB_FILE, clearBibleSearchCache } from "../lib/bible-search.js";
+import { clearGatherCache } from "../lib/gather.js";
 
 // Whether data/bsb.txt actually exists depends on whether `npm run
 // fetch-data` has run somewhere with network access to bereanbible.com --
@@ -108,6 +109,78 @@ test("chains search_lexicon -> find_occurrences -> gather_passage against real d
   assert.equal(result.wordStudies.length, 1);
   assert.ok(result.wordStudies[0].byBook.length > 0, "expected a real per-book tally for agapaō");
   assert.ok(result.wordStudies[0].byBook.some((b) => b.book === "JHN"), "agapaō should occur in John's Gospel");
+});
+
+// --- gather_passage's `sections` narrowing (the over-gathering fix --
+// see docs/DECISIONS.md's 2026-09-28 entry) --------------------------------
+// A narrow question shouldn't force the full translations+original-
+// language+commentary bundle. The fetch stub below throws on any URL that
+// isn't the Anthropic endpoint -- so if `sections` were ignored and the
+// full bundle were fetched anyway, this test would fail loudly (a real
+// YouVersion/biblehub fetch attempt), not silently pass.
+
+test("gather_passage with sections: [\"originalLanguage\"] fetches only the interlinear, not translations or commentary", async () => {
+  // Cleared before AND after: this test's own gatherPassage("JHN.3.16", ...)
+  // call must not read a stale result cached by an earlier test's own
+  // JHN.3.16 gather, and its narrowed-sections result must not poison a
+  // LATER test's full-bundle gather of the same reference either (gather.js's
+  // in-memory cache is module-level and outlives any one test in this file).
+  clearGatherCache();
+  let step = 0;
+  globalThis.fetch = async (url, opts) => {
+    const href = url.toString();
+    if (href !== "https://api.anthropic.com/v1/messages") throw new Error(`unexpected fetch: ${href}`);
+    step++;
+    if (step === 1) {
+      return jsonResponse({
+        stop_reason: "tool_use",
+        content: [{ type: "tool_use", id: "t1", name: "gather_passage", input: { reference: "JHN.3.16", sections: ["originalLanguage"] } }],
+      });
+    }
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "The Greek word there is agapaō." }] });
+  };
+
+  const result = await chatTurn({ message: "What's the Greek word for love in John 3:16?", appKey: "test", apiKey: "fake-key" });
+
+  assert.equal(result.gathered.length, 1);
+  const [gathered] = result.gathered;
+  assert.deepEqual(gathered.translations, [], "translations should not have been fetched at all");
+  assert.equal(gathered.commentary.skipped, true, "commentary should not have been fetched at all");
+  assert.ok(gathered.originalLanguage.words.length > 0, "the actually-requested section should still have real data");
+});
+
+test("gather_passage with no sections (or an unrecognized one) still fetches the full bundle, unchanged from before this feature existed", async () => {
+  // This test's own fetch stub deliberately doesn't handle youversion.com
+  // (it throws), so its JHN.3.16 result would otherwise sit in the shared
+  // gather cache as translations full of {error} rows -- clearGatherCache()
+  // afterward keeps that from leaking into a later test that gathers the
+  // same reference expecting a real fetch to actually happen.
+  clearGatherCache();
+  let step = 0;
+  globalThis.fetch = async (url, opts) => {
+    const href = url.toString();
+    if (href !== "https://api.anthropic.com/v1/messages") throw new Error(`unexpected fetch: ${href}`);
+    const body = JSON.parse(opts.body);
+    step++;
+    if (step === 1) {
+      return jsonResponse({
+        stop_reason: "tool_use",
+        content: [{ type: "tool_use", id: "t1", name: "gather_passage", input: { reference: "JHN.3.16" } }],
+      });
+    }
+    return jsonResponse({ stop_reason: "end_turn", content: [{ type: "text", text: "Here's the passage." }] });
+  };
+
+  const result = await chatTurn({ message: "What does John 3:16 mean?", appKey: "test", apiKey: "fake-key" });
+
+  const [gathered] = result.gathered;
+  // Translations fail closed to per-item {error} rows (no real YouVersion
+  // key in this test), not an empty array -- confirming the fetch was
+  // actually attempted, just failed, which is the "unchanged" behavior
+  // this test is protecting.
+  assert.ok(gathered.translations.length > 0, "translations should still have been attempted for the default (no sections) case");
+  assert.equal(gathered.commentary.skipped, undefined, "commentary should still have been attempted, not skipped");
+  clearGatherCache();
 });
 
 // --- Word-Study Web sense-clustering (label_word_senses) ------------------
