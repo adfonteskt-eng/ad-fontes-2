@@ -119,3 +119,32 @@ test("a cross-references request renders the real diagram (with edge stroke-widt
   const cspViolations = await getCspViolations(page);
   expect(cspViolations, describeCspViolations(cspViolations)).toEqual([]);
 });
+
+// 2026-09-28: a real regression -- asking about a passage used to dump
+// translations, interlinear, commentary, cross-refs, and maps regardless
+// of how narrow the question was (see docs/DECISIONS.md's 2026-09-28
+// entry). This locks in the actual fix end to end against the real model,
+// not just the synthetic-fixture coverage in followup-actions.spec.js.
+test("a narrow, single-word question gets a narrow answer -- no translations, commentary, cross-references, map, or briefing pulled in unasked -- and the interface offers a way to ask for more", async ({ page }) => {
+  await collectCspViolations(page);
+  await page.goto("/");
+  await page.locator("#chat-input").fill('What\'s the Greek word for "love" in John 3:16?');
+  await page.locator("#chat-form button[type=submit]").click();
+
+  await expect(page.locator(".source-passage").first()).toBeVisible({ timeout: 45_000 });
+  await expect(page.locator(".interlinear").first()).toBeVisible();
+
+  // The whole point of the fix: nothing else got pulled in just because a
+  // passage was in view.
+  await expect(page.locator(".translation")).toHaveCount(0);
+  await expect(page.locator(".cross-ref-diagram")).toHaveCount(0);
+  await expect(page.locator(".map-diagram")).toHaveCount(0);
+  await expect(page.locator(".passage-briefing")).toHaveCount(0);
+
+  // Progressive disclosure: narrow isn't a dead end.
+  await expect(page.locator(".followup-action", { hasText: "Show translations" })).toBeVisible();
+  await expect(page.locator(".followup-action", { hasText: "See cross-references" })).toBeVisible();
+
+  const cspViolations = await getCspViolations(page);
+  expect(cspViolations, describeCspViolations(cspViolations)).toEqual([]);
+});
