@@ -1030,6 +1030,163 @@ suite asserted on the old `.briefing-row`/`.briefing-label` selectors (only
 restyle of already-real, already-grounded data with no new logic to
 regress. 342/342 unit tests, 56/56 Playwright tests passing unaffected.
 
+## 2026-09-28 — Fixed a real over-gathering regression: narrow tool use,
+depth-tied breadth, go-deeper follow-ups
+
+A user complaint, reported directly rather than found during a QA pass:
+asking about a passage dumped everything the tool had (translations,
+interlinear, commentary, cross-refs, maps) regardless of what was actually
+asked — overwhelming rather than helpful. Different problem from the
+2026-09-24 source-chips work, which fixed how already-gathered material is
+*displayed*, not what gets gathered and written into the main answer in
+the first place.
+
+**Root-cause audit** (`lib/chat.js`, `lib/gather.js`):
+
+1. `gather_passage` was monolithic — one call always fetched and showed
+   the *full* bundle (4 translations, the full interlinear, 5
+   commentaries), with no way to ask for just one part. A question about a
+   single Greek word's meaning still forced the same four-translation,
+   five-commentary card onto the screen as a "what does this whole passage
+   mean" question would.
+2. The system prompt only *softly* encouraged restraint on
+   `find_cross_references`/`generate_map`/`generate_passage_briefing`
+   ("worth calling whenever... genuinely relevant," "not for every place
+   mention") — real wording, but not a strong enough bar to reliably stop
+   a capable model from reaching for "genuinely relevant" liberally when
+   being thorough is the path of least resistance.
+3. **The Depth slider (Everyday/Student/Scholar) had zero effect on any of
+   this** — confirmed by grepping every use of `depthLevel` in `lib/chat.js`:
+   it only ever selected a paragraph of wording/tone guidance
+   (`DEPTH_LEVEL_PARAGRAPHS`), never touched tool-calling behavior, `sections`,
+   or anything gathered/shown. The user's own suspicion was exactly right.
+4. Every tool result a turn produced was returned to the frontend
+   unconditionally (`chatTurn`'s `gatheredThisTurn`/
+   `crossReferenceDiagramsByFocus`/etc.) with no filtering step based on
+   relevance or depth — whatever got called, got shown, full stop.
+
+**Fix, in order of leverage:**
+
+1. **`gather_passage` gains an optional `sections` parameter**
+   (`["translations", "originalLanguage", "commentary"]`, any subset;
+   omitted defaults to all three, preserving the existing broad-question
+   behavior unchanged). `lib/gather.js`'s `gatherPassage()` already had this
+   exact pattern for commentary alone (`includeCommentary`, used by
+   `index.js --no-commentary` and `?commentary=false`) — extended with
+   matching `includeTranslations`/`includeOriginalLanguage` flags, each part
+   of the cache key (a narrower and a fuller request for the same reference
+   must not collide). A skipped section renders as nothing on the frontend
+   (`renderOriginalLanguage`'s new `type === "skipped"` branch; an empty
+   translations array and `commentary.skipped` already rendered as nothing
+   via existing "empty means don't show a heading" logic) rather than a
+   "not found" message for something that was never asked for.
+2. **A new, prominent "match tool use to the size of the question"
+   principle**, placed right after the tool list, before any of the
+   existing per-tool guidance: a narrow question gets one narrow tool call
+   (or one `gather_passage` section); `find_cross_references`/
+   `generate_map`/`generate_passage_briefing` are only for when the
+   question is actually about that thing, not a routine add-on. Each of
+   those three tools' own descriptions was also tightened from soft
+   encouragement ("worth calling whenever... genuinely relevant") to real
+   restriction ("call it only when...").
+3. **Depth now genuinely gates tool-calling breadth, not just wording** —
+   the part of the fix the user specifically asked for. Each
+   `DEPTH_LEVEL_PARAGRAPHS` entry gained an explicit breadth clause:
+   *Everyday* defaults to the single narrowest tool call and stops there
+   (a deliberate behavior change for the default, untouched setting — that
+   IS the fix, not a side effect to avoid); *Student* keeps default scope
+   but may proactively add one clearly relevant extra; *Scholar* is
+   explicitly told this is "a real expectation... not just a permission" —
+   treat a bare-reference or open-ended question as an invitation to
+   proactively add one genuinely relevant extra (a cross-reference for a
+   passage well-known for its connections, a textual-critical nuance,
+   whole-book orientation) without being asked.
+4. **A "go deeper" follow-up-actions row** (`public/app.js`'s
+   `buildFollowUpActions`/`renderFollowUpActions`) after any reply that
+   gathered at least one passage — computed from what's genuinely missing
+   this turn (a skipped `gather_passage` section, no cross-reference for
+   this passage yet, no briefing yet), capped to the *last* gathered
+   passage so a whole-book turn can't multiply this into the same kind of
+   clutter the source-chips dedup fix already solved once. Each button is a
+   plain natural-language follow-up (`"Show me the original language for
+   JHN.3.16."`) routed through the same `sendChatMessage()` every other
+   quick-action in this app already uses — not a side-channel fetch that
+   would bypass the model's own tool-scoping judgment on the next turn.
+
+**Design fork, flagged rather than guessed on**: whether the "go deeper"
+affordance should be actionable buttons (each triggers a real new message)
+or passive citations (extending the source-chips pattern to show what
+*could* be fetched as an inert, clickable-for-preview label). Chose
+actionable buttons: a narrow answer's whole point is that the rest was
+genuinely never fetched, so there's nothing real to cite yet — a chip that
+"previews" something never actually gathered would be either empty or a
+lie. An actionable follow-up that triggers a real fetch is the only
+mechanism consistent with this app's "never fabricate, always ground in
+real data" discipline.
+
+**A second real bug found during live verification, fixed same-session**:
+Receipts Mode (`lib/verify.js`) flagged an ordinary quoted aside in
+Claude's own prose (not a Scripture quotation at all) as "doesn't match
+any translation fetched this turn" whenever a narrow gather deliberately
+excluded translations — there was never any ground truth to check *any*
+quote against, positive or negative, so "unverified" misleadingly read as
+"checked and wrong" rather than "never looked." Fixed by distinguishing a
+deliberate skip (translations: `[]`) from a real fetch failure (a
+non-empty array of `{error}` rows) in `verifyReplyQuotes` — only the
+former now short-circuits to "nothing to flag." The pre-existing "nothing
+gathered at all still flags a quote" behavior (a real, separately-tested
+design decision, presumably meant to catch a reply quoting from pure
+memory with zero grounding) is deliberately left unchanged.
+
+**A prompt-tuning fix found during live verification**: the Scholar depth
+paragraph's first draft ("feel free to be more proactively thorough")
+was being dominated by the new, much more assertively-worded general
+restraint paragraph earlier in the prompt — a live test showed a bare
+reference to Isaiah 53:5 (a passage well-known for its NT cross-references)
+got *identical* treatment at Everyday and Scholar depth. Reworded as a
+concrete, assertive expectation rather than a soft permission; re-verified
+live and confirmed Scholar now proactively adds a relevant cross-reference
+for the same bare reference that stayed narrower at Everyday depth (see
+below).
+
+**Verified live** (sandboxed Browser pane, real Anthropic calls, Everyday
+depth unless noted):
+- *Narrow*: "What's the Greek word for 'love' in John 3:16?" → exactly one
+  chip ("Greek (NA28)"), zero translations/commentary/cross-refs/map/
+  briefing rendered, four follow-up buttons offered (translations,
+  commentary, cross-references, briefing).
+- *Follow-up round-trip*: clicking "See cross-references" sent "What are
+  the cross-references for JHN.3.16?" and rendered a real cross-reference
+  diagram — the mechanism works end to end, not just in the synthetic test
+  fixtures.
+- *Broad, bare reference*: "Romans 8:28" → full bundle (10 sources:
+  3 translations + Greek + 5 commentaries), but — the actual fix, distinct
+  from the old behavior — zero cross-references/map/briefing auto-added,
+  with follow-up buttons offered for exactly those two.
+- *Depth comparison, same bare reference*: "Isaiah 53:5" at Everyday depth
+  → full bundle only, no cross-references. The same message at Scholar
+  depth → full bundle *plus* a proactively-added, genuinely relevant
+  cross-reference diagram, with no map or briefing added (still exercising
+  judgment, not a blanket dump) — a real, confirmed behavior difference
+  tied to the Depth slider, not just wording.
+- No console errors in any of the above; the Receipts Mode false-positive
+  was reproduced before the `lib/verify.js` fix and confirmed gone after.
+
+**Regression tests**: `test/gather.test.mjs` (3 new — includeTranslations/
+includeOriginalLanguage skip their fetch, and are part of the cache key),
+`test/chat.test.mjs` (2 new — `sections` narrows the fetch end to end
+against real local data, using the existing "the fetch stub throws on any
+unexpected URL" pattern as an implicit assertion that no over-fetching
+happened; found and fixed a real shared-cache test-order bug along the
+way, since gather.js's module-level cache isn't cleared between tests in
+this file), `test/verify.test.mjs` (3 new — the narrow-gather exception,
+that a real fetch failure still flags as before, and that a mixed narrow/
+full turn still verifies normally), `qa/tests/followup-actions.spec.js`
+(5 new, no Anthropic cost — seeds `localStorage` the same way
+`source-chips.spec.js` does), and one new real-call test in
+`chat-flow.spec.js` locking in the end-to-end fix against the actual
+model. 350/350 unit tests, 62/62 Playwright tests passing.
+
 ## Not yet built (spec items, honestly tracked, not silently dropped)
 
 In spec priority order, each with why it's not done yet — everything is
