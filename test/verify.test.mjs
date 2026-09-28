@@ -144,3 +144,54 @@ test("verifyReplyQuotes with no gathered passages at all flags every quote as un
   assert.equal(quotes[0].verified, false);
   assert.equal(allVerified, false);
 });
+
+// --- The narrow-gather exception (2026-09-28 fix) -------------------------
+// gather_passage's `sections` parameter (lib/chat.js) lets a narrow
+// question skip translations entirely -- a passage IS gathered (unlike the
+// "nothing gathered at all" case above, which still flags as before), but
+// there's no translation text anywhere to check a quote against. Flagging
+// a quote as "unverified" here would misleadingly read as "checked and
+// wrong" rather than "never looked," so nothing gets flagged.
+
+test("verifyReplyQuotes doesn't flag a quote when a passage was gathered but sections deliberately excluded translations", () => {
+  const reply = 'This is the same root as the noun "agapē," which the New Testament often uses for a deep, deliberate, self-giving love.';
+  const gathered = [
+    {
+      reference: { usfm: "JHN.3.16" },
+      translations: [], // deliberately skipped via sections, not a fetch failure
+      originalLanguage: { type: "greek", words: [{ surface: "ἠγάπησεν" }] },
+      commentary: { skipped: true, entries: [], error: null, url: null },
+    },
+  ];
+  const { quotes, allVerified } = verifyReplyQuotes(reply, gathered);
+  assert.deepEqual(quotes, []);
+  assert.equal(allVerified, true);
+});
+
+test("verifyReplyQuotes still flags a quote when translations were attempted but all failed (a real fetch error, not a deliberate skip)", () => {
+  const reply = '"For God so loved the world that He gave His one and only Son, that everyone who believes in Him shall not perish."';
+  const gathered = [
+    {
+      reference: { usfm: "JHN.3.16" },
+      translations: [{ translation: { abbr: "BSB" }, content: null, error: "timed out" }],
+      originalLanguage: { type: "greek", words: [] },
+      commentary: { entries: [], error: null, url: null },
+    },
+  ];
+  const { quotes, allVerified } = verifyReplyQuotes(reply, gathered);
+  assert.equal(quotes.length, 1);
+  assert.equal(quotes[0].verified, false);
+  assert.equal(allVerified, false);
+});
+
+test("verifyReplyQuotes still verifies normally when at least one gathered passage has real translation content, even if another was gathered narrower", () => {
+  const reply = '"For God so loved the world that He gave His one and only Son."';
+  const gathered = [
+    { reference: { usfm: "JHN.3.16" }, translations: [{ translation: { abbr: "BSB" }, content: "For God so loved the world that He gave His one and only Son." }], originalLanguage: {}, commentary: {} },
+    { reference: { usfm: "ROM.8.28" }, translations: [], originalLanguage: { type: "skipped" }, commentary: { skipped: true } },
+  ];
+  const { quotes, allVerified } = verifyReplyQuotes(reply, gathered);
+  assert.equal(quotes.length, 1);
+  assert.equal(quotes[0].verified, true);
+  assert.equal(allVerified, true);
+});
