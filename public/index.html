@@ -18,14 +18,17 @@
 </head>
 <body>
   <!-- Top-left menu: page navigation (Home / Today's Passage / Reading
-       Plans), the "previous conversations" list once signed in,
-       Subscription, and accounts (sign up/in, sign out). The button itself
-       stays hidden until auth.js confirms Supabase is actually configured
-       (GET /api/config) -- account-related menu items only mean anything
-       once there's an account backend to back them, though the page-
-       navigation items (Home/Today/Plans/Subscription) work the same with
-       or without accounts configured, since the menu button's visibility is
-       currently all-or-nothing rather than per-item. -->
+       Plans / My Notes / My Outlines / Subscription / Sources & Licenses),
+       the "previous conversations" list once signed in, and accounts (sign
+       up/in, sign out). The button itself is revealed unconditionally by
+       auth.js, independent of Supabase -- these page-nav items work the
+       same with or without accounts configured, so they shouldn't (and no
+       longer do) disappear along with account-only features. Only the
+       account footer inside the panel (`.menu-footer`, hidden by default
+       below) waits on auth.js's initAuth() to confirm Supabase is actually
+       configured AND reachable before it appears -- fixed from an earlier
+       all-or-nothing version where a missing/slow Supabase config hid the
+       entire menu, page-navigation included. -->
   <div id="site-menu" class="site-menu">
     <button
       type="button"
@@ -73,7 +76,13 @@
       <button type="button" id="menu-subscription-button" class="menu-nav-item">Subscription</button>
       <button type="button" id="menu-sources-button" class="menu-nav-item">Sources &amp; Licenses</button>
 
-      <div class="menu-footer">
+      <!-- Hidden by default until auth.js's initAuth() confirms Supabase is
+           actually configured AND reachable -- unlike the hamburger button
+           and the plain page-nav items above it (Home/Today/Plans/Notes/
+           Outlines/Subscription/Sources), which don't need accounts at all
+           and are revealed unconditionally, independent of this. See
+           auth.js's file header comment for the fuller history here. -->
+      <div class="menu-footer" hidden>
         <!-- Signed out: an initial choice between creating an account and
              signing in to an existing one, each revealing its own
              email+password form in place (see auth.js's showAuthState()) --
@@ -216,6 +225,16 @@
       <h1>ad fontes</h1>
     </a>
     <p class="tagline">Ask about any passage — translations, the original Greek or Hebrew, and commentary come along to help you understand it.</p>
+
+    <!-- Rotating hero background -- one of 15 painted biblical scenes behind
+         this header, the same one for everyone on a given day (see
+         public/scenes/scenes.json and app.js's loadHeroScene()), picked
+         deterministically from today's date so it never flickers between
+         page loads. Hidden until JS actually has a scene to show, so a
+         visitor never sees an empty caption pill float in the corner. The
+         same "every claim traces to a source" idea behind Receipts Mode,
+         applied to the art -- clicking it asks the chat about that passage. -->
+    <button type="button" id="hero-scene-caption" class="hero-scene-caption" hidden></button>
   </header>
 
   <main>

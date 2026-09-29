@@ -1,12 +1,20 @@
-// Optional accounts, via Supabase, plus the top-left site menu they live
-// in (sign up/in, sign out, password reset — and, once signed in, the
-// "previous conversations" list, the daily-digest toggle, and the paid-only
-// "name your agent" field). This file is entirely self-contained and fails
+// Optional accounts, via Supabase, plus the account-specific parts of the
+// top-left site menu (sign up/in, sign out, password reset — and, once
+// signed in, the "previous conversations" list, the daily-digest toggle,
+// and the paid-only "name your agent" field). The menu button itself, and
+// its plain page-navigation items (Home/Today's Passage/Reading Plans/My
+// Notes/My Outlines/Subscription/Sources & Licenses), don't need accounts
+// at all and are revealed unconditionally, right below -- see that
+// statement's own comment for why this used to be entangled with Supabase
+// config and isn't anymore (bug fix, Sept 2026). Only the account footer
+// (`.menu-footer` -- sign-up/sign-in/recovery forms, the signed-in account
+// row) stays hidden until this file confirms Supabase is actually
+// configured AND reachable. This file is entirely self-contained and fails
 // silently at every step: if Supabase isn't configured on the server (GET
 // /api/config returns nulls — the default until SUPABASE_URL etc. are set),
-// or the CDN script didn't load, the menu button just never appears and
-// app.js's chat flow is completely unaffected. Accounts are additive
-// everywhere, never required.
+// or the CDN script didn't load, the account footer just never appears and
+// app.js's chat flow (plus every plain page-nav item) is completely
+// unaffected. Accounts are additive everywhere, never required.
 //
 // Sign-in is email + password (not a magic link) — Supabase's "Confirm
 // email" project setting stays ON (see README -> Accounts & study memory),
@@ -56,6 +64,7 @@ window.adFontesAuth = {
 
 const menuButton = document.getElementById("site-menu-button");
 const menuPanel = document.getElementById("site-menu-panel");
+const menuFooter = document.querySelector(".menu-footer");
 const signedOutSection = document.getElementById("menu-signed-out");
 const signedInSection = document.getElementById("menu-signed-in");
 const menuRecoverySection = document.getElementById("menu-recovery");
@@ -131,6 +140,22 @@ function closeMenu() {
   menuPanel.hidden = true;
   menuButton.setAttribute("aria-expanded", "false");
 }
+
+// Bug fix (Sept 2026): this used to only happen once initAuth() below had
+// confirmed Supabase was configured AND reachable -- which meant a server
+// with no accounts set up at all (or one where GET /api/config was briefly
+// slow or unreachable) hid the ENTIRE menu, including the plain page-nav
+// items (Home, Today's Passage, Reading Plans, My Notes, My Outlines,
+// Subscription, Sources & Licenses) that have nothing to do with accounts
+// and work identically either way. That's exactly the "tabs are hard to
+// find" failure mode: the only way to reach any other page was this menu,
+// and the menu could vanish for reasons unrelated to navigation at all.
+// Revealing it here, unconditionally, at load time, means the menu (and
+// therefore every plain page-nav item) is always there regardless of
+// whether accounts are configured. Only the account-specific footer inside
+// it (`.menu-footer` -- sign-up/sign-in, the signed-in row) still waits on
+// initAuth() to confirm Supabase actually works before it appears.
+menuButton.hidden = false;
 
 menuButton.addEventListener("click", () => {
   if (menuPanel.hidden) openMenu();
@@ -326,7 +351,7 @@ function showRecovery() {
   signedInSection.hidden = true;
   menuRecoverySection.hidden = false;
   recoveryErrorNote.hidden = true;
-  menuButton.hidden = false;
+  menuFooter.hidden = false;
   openMenu();
 }
 
@@ -812,18 +837,18 @@ async function initAuth() {
     window.adFontesSubscription?.refresh();
   });
 
-  // Reveal the menu and wire up every form now, rather than waiting on the
-  // initial session check below to resolve first. None of this actually
-  // needs to know whether a previous session exists yet -- default to
-  // "signed out" and let that check upgrade it to "signed in" once/if it
-  // resolves. This matters because supabase-js's own client retries a
-  // transient network failure internally before giving up on
+  // Reveal the account footer and wire up every form now, rather than
+  // waiting on the initial session check below to resolve first. None of
+  // this actually needs to know whether a previous session exists yet --
+  // default to "signed out" and let that check upgrade it to "signed in"
+  // once/if it resolves. This matters because supabase-js's own client
+  // retries a transient network failure internally before giving up on
   // getSession(), which can take a good while (minutes, in a real outage)
-  // -- gating the ENTIRE menu (including things that have nothing to do
-  // with accounts, like Reading Plans or plain in-page navigation) behind
-  // that meant a slow or briefly-unreachable Supabase could make the whole
-  // menu vanish for as long as the retry takes, not just sign-in.
-  menuButton.hidden = false;
+  // -- and now that the menu button and its plain page-nav items are
+  // always visible regardless (see that unconditional menuButton.hidden =
+  // false above), only this account-specific footer is what waits on that
+  // retry, not in-page navigation too.
+  menuFooter.hidden = false;
   // Not refreshing reading plans/outlines here too -- app.js's own init
   // sequence already calls both once unconditionally on page load, and
   // onAuthStateChange's immediate INITIAL_SESSION firing (just below) calls

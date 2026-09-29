@@ -252,6 +252,7 @@ const CONTENT_TYPES = {
   ".png": "image/png",
   ".ico": "image/x-icon",
   ".woff2": "font/woff2",
+  ".webp": "image/webp",
 };
 
 // Render (and most hosts fronted by a proxy/load balancer) terminates the

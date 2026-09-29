@@ -1192,6 +1192,29 @@ const COLD_START_HINT_DELAY_MS = 8000;
 const COLD_START_HINT_TEXT =
   "Still gathering… ad fontes takes a little longer to stir after some quiet time, but it's on its way.";
 
+// Bug fix (Sept 2026): every *server-side* external call (Anthropic,
+// YouVersion, biblehub, Upstash) already goes through fetchWithTimeout
+// (see lib/fetch-timeout.js) so a stuck upstream service fails cleanly
+// instead of hanging -- but this fetch, the one call from the browser to
+// our own /api/chat, had no timeout of its own at all. Most of the time
+// that's fine (the server-side timeouts above bound how long a normal
+// request can take), but a stalled connection -- a dropped packet, a
+// proxy that swallows the response, Render's load balancer timing out a
+// slow cold-start wake before the origin replies -- meant the "Thinking…"
+// spinner (with the cold-start hint above it) could just sit there
+// forever with no error and no way to recover short of reloading the
+// page. That's almost certainly what "the tool doesn't respond" reports
+// were describing: not a wrong answer, but no answer and no feedback
+// either. AbortController turns that same "hangs forever" into "fails
+// after N seconds," exactly like fetchWithTimeout does server-side.
+// Generous margin above ANTHROPIC_TIMEOUT_MS (lib/chat.js, 45s) times
+// MAX_TOOL_ITERATIONS (8) -- a real multi-tool-call turn can legitimately
+// take a while, and this should only ever fire for a genuinely stuck
+// request, never a slow-but-working one.
+const CHAT_REQUEST_TIMEOUT_MS = 120000;
+const CHAT_REQUEST_TIMEOUT_TEXT =
+  "This is taking much longer than it should, so I've stopped waiting. Please try sending your message again.";
+
 function appendSources(gatheredList) {
   const html = renderSources(gatheredList);
   if (!html) return;
@@ -1635,6 +1658,9 @@ async function sendChatMessage(message) {
     if (label) label.textContent = COLD_START_HINT_TEXT;
   }, COLD_START_HINT_DELAY_MS);
 
+  const abortController = new AbortController();
+  const requestTimeoutTimer = setTimeout(() => abortController.abort(), CHAT_REQUEST_TIMEOUT_MS);
+
   try {
     // window.adFontesAuth is defined by auth.js unconditionally (even when
     // accounts aren't configured at all — see that file), so this is
@@ -1648,6 +1674,7 @@ async function sendChatMessage(message) {
       method: "POST",
       headers,
       body: JSON.stringify({ sessionId: chatSessionId, conversationId: chatConversationId, message, depthLevel: chatDepthLevel }),
+      signal: abortController.signal,
     });
     const data = await response.json();
 
@@ -1694,12 +1721,13 @@ async function sendChatMessage(message) {
     saveChatState();
   } catch (error) {
     pending.remove();
-    const errorText = `Network error: ${error.message}`;
+    const errorText = error.name === "AbortError" ? CHAT_REQUEST_TIMEOUT_TEXT : `Network error: ${error.message}`;
     appendChatMessage("error", errorText);
     chatLogData.push({ role: "error", text: errorText });
     saveChatState();
   } finally {
     clearTimeout(coldStartTimer);
+    clearTimeout(requestTimeoutTimer);
     chatSendButton.disabled = false;
     // Return focus to the input so another message can be typed right away
     // without tapping back into the field — skipped if the user has text
@@ -1782,6 +1810,48 @@ const PATH_VIEWS = Object.fromEntries(Object.entries(VIEW_PATHS).map(([view, pat
 // top-left menu (see auth.js's menuTodayButton/menuPlansButton/
 // menuOutlinesButton/menuSubscriptionButton/menuSourcesButton handlers,
 // which call the goTo*View() wrappers below via window.adFontesChat).
+// Maps a view name to the menu-nav button that represents it, for
+// setActiveNavButton() below -- "home" and "conversation" both point at
+// the same Home button, since there's no separate "conversation" entry in
+// the menu (a conversation is just what "Home" looks like once a chat is
+// underway). A view with no button here (there isn't one currently) simply
+// clears every button's active state instead.
+const NAV_BUTTON_ID_BY_VIEW = {
+  home: "menu-home-button",
+  conversation: "menu-home-button",
+  today: "menu-today-button",
+  plans: "menu-plans-button",
+  outlines: "menu-outlines-button",
+  notes: "menu-notes-button",
+  subscription: "menu-subscription-button",
+  sources: "menu-sources-button",
+};
+
+// So the menu itself shows which page you're on -- previously every
+// menu-nav-item looked identical regardless of the current view, the one
+// concrete piece of "hard to tell where you are" feedback missing from the
+// nav (see this file's other nav fix, loadHeroScene() above, and auth.js's
+// menuButton.hidden fix, for the other two pieces of this same "layout and
+// tabs are easy to find" pass). Plain DOM lookups by id rather than consts
+// up top: these buttons are auth.js's to own and wire up click handlers
+// for, this just needs to read/toggle a class and an aria attribute on
+// them, and there are few enough call sites that a lookup each time is not
+// worth caching.
+function setActiveNavButton(view) {
+  for (const id of new Set(Object.values(NAV_BUTTON_ID_BY_VIEW))) {
+    const button = document.getElementById(id);
+    if (!button) continue;
+    button.classList.remove("is-active-page");
+    button.removeAttribute("aria-current");
+  }
+  const activeId = NAV_BUTTON_ID_BY_VIEW[view];
+  const activeButton = activeId && document.getElementById(activeId);
+  if (activeButton) {
+    activeButton.classList.add("is-active-page");
+    activeButton.setAttribute("aria-current", "page");
+  }
+}
+
 function renderView(view) {
   const isHome = view === "home";
   const isConversation = view === "conversation";
@@ -1807,6 +1877,7 @@ function renderView(view) {
   // via sendChatMessage() rather than taking typed input directly.
   chatForm.hidden = !(isHome || isConversation);
   homeButton.hidden = isHome; // nothing to go "home" from while already there
+  setActiveNavButton(view);
 }
 
 function goToView(view, { push = true } = {}) {
@@ -1886,6 +1957,65 @@ function renderExamples() {
     button.textContent = label;
     button.addEventListener("click", () => sendChatMessage(question));
     examplesContainer.appendChild(button);
+  }
+}
+
+// --- Hero scene background -------------------------------------------------
+// One of 15 painted biblical scenes (see public/scenes/scenes.json and the
+// "Ad Fontes -- Rotating Scene Backgrounds" prompt pack) rotates behind the
+// "ad fontes" header. Picked deterministically from today's date (UTC
+// day-of-year, modulo the scene count) rather than randomly, so every
+// visitor sees the same scene on the same day and it never flickers
+// between page loads or reloads -- same reasoning as GET /api/daily's
+// pick for Today's Passage below. Fails silently on any error (missing
+// manifest, a scene image that 404s, a network hiccup): this is a
+// decorative touch, never something that should block or break the rest
+// of the page.
+const siteHeader = document.querySelector("header");
+const heroSceneCaption = document.getElementById("hero-scene-caption");
+
+function dayOfYearUTC(date) {
+  const startOfYear = Date.UTC(date.getUTCFullYear(), 0, 1);
+  const today = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  return Math.floor((today - startOfYear) / 86400000);
+}
+
+async function loadHeroScene() {
+  try {
+    const response = await fetch("/scenes/scenes.json");
+    if (!response.ok) return;
+    const scenes = await response.json();
+    if (!Array.isArray(scenes) || scenes.length === 0) return;
+
+    const scene = scenes[dayOfYearUTC(new Date()) % scenes.length];
+    const imageUrl = `/scenes/${scene.file}`;
+
+    // Preload before swapping anything in, so the caption pill never
+    // appears a beat before the image behind it has actually painted.
+    await new Promise((resolve, reject) => {
+      const preload = new Image();
+      preload.onload = resolve;
+      preload.onerror = reject;
+      preload.src = imageUrl;
+    });
+
+    // Set via the CSSOM (see applyComputedStyles() below for the same
+    // reasoning) rather than a literal style="..." attribute, so style-src
+    // can stay 'self' with no 'unsafe-inline' needed.
+    siteHeader.style.backgroundImage = `url("${imageUrl}")`;
+    siteHeader.classList.add("has-hero");
+
+    if (scene.reference && scene.scene) {
+      heroSceneCaption.textContent = `${scene.scene} — ${scene.reference}`;
+      heroSceneCaption.addEventListener("click", () =>
+        sendChatMessage(`What does ${scene.reference} mean? It's the passage behind today's "${scene.scene}" background.`),
+      );
+      heroSceneCaption.hidden = false;
+    }
+  } catch {
+    // Missing manifest, a 404'd image, or a network hiccup -- the header
+    // just stays its plain default parchment color, same fallback
+    // philosophy as loadDailyPassage() below.
   }
 }
 
@@ -2667,6 +2797,7 @@ history.replaceState({ view: initialView }, "", VIEW_PATHS[initialView] + CURREN
 // straight past the "ad fontes" heading and welcome copy before they've
 // even seen it.
 if (initialView === "home") chatInput.focus({ preventScroll: true });
+loadHeroScene();
 loadDailyPassage();
 loadReadingPlans();
 loadOutlines();

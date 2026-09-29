@@ -127,6 +127,15 @@ input[type="checkbox"] {
   color: var(--accent);
 }
 
+/* Which page you're currently on, inside the menu itself -- see app.js's
+   setActiveNavButton(). Previously every item looked identical regardless
+   of the current view, with no way to tell at a glance where you were. */
+.menu-nav-item.is-active-page {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .menu-nav-item[hidden] {
   display: none;
 }
@@ -473,11 +482,40 @@ input[type="checkbox"] {
 }
 
 header {
+  position: relative;
   padding: 2.5rem 1.25rem 1rem;
   text-align: center;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  overflow: hidden;
+}
+
+/* Dark gradient overlay so the header text stays legible over any of the
+   15 rotating photographic scenes (see app.js's loadHeroScene()) -- sits
+   between the background-image (painted on the header element itself,
+   set via the CSSOM once a scene has loaded) and the h1/tagline/caption
+   above it. Fades down to --paper at the bottom so the seam into <main>
+   stays clean. Starts transparent and only fades in once .has-hero is
+   added, so there's no dark band flashing in before any image exists. */
+header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(180deg, rgba(24, 17, 6, 0.58) 0%, rgba(24, 17, 6, 0.32) 60%, var(--paper) 100%);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+
+header.has-hero::before {
+  opacity: 1;
 }
 
 header h1 {
+  position: relative;
+  z-index: 1;
   font-family: var(--serif);
   font-size: 2rem;
   font-style: italic;
@@ -497,10 +535,53 @@ header h1 {
 }
 
 .tagline {
+  position: relative;
+  z-index: 1;
   margin: 0 auto;
   max-width: 34rem;
   color: var(--ink-soft);
   font-size: 0.95rem;
+}
+
+/* Text recolors to stay legible once a hero photo is behind it. Default
+   (no .has-hero yet -- e.g. scenes.json failed to load, or JS never ran)
+   keeps the original --ink/--ink-soft colors against the plain --paper
+   background, so there's never a flash of pale text on a pale background
+   before an image is actually in place. */
+header.has-hero h1,
+header.has-hero .tagline {
+  color: #f4ecd9;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
+}
+
+header.has-hero .home-link:hover h1 {
+  color: #f4ecd9;
+  opacity: 0.85;
+}
+
+/* Small citation pill, bottom-right of the header -- the same "every claim
+   traces to a source" idea behind Receipts Mode, applied to the art
+   itself. Clicking it asks the chat about that passage (see app.js's
+   loadHeroScene()). Stays hidden (the [hidden] attribute's default
+   display: none is enough here -- nothing below sets an unconditional
+   display on this selector) until a scene has actually loaded. */
+.hero-scene-caption {
+  position: absolute;
+  z-index: 1;
+  right: 0.9rem;
+  bottom: 0.7rem;
+  border: none;
+  background: rgba(24, 17, 6, 0.4);
+  color: #f4ecd9;
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.hero-scene-caption:hover {
+  background: rgba(24, 17, 6, 0.58);
 }
 
 main {
