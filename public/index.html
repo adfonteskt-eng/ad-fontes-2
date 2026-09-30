@@ -14,9 +14,29 @@
        public/sw.js, and README -> PWA & push notifications). -->
   <link rel="manifest" href="/manifest.json" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <!-- Ivory Aurora typography: Libre Caslon Display (serif headings) +
+       Work Sans (sans body) -- see the Ad Fontes design-directions canvas.
+       Google Fonts is the one external host this strict CSP's font-src/
+       style-src allow (see server.js's buildContentSecurityPolicy()). -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Display&family=Work+Sans:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
+  <!-- Full-page rotating hero background (see app.js's loadHeroScene()) --
+       one fixed layer behind the ENTIRE home page (header's hero title
+       and everything in <main> below it), not just the header bar. A
+       dedicated position:fixed div rather than a background-image on
+       <body> itself: background-attachment:fixed is unreliable on mobile
+       Safari, while a fixed div's own box always exactly matches the
+       viewport regardless of page scroll height, so "cover" sizing behaves
+       predictably. Only actually visible on the plain home view -- see
+       style.css's body[data-view="home"].hero-loaded .hero-bg rule --
+       and only once a scene has actually loaded (opacity fades in via
+       .hero-loaded on <body>, never an abrupt pop-in or empty flash). -->
+  <div id="hero-bg" class="hero-bg" aria-hidden="true"></div>
+
   <!-- Top-left menu: page navigation (Home / Today's Passage / Reading
        Plans / My Notes / My Outlines / Subscription / Sources & Licenses),
        the "previous conversations" list once signed in, and accounts (sign
@@ -60,16 +80,37 @@
       <!-- The conversations list (signed-in users, via GET /api/conversations)
            or, when there's nothing to show -- signed out, or signed in with
            no conversations yet -- a "New chat" button instead. auth.js's
-           renderConversations() toggles between these two. -->
+           renderConversations() toggles between these two.
+
+           The list itself is a real dropdown (menu-conversations-toggle +
+           menu-conversations-content, collapsed by default), not an
+           always-expanded block -- so a long conversation history doesn't
+           push every other menu item (Subscription, Sources & Licenses,
+           account controls) down out of view every time the menu opens.
+           The Recent/By book sort toggle lives inside it, unchanged. -->
       <div class="menu-conversations">
-        <div id="menu-conversations-header" class="menu-conversations-header" hidden>
+        <button
+          type="button"
+          id="menu-conversations-toggle"
+          class="menu-nav-item menu-conversations-toggle"
+          aria-expanded="false"
+          aria-controls="menu-conversations-content"
+          hidden
+        >
           <span>Conversations</span>
-          <div class="menu-sort-toggle" role="group" aria-label="Sort conversations">
-            <button type="button" id="conversations-sort-recent" class="menu-sort-button" aria-pressed="true">Recent</button>
-            <button type="button" id="conversations-sort-book" class="menu-sort-button" aria-pressed="false">By book</button>
+          <svg class="menu-conversations-chevron" width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+            <path d="M2.5 4.5L6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </button>
+        <div id="menu-conversations-content" class="menu-conversations-content" hidden>
+          <div id="menu-conversations-header" class="menu-conversations-header">
+            <div class="menu-sort-toggle" role="group" aria-label="Sort conversations">
+              <button type="button" id="conversations-sort-recent" class="menu-sort-button" aria-pressed="true">Recent</button>
+              <button type="button" id="conversations-sort-book" class="menu-sort-button" aria-pressed="false">By book</button>
+            </div>
           </div>
+          <ul id="conversations-list" class="conversations-list"></ul>
         </div>
-        <ul id="conversations-list" class="conversations-list"></ul>
         <button type="button" id="menu-new-chat-button" class="menu-nav-item">New chat</button>
       </div>
 
@@ -221,6 +262,7 @@
          calls directly (intercepting the default navigation, since a real
          page reload to "/" wouldn't clear localStorage/in-memory state on
          its own). href="/" is still a reasonable fallback if JS fails. -->
+    <p class="hero-eyebrow" aria-hidden="true">A quiet way back to the source</p>
     <a href="/" id="home-link" class="home-link">
       <h1>ad fontes</h1>
     </a>

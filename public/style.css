@@ -1,18 +1,24 @@
 :root {
-  /* Aged-parchment palette — darker than the original cream (#fbf9f4) per
-     request, still a light warm theme rather than a dark-mode flip. --panel
-     stays a lighter, cleaner tone than --paper so cards/bubbles read as
-     "a page" sitting on top of the darker desk-colored background. */
-  --ink: #241c12;
-  --ink-soft: #5c4f3a;
-  --paper: #e2d3ab;
-  --panel: #f3ebd6;
-  --line: #7a6438;
-  --accent: #6b4f2a;
-  --accent-soft: #d8c493;
+  /* "Ivory Aurora" palette (see the Ad Fontes design-directions canvas) --
+     a warm, airy ivory rather than the earlier aged-parchment desk tone.
+     --panel stays a cleaner, lighter tone than --paper so cards/bubbles
+     still read as "a page" sitting on top of the background, same
+     relationship as before, just lighter throughout. */
+  --ink: #1e1c18;
+  --ink-soft: #57544b;
+  --ink-faint: #7a7568;
+  --paper: #f3ebd6;
+  --panel: #fbfaf7;
+  --line: #e4dcc8;
+  /* Darkened from the design mockup's #B08D2E (~3.1:1 on white) to
+     clear WCAG AA (4.5:1) against both --panel and white text, since this
+     variable backs solid buttons (white text on it) as well as plain
+     accent text -- see the depth-control/chat-form/button rules below. */
+  --accent: #8a6a1f;
+  --accent-soft: #f3e3c9;
   --error: #9a3b3b;
-  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --serif: "Libre Caslon Display", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --sans: "Work Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
@@ -398,20 +404,45 @@ input[type="checkbox"] {
   color: var(--ink);
 }
 
-.menu-conversations-header {
+/* The dropdown toggle itself -- ".menu-nav-item" (shared with Home,
+   Today's Passage, etc.) gives it the same block/border/padding look;
+   this just adds the label+chevron flex layout and the chevron's
+   open/closed rotation. */
+.menu-conversations-toggle {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.menu-conversations-chevron {
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.menu-conversations-toggle[aria-expanded="true"] .menu-conversations-chevron {
+  transform: rotate(180deg);
+}
+
+/* The collapsible panel (sort toggle + list) -- hidden by default, see
+   auth.js's menuConversationsToggle click handler. */
+.menu-conversations-content {
+  margin-bottom: 0.6rem;
+}
+
+.menu-conversations-content[hidden] {
+  display: none;
+}
+
+.menu-conversations-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   gap: 0.5rem;
   margin-bottom: 0.5rem;
   font-size: 0.78rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--ink-soft);
-}
-
-.menu-conversations-header[hidden] {
-  display: none;
 }
 
 .menu-sort-toggle {
@@ -481,31 +512,76 @@ input[type="checkbox"] {
   color: var(--ink-soft);
 }
 
+/* Full-page rotating hero background (Ivory Aurora direction) -- a fixed
+   layer behind the ENTIRE home page, header included, not just the header
+   bar (see index.html's #hero-bg and app.js's loadHeroScene()). Fixed
+   positioning rather than background-attachment:fixed on <body>: a
+   dedicated element's own box always exactly equals the viewport, so
+   "cover" sizing is predictable regardless of how tall the page's real
+   content is, and it avoids background-attachment:fixed's well-known
+   mobile Safari jank. Sits at z-index -2, below every real element
+   (nothing else on the page sets a negative z-index). Invisible by
+   default (opacity 0): only body[data-view="home"] -- the plain, empty
+   landing view app.js's renderView() sets -- combined with .hero-loaded
+   (added once loadHeroScene() actually has an image ready) reveals it, so
+   there's never a flash of an empty layer or a photo behind a page it
+   doesn't belong on. */
+.hero-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+  pointer-events: none;
+}
+
+body[data-view="home"].hero-loaded .hero-bg {
+  opacity: 1;
+}
+
+/* Warm dawn-toned scrim (the Ivory Aurora canvas's own gradient direction)
+   over the photo -- keeps header/hero text and the glass panels below it
+   legible over any of the 15 scenes, and fades down into a solid --paper
+   so the seam into the rest of the page (once the photo's viewport-height
+   layer is scrolled past) is seamless rather than a hard edge. */
+.hero-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(30, 22, 8, 0.42) 0%,
+    rgba(30, 22, 8, 0.16) 30%,
+    rgba(243, 227, 201, 0.55) 62%,
+    var(--paper) 100%
+  );
+}
+
 header {
   position: relative;
   padding: 2.5rem 1.25rem 1rem;
   text-align: center;
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
   overflow: hidden;
 }
 
 /* On the plain, empty home view (see app.js's renderView(), which sets
    document.body.dataset.view), the header becomes a proper full hero:
-   tall enough that the rotating painted scene (see loadHeroScene() in
-   app.js) actually reads as "the home page" instead of a thin strip.
+   tall enough that the rotating painted scene behind the whole page (see
+   .hero-bg above) reads as "the home page" instead of a thin strip.
    Every other view (an active conversation, Today's Passage, Reading
    Plans, ...) keeps the original compact bar below, so real content is
    never pushed down off-screen behind a giant photo. */
 body[data-view="home"] header {
-  min-height: min(82vh, 680px);
+  min-height: min(60vh, 480px);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   padding-top: 3rem;
-  padding-bottom: 3rem;
+  padding-bottom: 2rem;
 }
 
 body[data-view="home"] header h1 {
@@ -519,9 +595,9 @@ body[data-view="home"] .tagline {
 
 @media (max-width: 640px) {
   body[data-view="home"] header {
-    min-height: min(58vh, 460px);
+    min-height: min(46vh, 380px);
     padding-top: 2rem;
-    padding-bottom: 2rem;
+    padding-bottom: 1.5rem;
   }
 
   body[data-view="home"] header h1 {
@@ -533,36 +609,37 @@ body[data-view="home"] .tagline {
   }
 }
 
-/* Dark gradient overlay so the header text stays legible over any of the
-   15 rotating photographic scenes (see app.js's loadHeroScene()) -- sits
-   between the background-image (painted on the header element itself,
-   set via the CSSOM once a scene has loaded) and the h1/tagline/caption
-   above it. Fades down to --paper at the bottom so the seam into <main>
-   stays clean. Starts transparent and only fades in once .has-hero is
-   added, so there's no dark band flashing in before any image exists. */
-header::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background: linear-gradient(180deg, rgba(24, 17, 6, 0.58) 0%, rgba(24, 17, 6, 0.32) 60%, var(--paper) 100%);
-  opacity: 0;
-  transition: opacity 0.4s ease;
-  pointer-events: none;
+/* Small uppercase eyebrow line above the wordmark on the home hero only
+   (Ivory Aurora's "a quiet way back to the source" treatment) -- plain
+   text, filled in by index.html, not JS. */
+.hero-eyebrow {
+  position: relative;
+  z-index: 1;
+  display: none;
+  font-size: 0.78rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 0.6rem;
 }
 
-header.has-hero::before {
-  opacity: 1;
+body[data-view="home"] .hero-eyebrow {
+  display: block;
+}
+
+body[data-view="home"].hero-loaded .hero-eyebrow {
+  color: #e8cf8a;
 }
 
 header h1 {
   position: relative;
   z-index: 1;
   font-family: var(--serif);
+  font-weight: 400;
   font-size: 2rem;
-  font-style: italic;
+  font-style: normal;
   margin: 0 0 0.35rem;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
 }
 
 .home-link {
@@ -585,18 +662,21 @@ header h1 {
   font-size: 0.95rem;
 }
 
-/* Text recolors to stay legible once a hero photo is behind it. Default
-   (no .has-hero yet -- e.g. scenes.json failed to load, or JS never ran)
-   keeps the original --ink/--ink-soft colors against the plain --paper
-   background, so there's never a flash of pale text on a pale background
-   before an image is actually in place. */
-header.has-hero h1,
-header.has-hero .tagline {
+/* Text recolors to stay legible once the full-page hero photo is behind
+   the home view. Scoped to body[data-view="home"].hero-loaded (not a
+   class on <header> itself) since the photo now sits behind the whole
+   page via .hero-bg, not just this element. Default (no .hero-loaded yet
+   -- e.g. scenes.json failed to load, or JS never ran, or any other view)
+   keeps the plain --ink/--ink-soft colors against --paper, so there's
+   never a flash of pale text on a pale background before an image is
+   actually in place. */
+body[data-view="home"].hero-loaded header h1,
+body[data-view="home"].hero-loaded .tagline {
   color: #f4ecd9;
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
 }
 
-header.has-hero .home-link:hover h1 {
+body[data-view="home"].hero-loaded .home-link:hover h1 {
   color: #f4ecd9;
   opacity: 0.85;
 }
@@ -624,6 +704,41 @@ header.has-hero .home-link:hover h1 {
 
 .hero-scene-caption:hover {
   background: rgba(24, 17, 6, 0.58);
+}
+
+/* Glass panels: on the home hero, the empty state / examples row / depth
+   control / chat form all sit directly on the full-page photo (see
+   .hero-bg above), so each gets a translucent ivory backdrop (the same
+   "verse card floating on the photo" technique as the Ivory Aurora
+   design canvas) rather than reading text straight against a busy image.
+   Every other view has no photo behind it at all, so these stay fully
+   transparent/plain there -- scoped to body[data-view="home"].hero-loaded
+   throughout. */
+body[data-view="home"].hero-loaded #chat-empty-state,
+body[data-view="home"].hero-loaded .examples,
+body[data-view="home"].hero-loaded #depth-control,
+body[data-view="home"].hero-loaded #chat-form {
+  background: rgba(251, 250, 247, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border-radius: 1rem;
+  padding: 1rem 1.1rem;
+}
+
+body[data-view="home"].hero-loaded #chat-empty-state {
+  padding: 2rem 1.5rem;
+  margin: 0 auto 1rem;
+  max-width: 34rem;
+}
+
+body[data-view="home"].hero-loaded .examples {
+  margin-bottom: 0.75rem;
+}
+
+body[data-view="home"].hero-loaded #depth-control {
+  display: inline-flex;
+  margin: 0 auto 0.75rem;
+  padding: 0.5rem 0.75rem;
 }
 
 main {
@@ -1772,12 +1887,39 @@ table.interlinear th {
 
 .cross-ref-svg {
   width: 100%;
-  max-width: 360px;
+  /* Wider than tall now (the timeline arc diagram's viewBox is 640x210,
+     vs. the earlier square radial diagram's 320x320) -- width:100% with
+     height:auto already scales it correctly either way, this just raises
+     the cap so it isn't rendered needlessly small on a wide screen. */
+  max-width: 560px;
   height: auto;
 }
 
+.cross-ref-baseline {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.cross-ref-era-tick {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.cross-ref-era-label {
+  font-family: var(--sans);
+  font-size: 7.5px;
+  letter-spacing: 0.02em;
+  fill: var(--ink-faint, var(--ink-soft));
+}
+
 .cross-ref-edge {
+  /* Now a curved <path> (a quadratic arc), not a <line> -- an SVG path
+     has a real fill area by default (an open subpath fills as though
+     closed straight back to its start), so without this every arc would
+     paint a solid wedge under itself instead of reading as just a line. */
+  fill: none;
   stroke: var(--accent);
+  stroke-linecap: round;
 }
 
 .cross-ref-node {

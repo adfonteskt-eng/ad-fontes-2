@@ -320,7 +320,13 @@ function buildContentSecurityPolicy(nonce) {
     // strict-dynamic yet — ignored entirely by any browser that
     // understands strict-dynamic, per spec.
     `script-src 'nonce-${nonce}' 'strict-dynamic' https:`,
-    "style-src 'self'",
+    // fonts.googleapis.com serves the Ivory Aurora stylesheet (Libre
+    // Caslon Display + Work Sans, linked in index.html's <head>) — the
+    // one external stylesheet host this app allows. The actual font
+    // FILES that stylesheet's @font-face rules reference come from
+    // fonts.gstatic.com, covered by font-src below, not style-src.
+    "style-src 'self' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
     // blob: is real, not defensive padding — Reel Kit (public/app.js's
     // downloadShareCard()) loads a generated SVG into an <img> via a
     // blob: URL before drawing it to a canvas.

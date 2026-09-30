@@ -121,6 +121,8 @@ const menuSubscriptionButton = document.getElementById("menu-subscription-button
 const menuSourcesButton = document.getElementById("menu-sources-button");
 const menuNewChatButton = document.getElementById("menu-new-chat-button");
 const menuConversationsHeader = document.getElementById("menu-conversations-header");
+const menuConversationsToggle = document.getElementById("menu-conversations-toggle");
+const menuConversationsContent = document.getElementById("menu-conversations-content");
 const conversationsList = document.getElementById("conversations-list");
 const sortRecentButton = document.getElementById("conversations-sort-recent");
 const sortBookButton = document.getElementById("conversations-sort-book");
@@ -381,15 +383,27 @@ function formatRelativeDate(isoString) {
   return then.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+function collapseConversationsDropdown() {
+  menuConversationsContent.hidden = true;
+  menuConversationsToggle.setAttribute("aria-expanded", "false");
+}
+
 function renderConversations(conversations) {
   conversationsList.innerHTML = "";
 
   // Nothing to show yet (signed out entirely, or signed in with no
   // conversations logged) -- "New chat" takes the list's place instead of
-  // an empty header/sort-toggle with nothing under it.
+  // the dropdown toggle. The sort-toggle row (menuConversationsHeader)
+  // itself is no longer conditionally hidden on its own -- it's now
+  // nested inside menu-conversations-content, a real collapsible dropdown
+  // (see menuConversationsToggle's click handler below) rather than an
+  // always-expanded block, so a long history doesn't push Subscription/
+  // Sources & Licenses/account controls down out of view every time the
+  // menu opens.
   const hasConversations = conversations.length > 0;
-  menuConversationsHeader.hidden = !hasConversations;
+  menuConversationsToggle.hidden = !hasConversations;
   menuNewChatButton.hidden = hasConversations;
+  if (!hasConversations) collapseConversationsDropdown();
 
   for (const conversation of conversations) {
     const item = document.createElement("li");
@@ -622,6 +636,17 @@ function setConversationsSort(sort) {
 
 sortRecentButton.addEventListener("click", () => setConversationsSort("recent"));
 sortBookButton.addEventListener("click", () => setConversationsSort("book"));
+
+// Conversations dropdown: collapsed by default (see renderConversations()
+// above), toggled open/closed the same aria-expanded + hidden-panel way
+// the top-level site menu itself works, not a native <details> -- for
+// visual/behavioral consistency with the one other disclosure in this
+// menu rather than mixing two different patterns.
+menuConversationsToggle.addEventListener("click", () => {
+  const isOpen = !menuConversationsContent.hidden;
+  menuConversationsContent.hidden = isOpen;
+  menuConversationsToggle.setAttribute("aria-expanded", String(!isOpen));
+});
 
 // --- Push notifications (see README -> PWA & push notifications) -----------
 // Free for any signed-in account, one subscription per device/browser --

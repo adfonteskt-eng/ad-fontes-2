@@ -419,8 +419,8 @@ function downloadShareCard({ reference, abbr, content }) {
 // collapsible block, so it sits alongside Claude's reply without competing
 // with it for attention. Open by default — closing it is the deliberate
 // action, since seeing the material is most of the point of this app.
-function renderSourcePassage(gathered) {
-  return `<details class="source-passage" open>
+function renderSourcePassage(gathered, defaultOpen) {
+  return `<details class="source-passage"${defaultOpen ? " open" : ""}>
     <summary>${escapeHtml(gathered.reference.usfm)}</summary>
     <div class="source-body">
       ${renderTranslations(gathered.translations)}
@@ -431,9 +431,9 @@ function renderSourcePassage(gathered) {
   </details>`;
 }
 
-function renderSources(gatheredList) {
+function renderSources(gatheredList, defaultOpen) {
   if (!gatheredList || gatheredList.length === 0) return "";
-  return `<div class="chat-sources">${gatheredList.map(renderSourcePassage).join("")}</div>`;
+  return `<div class="chat-sources">${gatheredList.map((g) => renderSourcePassage(g, defaultOpen)).join("")}</div>`;
 }
 
 // --- Source chips strip (Perplexity-style citation summary) --------------
@@ -632,86 +632,149 @@ function renderFollowUpActions(entry) {
 
 // --- Cross-reference diagrams (find_cross_references tool — see
 // lib/cross-references.js) -----------------------------------------------
-// A small radial diagram: the focus verse in the center, its cross-
-// references as dots around it, each connected by a line whose thickness/
-// opacity reflects the dataset's "votes" relevance score — so a verse like
-// John 3:16 with dozens of strong connections visually reads as more
-// densely cross-referenced than one with only a couple of weak ones.
-// Clicking any node fills the chat input with that reference (same raw
-// USFM-style notation already shown elsewhere in this UI, e.g. the source-
-// passage summary above) rather than auto-asking — a click should offer a
-// next question, not silently fire one off on the user's behalf.
+// A biblical-timeline arc diagram: every reference (the focus verse and
+// each of its cross-references) sits on one horizontal baseline at its
+// own approximate chronological position -- Origins/Patriarchs on the
+// left through Gospels & Early Church on the right -- rather than the
+// diagram's earlier even radial spacing around a circle, which carried no
+// information beyond "how many connections" (any layout could show that).
+// A connection to the focus verse is drawn as an arc rising above the
+// baseline, whose height/thickness/opacity reflects the dataset's "votes"
+// relevance score -- so John 3:16's dozens of strong connections still
+// read as more densely cross-referenced than a verse with only a couple
+// of weak ones, exactly as before, but now a glance at the diagram also
+// shows WHERE across salvation history those connections fall (a classic
+// case like an Isaiah prophecy's cross-references to the Gospels reads as
+// a wide arc spanning nearly the whole timeline). Clicking any node fills
+// the chat input with that reference rather than auto-asking -- a click
+// should offer a next question, not silently fire one off on the user's
+// behalf.
+//
+// The chronological placement is necessarily a stylized simplification
+// (six broad, traditionally-dated eras, not a scholarly critical timeline
+// -- Job, for instance, is placed by its patriarchal narrative setting,
+// not a settled composition date), the same "give an honest simplified
+// picture, not false precision" spirit as generate_passage_briefing's own
+// disclosure elsewhere in this app. Books within an era are ordered by
+// their normal canonical order as a stable tiebreaker, not a claim about
+// finer-grained dating within that era.
+const CROSS_REF_TIMELINE_ERAS = [
+  { label: "Origins", books: ["GEN", "JOB"] },
+  { label: "Exodus & Law", books: ["EXO", "LEV", "NUM", "DEU"] },
+  {
+    label: "Kingdom Era",
+    books: ["JOS", "JDG", "RUT", "1SA", "2SA", "1KI", "2KI", "1CH", "2CH", "PSA", "PRO", "ECC", "SNG"],
+  },
+  {
+    label: "Prophets & Exile",
+    books: ["ISA", "JER", "LAM", "EZK", "DAN", "HOS", "JOL", "AMO", "OBA", "JON", "MIC", "NAM", "HAB", "ZEP"],
+  },
+  { label: "Return", books: ["EZR", "NEH", "EST", "HAG", "ZEC", "MAL"] },
+  {
+    label: "Gospels & Church",
+    books: [
+      "MAT", "MRK", "LUK", "JHN", "ACT", "ROM", "1CO", "2CO", "GAL", "EPH", "PHP", "COL", "1TH", "2TH",
+      "1TI", "2TI", "TIT", "PHM", "HEB", "JAS", "1PE", "2PE", "1JN", "2JN", "3JN", "JUD", "REV",
+    ],
+  },
+];
 
-const CROSS_REF_SIZE = 320;
-const CROSS_REF_CENTER = CROSS_REF_SIZE / 2;
-const CROSS_REF_ORBIT_RADIUS = 112;
-const CROSS_REF_CENTER_RADIUS = 24;
-const CROSS_REF_DOT_RADIUS = 7;
-const CROSS_REF_LABEL_GAP = 8;
+const CROSS_REF_ERA_BY_BOOK = new Map();
+CROSS_REF_TIMELINE_ERAS.forEach((era, eraIndex) => {
+  era.books.forEach((book, bookIndex) => {
+    CROSS_REF_ERA_BY_BOOK.set(book, { eraIndex, bookIndex, eraBookCount: era.books.length });
+  });
+});
+
+// Where a reference like "ROM.8.28" falls along the timeline, as a 0-1
+// fraction of its total width. Falls back to the timeline's midpoint for
+// anything unrecognized (shouldn't happen with real USFM data from this
+// app's own tools) rather than throwing off the rest of the layout.
+function timelineFractionForReference(reference) {
+  const bookCode = (reference.split(".")[0] || "").toUpperCase();
+  const placement = CROSS_REF_ERA_BY_BOOK.get(bookCode);
+  if (!placement) return 0.5;
+  const eraSpan = 1 / CROSS_REF_TIMELINE_ERAS.length;
+  return placement.eraIndex * eraSpan + ((placement.bookIndex + 0.5) / placement.eraBookCount) * eraSpan;
+}
+
+const CROSS_REF_WIDTH = 640;
+const CROSS_REF_HEIGHT = 210;
+const CROSS_REF_MARGIN_X = 34;
+const CROSS_REF_BASELINE_Y = 128;
+const CROSS_REF_MIN_ARC = 22;
+const CROSS_REF_MAX_ARC = 96;
+const CROSS_REF_DOT_RADIUS = 5;
+const CROSS_REF_FOCUS_RADIUS = 9;
+const CROSS_REF_TIMELINE_SPAN = CROSS_REF_WIDTH - 2 * CROSS_REF_MARGIN_X;
+
+function timelineX(fraction) {
+  return CROSS_REF_MARGIN_X + fraction * CROSS_REF_TIMELINE_SPAN;
+}
 
 function renderCrossReferenceSvg({ reference, results }) {
   const maxVotes = Math.max(...results.map((r) => r.votes), 1);
-  const n = results.length;
+  const focusX = timelineX(timelineFractionForReference(reference));
 
   const nodes = results.map((r, i) => {
-    const angle = (2 * Math.PI * i) / n - Math.PI / 2;
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    const x = CROSS_REF_CENTER + CROSS_REF_ORBIT_RADIUS * cos;
-    const y = CROSS_REF_CENTER + CROSS_REF_ORBIT_RADIUS * sin;
-
-    // Label anchor/offset chosen from which side of the circle the node
-    // sits on, so text grows outward (away from the diagram's center)
-    // instead of overlapping the dot or the edges converging on it.
-    let anchor = "middle";
-    let labelX = x;
-    let labelY = y + (sin >= 0 ? CROSS_REF_DOT_RADIUS + CROSS_REF_LABEL_GAP + 8 : -(CROSS_REF_DOT_RADIUS + CROSS_REF_LABEL_GAP));
-    if (cos > 0.35) {
-      anchor = "start";
-      labelX = x + CROSS_REF_DOT_RADIUS + CROSS_REF_LABEL_GAP;
-      labelY = y + 3;
-    } else if (cos < -0.35) {
-      anchor = "end";
-      labelX = x - CROSS_REF_DOT_RADIUS - CROSS_REF_LABEL_GAP;
-      labelY = y + 3;
-    }
-
-    return { ...r, x, y, anchor, labelX, labelY, weight: r.votes / maxVotes };
+    const x = timelineX(timelineFractionForReference(r.reference));
+    const weight = r.votes / maxVotes;
+    const arcHeight = CROSS_REF_MIN_ARC + weight * (CROSS_REF_MAX_ARC - CROSS_REF_MIN_ARC);
+    // Two staggered label rows just under the baseline so nodes that land
+    // close together chronologically (common -- many cross-references
+    // cluster within the same era) don't overlap text.
+    const labelY = CROSS_REF_BASELINE_Y + (i % 2 === 0 ? 14 : 26);
+    return { ...r, x, weight, arcHeight, labelY };
   });
 
-  const edges = nodes
-    .map(
-      // stroke-width/opacity are set via the CSSOM after insertion (see
-      // applyComputedStyles below), not as a literal style="..." attribute
-      // here — a strict Content-Security-Policy's style-src (no
-      // 'unsafe-inline') covers <style> elements via nonces but has no
-      // equivalent for inline style *attributes*, so the only way to keep
-      // style-src strict is to never write one in the first place. The
-      // real values ride along as plain data-* attributes instead.
-      (node) => `<line class="cross-ref-edge" x1="${CROSS_REF_CENTER}" y1="${CROSS_REF_CENTER}" x2="${node.x.toFixed(1)}" y2="${node.y.toFixed(1)}" data-stroke-width="${(1 + node.weight * 2.5).toFixed(2)}" data-opacity="${(0.25 + node.weight * 0.55).toFixed(2)}"></line>`,
-    )
+  const eraTicks = CROSS_REF_TIMELINE_ERAS.map((era, i) => {
+    const eraSpan = 1 / CROSS_REF_TIMELINE_ERAS.length;
+    const midFraction = i * eraSpan + eraSpan / 2;
+    const startFraction = i * eraSpan;
+    const tickX = i === 0 ? timelineX(0) : timelineX(startFraction);
+    const labelX = timelineX(midFraction);
+    const tick = i === 0 ? "" : `<line class="cross-ref-era-tick" x1="${tickX.toFixed(1)}" y1="${(CROSS_REF_BASELINE_Y - 4).toFixed(1)}" x2="${tickX.toFixed(1)}" y2="${(CROSS_REF_BASELINE_Y + 4).toFixed(1)}"></line>`;
+    return `${tick}<text class="cross-ref-era-label" x="${labelX.toFixed(1)}" y="${(CROSS_REF_HEIGHT - 8).toFixed(1)}" text-anchor="middle">${escapeHtml(era.label)}</text>`;
+  }).join("");
+
+  const baseline = `<line class="cross-ref-baseline" x1="${timelineX(0).toFixed(1)}" y1="${CROSS_REF_BASELINE_Y}" x2="${timelineX(1).toFixed(1)}" y2="${CROSS_REF_BASELINE_Y}"></line>`;
+
+  // Each connection is an arc from the focus verse's baseline position up
+  // and over to this node's baseline position -- a real SVG quadratic
+  // curve (control point directly above the midpoint, at the node's own
+  // arc height) rather than the earlier straight spoke, so several arcs
+  // of different heights/widths remain visually distinct instead of just
+  // overlapping straight lines.
+  const arcs = nodes
+    .map((node) => {
+      const midX = (focusX + node.x) / 2;
+      const controlY = CROSS_REF_BASELINE_Y - node.arcHeight;
+      return `<path class="cross-ref-edge" d="M ${focusX.toFixed(1)} ${CROSS_REF_BASELINE_Y} Q ${midX.toFixed(1)} ${controlY.toFixed(1)} ${node.x.toFixed(1)} ${CROSS_REF_BASELINE_Y}" data-stroke-width="${(1 + node.weight * 2.5).toFixed(2)}" data-opacity="${(0.3 + node.weight * 0.55).toFixed(2)}"></path>`;
+    })
     .join("");
 
   const nodeEls = nodes
     .map(
       (node) => `<g class="cross-ref-node" tabindex="0" role="button" aria-label="Ask about ${escapeHtml(node.reference)}" data-reference="${escapeHtml(node.reference)}">
-        <circle class="cross-ref-dot" cx="${node.x.toFixed(1)}" cy="${node.y.toFixed(1)}" r="${CROSS_REF_DOT_RADIUS}"></circle>
-        <text class="cross-ref-label" x="${node.labelX.toFixed(1)}" y="${node.labelY.toFixed(1)}" text-anchor="${node.anchor}">${escapeHtml(node.reference)}</text>
+        <circle class="cross-ref-dot" cx="${node.x.toFixed(1)}" cy="${CROSS_REF_BASELINE_Y}" r="${CROSS_REF_DOT_RADIUS}"></circle>
+        <text class="cross-ref-label" x="${node.x.toFixed(1)}" y="${node.labelY.toFixed(1)}" text-anchor="middle">${escapeHtml(node.reference)}</text>
       </g>`,
     )
     .join("");
 
-  return `<svg class="cross-ref-svg" viewBox="0 0 ${CROSS_REF_SIZE} ${CROSS_REF_SIZE}" role="img" aria-label="Cross-references for ${escapeHtml(reference)}">
-    ${edges}
+  return `<svg class="cross-ref-svg" viewBox="0 0 ${CROSS_REF_WIDTH} ${CROSS_REF_HEIGHT}" role="img" aria-label="Cross-references for ${escapeHtml(reference)}, shown on a biblical timeline">
+    ${eraTicks}
+    ${baseline}
+    ${arcs}
     <g class="cross-ref-node cross-ref-center-node" tabindex="0" role="button" aria-label="Ask about ${escapeHtml(reference)}" data-reference="${escapeHtml(reference)}">
-      <circle cx="${CROSS_REF_CENTER}" cy="${CROSS_REF_CENTER}" r="${CROSS_REF_CENTER_RADIUS}"></circle>
-      <text x="${CROSS_REF_CENTER}" y="${CROSS_REF_CENTER}" text-anchor="middle" dominant-baseline="middle">${escapeHtml(reference)}</text>
+      <circle cx="${focusX.toFixed(1)}" cy="${CROSS_REF_BASELINE_Y}" r="${CROSS_REF_FOCUS_RADIUS}"></circle>
+      <text x="${focusX.toFixed(1)}" y="${(CROSS_REF_BASELINE_Y - CROSS_REF_FOCUS_RADIUS - 6).toFixed(1)}" text-anchor="middle">${escapeHtml(reference)}</text>
     </g>
     ${nodeEls}
   </svg>`;
 }
 
-function renderCrossReferenceDiagram(diagram) {
+function renderCrossReferenceDiagram(diagram, defaultOpen) {
   const { reference, results, totalCount } = diagram;
   if (!results || results.length === 0) return "";
 
@@ -733,7 +796,7 @@ function renderCrossReferenceDiagram(diagram) {
     ? `<p class="section-note">Quotation/allusion/thematic labels are the model's own reading of these connections, not something the dataset itself classifies.</p>`
     : "";
 
-  return `<details class="source-passage cross-ref-diagram" open>
+  return `<details class="source-passage cross-ref-diagram"${defaultOpen ? " open" : ""}>
     <summary>Cross-references for ${escapeHtml(reference)}</summary>
     <div class="source-body">
       <p class="section-note">From a curated scholarly dataset (chiefly the Treasury of Scripture Knowledge), ranked by how often each connection is drawn. Click a verse to ask about it.</p>
@@ -745,9 +808,9 @@ function renderCrossReferenceDiagram(diagram) {
   </details>`;
 }
 
-function renderCrossReferenceDiagrams(diagramList) {
+function renderCrossReferenceDiagrams(diagramList, defaultOpen) {
   if (!diagramList || diagramList.length === 0) return "";
-  return `<div class="chat-sources">${diagramList.map(renderCrossReferenceDiagram).join("")}</div>`;
+  return `<div class="chat-sources">${diagramList.map((d) => renderCrossReferenceDiagram(d, defaultOpen)).join("")}</div>`;
 }
 
 // --- Maps (generate_map tool — see lib/geography.js) ----------------------
@@ -831,7 +894,7 @@ function renderMapDiagram(map) {
           .join("; ")}.</p>`
       : "";
 
-  return `<details class="source-passage map-diagram" open>
+  return `<details class="source-passage map-diagram"${defaultOpen ? " open" : ""}>
     <summary>${escapeHtml(map.title)}</summary>
     <div class="source-body">
       ${introNote}
@@ -844,9 +907,9 @@ function renderMapDiagram(map) {
   </details>`;
 }
 
-function renderMapDiagrams(mapList) {
+function renderMapDiagrams(mapList, defaultOpen) {
   if (!mapList || mapList.length === 0) return "";
-  return `<div class="chat-sources">${mapList.map(renderMapDiagram).join("")}</div>`;
+  return `<div class="chat-sources">${mapList.map((m) => renderMapDiagram(m, defaultOpen)).join("")}</div>`;
 }
 
 // --- Passage Briefing card (generate_passage_briefing tool) ---------------
@@ -863,12 +926,12 @@ function renderMapDiagrams(mapList) {
 // date are short enough to sit compactly side by side; structure/setting
 // usually run longer, so each spans the full grid width rather than being
 // squeezed into the same narrow column.
-function renderPassageBriefing(briefing) {
+function renderPassageBriefing(briefing, defaultOpen) {
   const settingBlock = briefing.setting
     ? `<div class="briefing-block briefing-block-wide"><span class="briefing-label">Setting</span><span class="briefing-value">${escapeHtml(briefing.setting)}</span></div>`
     : "";
 
-  return `<details class="source-passage passage-briefing" open>
+  return `<details class="source-passage passage-briefing"${defaultOpen ? " open" : ""}>
     <summary>Briefing: ${escapeHtml(briefing.reference)}</summary>
     <div class="source-body">
       <div class="briefing-grid">
@@ -883,9 +946,9 @@ function renderPassageBriefing(briefing) {
   </details>`;
 }
 
-function renderPassageBriefings(briefingList) {
+function renderPassageBriefings(briefingList, defaultOpen) {
   if (!briefingList || briefingList.length === 0) return "";
-  return `<div class="chat-sources">${briefingList.map(renderPassageBriefing).join("")}</div>`;
+  return `<div class="chat-sources">${briefingList.map((b) => renderPassageBriefing(b, defaultOpen)).join("")}</div>`;
 }
 
 // --- Word-Study Web (find_occurrences + optional label_word_senses) -------
@@ -918,7 +981,7 @@ function renderWordStudyChart(byBook) {
   return `<div class="word-study-chart">${rows}</div>`;
 }
 
-function renderWordStudy(wordStudy) {
+function renderWordStudy(wordStudy, defaultOpen) {
   const { strongsNumber, occurrences, totalCount, byBook, senseGroups } = wordStudy;
   const truncatedNote =
     totalCount > occurrences.length
@@ -937,7 +1000,7 @@ function renderWordStudy(wordStudy) {
           .join("") + `<p class="section-note">Sense groupings are the model's own reading of these verses, not something the dataset itself labels.</p>`
       : `<div class="word-study-list">${occurrences.map((o) => renderOccurrenceButton(o.reference, `${o.reference} — ${o.gloss}`)).join("")}</div>`;
 
-  return `<details class="source-passage word-study-web" open>
+  return `<details class="source-passage word-study-web"${defaultOpen ? " open" : ""}>
     <summary>Word study: ${escapeHtml(strongsNumber)} (${totalCount} occurrence${totalCount === 1 ? "" : "s"})</summary>
     <div class="source-body">
       <p class="section-note">Real per-book frequency, from the tagged Greek/Hebrew text.</p>
@@ -948,9 +1011,9 @@ function renderWordStudy(wordStudy) {
   </details>`;
 }
 
-function renderWordStudies(wordStudyList) {
+function renderWordStudies(wordStudyList, defaultOpen) {
   if (!wordStudyList || wordStudyList.length === 0) return "";
-  return `<div class="chat-sources">${wordStudyList.map(renderWordStudy).join("")}</div>`;
+  return `<div class="chat-sources">${wordStudyList.map((w) => renderWordStudy(w, defaultOpen)).join("")}</div>`;
 }
 
 // --- Chat ---------------------------------------------------------------
@@ -1215,8 +1278,31 @@ const CHAT_REQUEST_TIMEOUT_MS = 120000;
 const CHAT_REQUEST_TIMEOUT_TEXT =
   "This is taking much longer than it should, so I've stopped waiting. Please try sending your message again.";
 
-function appendSources(gatheredList) {
-  const html = renderSources(gatheredList);
+
+// How many individual source cards (gather_passage results, cross-ref
+// diagrams, maps, briefings, word studies) a turn produced, across all
+// five kinds -- used to decide whether they open expanded by default or
+// collapsed. A single-source answer (the common case at Everyday/Student
+// depth) still opens automatically, same as always; a Scholar-depth
+// answer that called several tools collapses every card to just its
+// summary line instead of stacking several walls of open text, so the
+// source-chips strip above (see renderSourceChips) stays the at-a-glance
+// view and each card becomes an on-demand deep dive instead.
+const MANY_SOURCES_THRESHOLD = 2;
+
+function countSourceCards(data) {
+  const crossRefCount = (data.crossReferences ?? []).filter((cr) => cr.results && cr.results.length > 0).length;
+  return (
+    (data.briefings?.length ?? 0) +
+    (data.gathered?.length ?? 0) +
+    crossRefCount +
+    (data.maps?.length ?? 0) +
+    (data.wordStudies?.length ?? 0)
+  );
+}
+
+function appendSources(gatheredList, defaultOpen) {
+  const html = renderSources(gatheredList, defaultOpen);
   if (!html) return;
   const el = document.createElement("div");
   el.innerHTML = html;
@@ -1244,8 +1330,8 @@ function applyComputedStyles(root) {
   });
 }
 
-function appendCrossReferenceDiagrams(diagramList) {
-  const html = renderCrossReferenceDiagrams(diagramList);
+function appendCrossReferenceDiagrams(diagramList, defaultOpen) {
+  const html = renderCrossReferenceDiagrams(diagramList, defaultOpen);
   if (!html) return;
   const el = document.createElement("div");
   el.innerHTML = html;
@@ -1254,8 +1340,8 @@ function appendCrossReferenceDiagrams(diagramList) {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-function appendMapDiagrams(mapList) {
-  const html = renderMapDiagrams(mapList);
+function appendMapDiagrams(mapList, defaultOpen) {
+  const html = renderMapDiagrams(mapList, defaultOpen);
   if (!html) return;
   const el = document.createElement("div");
   el.innerHTML = html;
@@ -1263,8 +1349,8 @@ function appendMapDiagrams(mapList) {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-function appendPassageBriefings(briefingList) {
-  const html = renderPassageBriefings(briefingList);
+function appendPassageBriefings(briefingList, defaultOpen) {
+  const html = renderPassageBriefings(briefingList, defaultOpen);
   if (!html) return;
   const el = document.createElement("div");
   el.innerHTML = html;
@@ -1272,8 +1358,8 @@ function appendPassageBriefings(briefingList) {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-function appendWordStudies(wordStudyList) {
-  const html = renderWordStudies(wordStudyList);
+function appendWordStudies(wordStudyList, defaultOpen) {
+  const html = renderWordStudies(wordStudyList, defaultOpen);
   if (!html) return;
   const el = document.createElement("div");
   el.innerHTML = html;
@@ -1703,11 +1789,12 @@ async function sendChatMessage(message) {
     if (sourceChipsHtml) assistantEl.insertAdjacentHTML("beforeend", sourceChipsHtml);
     const followUpActionsHtml = renderFollowUpActions(turnSnapshot);
     if (followUpActionsHtml) assistantEl.insertAdjacentHTML("beforeend", followUpActionsHtml);
-    appendPassageBriefings(data.briefings);
-    appendSources(data.gathered);
-    appendCrossReferenceDiagrams(data.crossReferences);
-    appendMapDiagrams(data.maps);
-    appendWordStudies(data.wordStudies);
+    const defaultOpen = countSourceCards(data) <= MANY_SOURCES_THRESHOLD;
+    appendPassageBriefings(data.briefings, defaultOpen);
+    appendSources(data.gathered, defaultOpen);
+    appendCrossReferenceDiagrams(data.crossReferences, defaultOpen);
+    appendMapDiagrams(data.maps, defaultOpen);
+    appendWordStudies(data.wordStudies, defaultOpen);
     chatLogData.push({
       role: "assistant",
       text: data.reply,
@@ -1980,6 +2067,7 @@ function renderExamples() {
 // decorative touch, never something that should block or break the rest
 // of the page.
 const siteHeader = document.querySelector("header");
+const heroBg = document.getElementById("hero-bg");
 const heroSceneCaption = document.getElementById("hero-scene-caption");
 
 function dayOfYearUTC(date) {
@@ -2009,9 +2097,12 @@ async function loadHeroScene() {
 
     // Set via the CSSOM (see applyComputedStyles() below for the same
     // reasoning) rather than a literal style="..." attribute, so style-src
-    // can stay 'self' with no 'unsafe-inline' needed.
-    siteHeader.style.backgroundImage = `url("${imageUrl}")`;
-    siteHeader.classList.add("has-hero");
+    // can stay 'self' with no 'unsafe-inline' needed. Painted on the
+    // dedicated full-page #hero-bg layer (see index.html), not the header
+    // itself -- .hero-loaded on <body> is what actually reveals it (see
+    // style.css), scoped there to the plain home view only.
+    heroBg.style.backgroundImage = `url("${imageUrl}")`;
+    document.body.classList.add("hero-loaded");
 
     if (scene.reference && scene.scene) {
       heroSceneCaption.textContent = `${scene.scene} — ${scene.reference}`;
@@ -2630,11 +2721,12 @@ function renderChatLog(entries) {
       if (sourceChipsHtml) assistantEl.insertAdjacentHTML("beforeend", sourceChipsHtml);
       const followUpActionsHtml = renderFollowUpActions(entry);
       if (followUpActionsHtml) assistantEl.insertAdjacentHTML("beforeend", followUpActionsHtml);
-      if (entry.briefings) appendPassageBriefings(entry.briefings);
-      if (entry.gathered) appendSources(entry.gathered);
-      if (entry.crossReferences) appendCrossReferenceDiagrams(entry.crossReferences);
-      if (entry.maps) appendMapDiagrams(entry.maps);
-      if (entry.wordStudies) appendWordStudies(entry.wordStudies);
+      const entryDefaultOpen = countSourceCards(entry) <= MANY_SOURCES_THRESHOLD;
+      if (entry.briefings) appendPassageBriefings(entry.briefings, entryDefaultOpen);
+      if (entry.gathered) appendSources(entry.gathered, entryDefaultOpen);
+      if (entry.crossReferences) appendCrossReferenceDiagrams(entry.crossReferences, entryDefaultOpen);
+      if (entry.maps) appendMapDiagrams(entry.maps, entryDefaultOpen);
+      if (entry.wordStudies) appendWordStudies(entry.wordStudies, entryDefaultOpen);
     } else if (entry.role === "error") {
       appendChatMessage("error", entry.text);
     }
