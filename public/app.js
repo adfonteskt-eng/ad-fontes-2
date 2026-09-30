@@ -1878,6 +1878,14 @@ function renderView(view) {
   chatForm.hidden = !(isHome || isConversation);
   homeButton.hidden = isHome; // nothing to go "home" from while already there
   setActiveNavButton(view);
+
+  // The rotating hero background (see loadHeroScene() above) is a proper
+  // full hero photo only on the plain, empty home view -- data-view drives
+  // the header's min-height in style.css. Everywhere else (an active
+  // conversation, Today's Passage, Reading Plans, ...) it shrinks back to
+  // the compact header bar it always was, so it never pushes real content
+  // (a chat log, a standalone page) down off-screen behind a giant photo.
+  document.body.dataset.view = view;
 }
 
 function goToView(view, { push = true } = {}) {

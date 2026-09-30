@@ -491,6 +491,48 @@ header {
   overflow: hidden;
 }
 
+/* On the plain, empty home view (see app.js's renderView(), which sets
+   document.body.dataset.view), the header becomes a proper full hero:
+   tall enough that the rotating painted scene (see loadHeroScene() in
+   app.js) actually reads as "the home page" instead of a thin strip.
+   Every other view (an active conversation, Today's Passage, Reading
+   Plans, ...) keeps the original compact bar below, so real content is
+   never pushed down off-screen behind a giant photo. */
+body[data-view="home"] header {
+  min-height: min(82vh, 680px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-top: 3rem;
+  padding-bottom: 3rem;
+}
+
+body[data-view="home"] header h1 {
+  font-size: 2.9rem;
+}
+
+body[data-view="home"] .tagline {
+  font-size: 1.1rem;
+  max-width: 38rem;
+}
+
+@media (max-width: 640px) {
+  body[data-view="home"] header {
+    min-height: min(58vh, 460px);
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+  }
+
+  body[data-view="home"] header h1 {
+    font-size: 2.15rem;
+  }
+
+  body[data-view="home"] .tagline {
+    font-size: 0.98rem;
+  }
+}
+
 /* Dark gradient overlay so the header text stays legible over any of the
    15 rotating photographic scenes (see app.js's loadHeroScene()) -- sits
    between the background-image (painted on the header element itself,
