@@ -6,11 +6,16 @@
 //   Usage: npm run web
 //          PORT=8080 npm run web
 //
-// API: GET /api/passage?ref=JHN.3.16&variants=false&commentary=true&summary=true
+// API: GET /api/passage?ref=JHN.3.16&variants=false&commentary=true&summary=true&original=true
 //   ref        required, USFM-ish reference like JHN.3.16 or GEN.1.1
 //   variants   "true" to include TR/Byzantine variant Greek words. Default false.
 //   commentary "false" to skip the biblehub fetch entirely. Default true.
 //   summary    "false" to skip the Anthropic call entirely. Default true.
+//   original   "false" to skip the Greek/Hebrew interlinear gather entirely
+//              (the full-book STEPBible scan) -- used by the frontend's
+//              inline cross-reference verse reader, which only needs
+//              translation text, not the original-language breakdown.
+//              Default true.
 //
 // GET /api/daily -> { usfm, label, tag } for today's featured passage (same
 //   for everyone on a given UTC day — see lib/daily-passage.js). No auth,
@@ -1210,6 +1215,7 @@ async function handlePassage(req, res, searchParams) {
   const includeVariants = searchParams.get("variants") === "true";
   const includeCommentary = searchParams.get("commentary") !== "false";
   const includeSummary = searchParams.get("summary") !== "false";
+  const includeOriginalLanguage = searchParams.get("original") !== "false";
 
   let gathered;
   try {
@@ -1217,6 +1223,7 @@ async function handlePassage(req, res, searchParams) {
       appKey,
       includeVariants,
       includeCommentary,
+      includeOriginalLanguage,
     });
   } catch (error) {
     sendJson(res, 400, { error: error.message });

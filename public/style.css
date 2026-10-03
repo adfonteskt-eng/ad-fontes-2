@@ -2030,6 +2030,78 @@ table.interlinear th {
   color: var(--ink-soft);
 }
 
+/* Inline verse preview opened by clicking a cross-reference node/list item
+   (see showCrossRefReader in app.js) -- reads the verse right where it
+   was clicked instead of jumping focus to the chat input. One of these
+   sits inside each .cross-ref-diagram, hidden until a reference is
+   picked. */
+.cross-ref-reader {
+  margin-top: 0.6rem;
+  padding: 0.65rem 0.8rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 0.4rem;
+}
+
+.cross-ref-reader-ref {
+  margin: 0 0 0.3rem;
+  font-family: var(--serif);
+  font-size: 0.95rem;
+  color: var(--ink);
+}
+
+.cross-ref-reader-text {
+  margin: 0 0 0.6rem;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.cross-ref-reader-text.cross-ref-reader-error {
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+.cross-ref-reader-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.cross-ref-reader-ask,
+.cross-ref-reader-close {
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--accent);
+  background: var(--paper);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 0.3rem 0.75rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.cross-ref-reader-ask:hover,
+.cross-ref-reader-ask:focus-visible,
+.cross-ref-reader-close:hover,
+.cross-ref-reader-close:focus-visible {
+  background: var(--accent);
+  color: white;
+}
+
+.cross-ref-reader-close {
+  color: var(--ink-soft);
+  border-color: var(--line);
+  background: none;
+}
+
+.cross-ref-reader-close:hover,
+.cross-ref-reader-close:focus-visible {
+  background: var(--line);
+  color: var(--ink);
+}
+
 /* --- Maps (generate_map tool) --------------------------------------------- */
 
 .map-svg-wrap {

@@ -755,7 +755,7 @@ function renderCrossReferenceSvg({ reference, results }) {
 
   const nodeEls = nodes
     .map(
-      (node) => `<g class="cross-ref-node" tabindex="0" role="button" aria-label="Ask about ${escapeHtml(node.reference)}" data-reference="${escapeHtml(node.reference)}">
+      (node) => `<g class="cross-ref-node" tabindex="0" role="button" aria-label="Read ${escapeHtml(node.reference)}" data-reference="${escapeHtml(node.reference)}">
         <circle class="cross-ref-dot" cx="${node.x.toFixed(1)}" cy="${CROSS_REF_BASELINE_Y}" r="${CROSS_REF_DOT_RADIUS}"></circle>
         <text class="cross-ref-label" x="${node.x.toFixed(1)}" y="${node.labelY.toFixed(1)}" text-anchor="middle">${escapeHtml(node.reference)}</text>
       </g>`,
@@ -766,7 +766,7 @@ function renderCrossReferenceSvg({ reference, results }) {
     ${eraTicks}
     ${baseline}
     ${arcs}
-    <g class="cross-ref-node cross-ref-center-node" tabindex="0" role="button" aria-label="Ask about ${escapeHtml(reference)}" data-reference="${escapeHtml(reference)}">
+    <g class="cross-ref-node cross-ref-center-node" tabindex="0" role="button" aria-label="Read ${escapeHtml(reference)}" data-reference="${escapeHtml(reference)}">
       <circle cx="${focusX.toFixed(1)}" cy="${CROSS_REF_BASELINE_Y}" r="${CROSS_REF_FOCUS_RADIUS}"></circle>
       <text x="${focusX.toFixed(1)}" y="${(CROSS_REF_BASELINE_Y - CROSS_REF_FOCUS_RADIUS - 6).toFixed(1)}" text-anchor="middle">${escapeHtml(reference)}</text>
     </g>
@@ -799,11 +799,19 @@ function renderCrossReferenceDiagram(diagram, defaultOpen) {
   return `<details class="source-passage cross-ref-diagram"${defaultOpen ? " open" : ""}>
     <summary>Cross-references for ${escapeHtml(reference)}</summary>
     <div class="source-body">
-      <p class="section-note">From a curated scholarly dataset (chiefly the Treasury of Scripture Knowledge), ranked by how often each connection is drawn. Click a verse to ask about it.</p>
+      <p class="section-note">From a curated scholarly dataset (chiefly the Treasury of Scripture Knowledge), ranked by how often each connection is drawn. Click a verse to read it here, or ask Claude about it.</p>
       <div class="cross-ref-diagram-wrap">${renderCrossReferenceSvg(diagram)}</div>
       <ul class="cross-ref-list">${listItems}</ul>
       ${truncatedNote}
       ${typeDisclosure}
+      <div class="cross-ref-reader" hidden aria-live="polite">
+        <p class="cross-ref-reader-ref"></p>
+        <p class="cross-ref-reader-text"></p>
+        <div class="cross-ref-reader-actions">
+          <button type="button" class="cross-ref-reader-ask">Ask Claude about this</button>
+          <button type="button" class="cross-ref-reader-close" aria-label="Close verse preview">Close</button>
+        </div>
+      </div>
     </div>
   </details>`;
 }
@@ -1402,28 +1410,128 @@ chatLog.addEventListener("click", (event) => {
   sendChatMessage(button.dataset.prompt);
 });
 
-// Clicking any cross-reference node/map marker (SVG dot+label, or its
-// plain-list counterpart) fills the chat input with that reference/place
-// rather than submitting it automatically — see this section's header
-// comment above for why. Delegated on #chat-log, same reasoning as the
-// notes/outline delegation below: these blocks are inserted via innerHTML
-// after render, for both a live reply and a restored/resumed conversation.
-const CLICK_TO_ASK_SELECTOR = ".cross-ref-node, .cross-ref-list-item, .map-marker, .map-list-item, .word-study-list-item";
+// Clicking a map marker/list item or a word-study list item fills the
+// chat input with that reference/place rather than submitting it
+// automatically — see this section's header comment above for why.
+// Delegated on #chat-log, same reasoning as the notes/outline delegation
+// below: these blocks are inserted via innerHTML after render, for both a
+// live reply and a restored/resumed conversation.
+//
+// Cross-reference nodes/list items are handled separately, just below —
+// clicking one of those reads the verse inline (see showCrossRefReader)
+// instead of jumping focus straight to the chat input.
+const CLICK_TO_ASK_SELECTOR = ".map-marker, .map-list-item, .word-study-list-item";
+function askAboutReference(reference) {
+  chatInput.value = reference;
+  clearInputPlaceholder();
+  chatInput.focus();
+}
 chatLog.addEventListener("click", (event) => {
   const node = event.target.closest(CLICK_TO_ASK_SELECTOR);
   if (!node) return;
-  chatInput.value = node.dataset.reference;
-  clearInputPlaceholder();
-  chatInput.focus();
+  askAboutReference(node.dataset.reference);
 });
 chatLog.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
-  const node = event.target.closest(".cross-ref-node, .map-marker");
+  const node = event.target.closest(".map-marker");
   if (!node) return;
   event.preventDefault();
-  chatInput.value = node.dataset.reference;
-  clearInputPlaceholder();
-  chatInput.focus();
+  askAboutReference(node.dataset.reference);
+});
+
+// --- Cross-reference inline verse reader ----------------------------------
+// Clicking a cross-reference node (the SVG timeline dots, including the
+// focus verse itself) or its plain-list counterpart reads that verse right
+// there in the page, instead of (or before) asking Claude about it: fetch
+// just the translation text from /api/passage (original-language gathering
+// turned off — see server.js's `original` param — since this just needs
+// readable verse text, not a Greek/Hebrew breakdown), cache it by
+// reference so re-clicking the same verse is instant, and render it into
+// that diagram's own .cross-ref-reader panel. A second click on the same
+// already-shown reference collapses the panel again.
+const versePreviewCache = new Map(); // usfm reference -> { apiReference, abbr, text } | { error }
+
+async function fetchVersePreview(reference) {
+  if (versePreviewCache.has(reference)) return versePreviewCache.get(reference);
+
+  let result;
+  try {
+    const response = await fetch(`/api/passage?ref=${encodeURIComponent(reference)}&commentary=false&summary=false&original=false`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+    const found = (data.translations ?? []).find((t) => t.content);
+    if (!found) throw new Error("No translation text came back for this verse.");
+    result = { apiReference: found.apiReference ?? reference, abbr: found.translation?.abbr ?? "", text: found.content };
+  } catch (error) {
+    result = { error: error.message || "Couldn't load that verse." };
+  }
+
+  versePreviewCache.set(reference, result);
+  return result;
+}
+
+function renderCrossRefReader(readerEl, reference, preview) {
+  const refEl = readerEl.querySelector(".cross-ref-reader-ref");
+  const textEl = readerEl.querySelector(".cross-ref-reader-text");
+  if (preview.error) {
+    refEl.textContent = reference;
+    textEl.textContent = preview.error;
+    textEl.classList.add("cross-ref-reader-error");
+  } else {
+    refEl.textContent = `${preview.apiReference}${preview.abbr ? ` (${preview.abbr})` : ""}`;
+    textEl.textContent = preview.text;
+    textEl.classList.remove("cross-ref-reader-error");
+  }
+  readerEl.querySelector(".cross-ref-reader-ask").dataset.reference = reference;
+}
+
+async function showCrossRefReader(node) {
+  const reference = node.dataset.reference;
+  const readerEl = node.closest(".cross-ref-diagram")?.querySelector(".cross-ref-reader");
+  if (!reference || !readerEl) return;
+
+  // Toggle off if this exact reference is already open in this diagram.
+  if (!readerEl.hidden && readerEl.dataset.reference === reference) {
+    readerEl.hidden = true;
+    return;
+  }
+
+  readerEl.dataset.reference = reference;
+  readerEl.hidden = false;
+  readerEl.querySelector(".cross-ref-reader-ref").textContent = reference;
+  readerEl.querySelector(".cross-ref-reader-text").textContent = "Loading\u2026";
+  readerEl.querySelector(".cross-ref-reader-text").classList.remove("cross-ref-reader-error");
+
+  const preview = await fetchVersePreview(reference);
+  // The user may have clicked a different node while this was in flight,
+  // or closed the panel — only render if this reference is still the one
+  // the (now-open) panel wants.
+  if (readerEl.hidden || readerEl.dataset.reference !== reference) return;
+  renderCrossRefReader(readerEl, reference, preview);
+}
+
+const CROSS_REF_CLICK_SELECTOR = ".cross-ref-node, .cross-ref-list-item";
+chatLog.addEventListener("click", (event) => {
+  const askButton = event.target.closest(".cross-ref-reader-ask");
+  if (askButton) {
+    askAboutReference(askButton.dataset.reference);
+    return;
+  }
+  const closeButton = event.target.closest(".cross-ref-reader-close");
+  if (closeButton) {
+    closeButton.closest(".cross-ref-reader").hidden = true;
+    return;
+  }
+  const node = event.target.closest(CROSS_REF_CLICK_SELECTOR);
+  if (!node) return;
+  showCrossRefReader(node);
+});
+chatLog.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const node = event.target.closest(".cross-ref-node");
+  if (!node) return;
+  event.preventDefault();
+  showCrossRefReader(node);
 });
 
 // Reel Kit's "Share as image" button (see downloadShareCard above) — reads
