@@ -686,94 +686,129 @@ CROSS_REF_TIMELINE_ERAS.forEach((era, eraIndex) => {
   });
 });
 
-// Where a reference like "ROM.8.28" falls along the timeline, as a 0-1
-// fraction of its total width. Falls back to the timeline's midpoint for
+// Where a reference like "ROM.8.28" falls along the timeline (a 0-1
+// fraction of the timeline's horizontal span) and which era lane it
+// belongs in. Falls back to the timeline's midpoint/middle era for
 // anything unrecognized (shouldn't happen with real USFM data from this
 // app's own tools) rather than throwing off the rest of the layout.
-function timelineFractionForReference(reference) {
+function placementForReference(reference) {
   const bookCode = (reference.split(".")[0] || "").toUpperCase();
   const placement = CROSS_REF_ERA_BY_BOOK.get(bookCode);
-  if (!placement) return 0.5;
   const eraSpan = 1 / CROSS_REF_TIMELINE_ERAS.length;
-  return placement.eraIndex * eraSpan + ((placement.bookIndex + 0.5) / placement.eraBookCount) * eraSpan;
+  if (!placement) {
+    return { eraIndex: Math.floor(CROSS_REF_TIMELINE_ERAS.length / 2), fraction: 0.5 };
+  }
+  return {
+    eraIndex: placement.eraIndex,
+    fraction: placement.eraIndex * eraSpan + ((placement.bookIndex + 0.5) / placement.eraBookCount) * eraSpan,
+  };
 }
 
 const CROSS_REF_WIDTH = 640;
-const CROSS_REF_HEIGHT = 210;
-const CROSS_REF_MARGIN_X = 34;
-const CROSS_REF_BASELINE_Y = 128;
-const CROSS_REF_MIN_ARC = 22;
-const CROSS_REF_MAX_ARC = 96;
+const CROSS_REF_LANE_COUNT = CROSS_REF_TIMELINE_ERAS.length;
+const CROSS_REF_LANE_HEIGHT = 40;
+const CROSS_REF_LANES_TOP = 10;
+const CROSS_REF_HEIGHT = CROSS_REF_LANES_TOP * 2 + CROSS_REF_LANE_COUNT * CROSS_REF_LANE_HEIGHT;
+// Asymmetric margins -- the left side needs room for each lane's era
+// label (drawn inside the band, not in a separate column -- see
+// renderCrossReferenceSvg), the right side just needs breathing room.
+const CROSS_REF_MARGIN_LEFT = 76;
+const CROSS_REF_MARGIN_RIGHT = 16;
+const CROSS_REF_MIN_ARC = 14;
+const CROSS_REF_MAX_ARC = 56;
 const CROSS_REF_DOT_RADIUS = 5;
-const CROSS_REF_FOCUS_RADIUS = 9;
-const CROSS_REF_TIMELINE_SPAN = CROSS_REF_WIDTH - 2 * CROSS_REF_MARGIN_X;
+const CROSS_REF_FOCUS_RADIUS = 8;
+const CROSS_REF_ACTIVE_HALO_RADIUS = 11;
+const CROSS_REF_TIMELINE_SPAN = CROSS_REF_WIDTH - CROSS_REF_MARGIN_LEFT - CROSS_REF_MARGIN_RIGHT;
 
 function timelineX(fraction) {
-  return CROSS_REF_MARGIN_X + fraction * CROSS_REF_TIMELINE_SPAN;
+  return CROSS_REF_MARGIN_LEFT + fraction * CROSS_REF_TIMELINE_SPAN;
 }
 
+function laneCenterY(eraIndex) {
+  return CROSS_REF_LANES_TOP + eraIndex * CROSS_REF_LANE_HEIGHT + CROSS_REF_LANE_HEIGHT / 2;
+}
+
+// Direction 4 (braided-river era lanes) combined with Direction 1 (a
+// focus card that pops up over the diagram, pointed at whichever node
+// you clicked) from the design-direction comparison Kaleb picked: each
+// era gets its own horizontal lane -- so connections that land close
+// together in time (the New Testament epistles cluster hard around any
+// Gospel focus verse) spread across rows instead of piling onto one
+// line -- and clicking any node drives a reusable pointer line + halo
+// (see showCrossRefReader in the click-handling section below) instead
+// of a per-node highlight baked into this markup.
 function renderCrossReferenceSvg({ reference, results }) {
   const maxVotes = Math.max(...results.map((r) => r.votes), 1);
-  const focusX = timelineX(timelineFractionForReference(reference));
+  const focusPlacement = placementForReference(reference);
+  const focusX = timelineX(focusPlacement.fraction);
+  const focusY = laneCenterY(focusPlacement.eraIndex);
 
-  const nodes = results.map((r, i) => {
-    const x = timelineX(timelineFractionForReference(r.reference));
+  // Label rows alternate within EACH lane (not globally) so a tight
+  // cluster that still lands in the same era doesn't stack its labels
+  // directly on top of one another.
+  const laneRunningIndex = new Map();
+  const nodes = results.map((r) => {
+    const placement = placementForReference(r.reference);
+    const x = timelineX(placement.fraction);
+    const y = laneCenterY(placement.eraIndex);
     const weight = r.votes / maxVotes;
     const arcHeight = CROSS_REF_MIN_ARC + weight * (CROSS_REF_MAX_ARC - CROSS_REF_MIN_ARC);
-    // Two staggered label rows just under the baseline so nodes that land
-    // close together chronologically (common -- many cross-references
-    // cluster within the same era) don't overlap text.
-    const labelY = CROSS_REF_BASELINE_Y + (i % 2 === 0 ? 14 : 26);
-    return { ...r, x, weight, arcHeight, labelY };
+    const idx = laneRunningIndex.get(placement.eraIndex) ?? 0;
+    laneRunningIndex.set(placement.eraIndex, idx + 1);
+    const labelY = y + (idx % 2 === 0 ? 12 : 24);
+    return { ...r, x, y, weight, arcHeight, labelY };
   });
 
-  const eraTicks = CROSS_REF_TIMELINE_ERAS.map((era, i) => {
-    const eraSpan = 1 / CROSS_REF_TIMELINE_ERAS.length;
-    const midFraction = i * eraSpan + eraSpan / 2;
-    const startFraction = i * eraSpan;
-    const tickX = i === 0 ? timelineX(0) : timelineX(startFraction);
-    const labelX = timelineX(midFraction);
-    const tick = i === 0 ? "" : `<line class="cross-ref-era-tick" x1="${tickX.toFixed(1)}" y1="${(CROSS_REF_BASELINE_Y - 4).toFixed(1)}" x2="${tickX.toFixed(1)}" y2="${(CROSS_REF_BASELINE_Y + 4).toFixed(1)}"></line>`;
-    return `${tick}<text class="cross-ref-era-label" x="${labelX.toFixed(1)}" y="${(CROSS_REF_HEIGHT - 8).toFixed(1)}" text-anchor="middle">${escapeHtml(era.label)}</text>`;
+  const lanes = CROSS_REF_TIMELINE_ERAS.map((era, i) => {
+    const top = CROSS_REF_LANES_TOP + i * CROSS_REF_LANE_HEIGHT;
+    const parity = i % 2 === 0 ? "a" : "b";
+    const isFocusLane = i === focusPlacement.eraIndex;
+    const rectClass = `cross-ref-lane cross-ref-lane-${parity}${isFocusLane ? " cross-ref-lane-focus" : ""}`;
+    const divider =
+      i === 0
+        ? ""
+        : `<line class="cross-ref-lane-divider" x1="0" y1="${top}" x2="${CROSS_REF_WIDTH}" y2="${top}"></line>`;
+    return `${divider}<rect class="${rectClass}" x="0" y="${top.toFixed(1)}" width="${CROSS_REF_WIDTH}" height="${CROSS_REF_LANE_HEIGHT}"></rect><text class="cross-ref-era-label" x="4" y="${(top + 11).toFixed(1)}">${escapeHtml(era.label)}</text>`;
   }).join("");
 
-  const baseline = `<line class="cross-ref-baseline" x1="${timelineX(0).toFixed(1)}" y1="${CROSS_REF_BASELINE_Y}" x2="${timelineX(1).toFixed(1)}" y2="${CROSS_REF_BASELINE_Y}"></line>`;
-
-  // Each connection is an arc from the focus verse's baseline position up
-  // and over to this node's baseline position -- a real SVG quadratic
-  // curve (control point directly above the midpoint, at the node's own
-  // arc height) rather than the earlier straight spoke, so several arcs
-  // of different heights/widths remain visually distinct instead of just
-  // overlapping straight lines.
+  // Each connection is an arc from the focus verse's position to this
+  // node's -- a real SVG quadratic curve, control point above the
+  // shallower of the two lanes (so a same-lane connection gets a small
+  // bump, a cross-lane one a real sweep), scaled by how often it's
+  // cited.
   const arcs = nodes
     .map((node) => {
       const midX = (focusX + node.x) / 2;
-      const controlY = CROSS_REF_BASELINE_Y - node.arcHeight;
-      return `<path class="cross-ref-edge" d="M ${focusX.toFixed(1)} ${CROSS_REF_BASELINE_Y} Q ${midX.toFixed(1)} ${controlY.toFixed(1)} ${node.x.toFixed(1)} ${CROSS_REF_BASELINE_Y}" data-stroke-width="${(1 + node.weight * 2.5).toFixed(2)}" data-opacity="${(0.3 + node.weight * 0.55).toFixed(2)}"></path>`;
+      const controlY = Math.min(focusY, node.y) - node.arcHeight;
+      return `<path class="cross-ref-edge" d="M ${focusX.toFixed(1)} ${focusY.toFixed(1)} Q ${midX.toFixed(1)} ${controlY.toFixed(1)} ${node.x.toFixed(1)} ${node.y.toFixed(1)}" data-stroke-width="${(1 + node.weight * 2.5).toFixed(2)}" data-opacity="${(0.3 + node.weight * 0.55).toFixed(2)}"></path>`;
     })
     .join("");
 
+  // data-x/data-y repeat each node's own SVG-space position as plain
+  // attributes -- showCrossRefReader reads them straight off the
+  // clicked element to aim the reusable pointer/halo (below), rather
+  // than re-deriving a position from screen-space geometry.
   const nodeEls = nodes
     .map(
-      (node) => `<g class="cross-ref-node" tabindex="0" role="button" aria-label="Read ${escapeHtml(node.reference)}" data-reference="${escapeHtml(node.reference)}">
-        <circle class="cross-ref-dot" cx="${node.x.toFixed(1)}" cy="${CROSS_REF_BASELINE_Y}" r="${CROSS_REF_DOT_RADIUS}"></circle>
+      (node) => `<g class="cross-ref-node" tabindex="0" role="button" aria-label="Read ${escapeHtml(node.reference)}" data-reference="${escapeHtml(node.reference)}" data-x="${node.x.toFixed(1)}" data-y="${node.y.toFixed(1)}">
+        <circle class="cross-ref-dot" cx="${node.x.toFixed(1)}" cy="${node.y.toFixed(1)}" r="${CROSS_REF_DOT_RADIUS}"></circle>
         <text class="cross-ref-label" x="${node.x.toFixed(1)}" y="${node.labelY.toFixed(1)}" text-anchor="middle">${escapeHtml(node.reference)}</text>
       </g>`,
     )
     .join("");
 
-  return `<svg class="cross-ref-svg" viewBox="0 0 ${CROSS_REF_WIDTH} ${CROSS_REF_HEIGHT}" role="img" aria-label="Cross-references for ${escapeHtml(reference)}, shown on a biblical timeline">
-    ${eraTicks}
-    ${baseline}
+  return `<svg class="cross-ref-svg" viewBox="0 0 ${CROSS_REF_WIDTH} ${CROSS_REF_HEIGHT}" role="img" aria-label="Cross-references for ${escapeHtml(reference)}, shown on a biblical timeline with one lane per era">
+    ${lanes}
     ${arcs}
-    <g class="cross-ref-node cross-ref-center-node" tabindex="0" role="button" aria-label="Read ${escapeHtml(reference)}" data-reference="${escapeHtml(reference)}">
-      <circle cx="${focusX.toFixed(1)}" cy="${CROSS_REF_BASELINE_Y}" r="${CROSS_REF_FOCUS_RADIUS}"></circle>
-      <text x="${focusX.toFixed(1)}" y="${(CROSS_REF_BASELINE_Y - CROSS_REF_FOCUS_RADIUS - 6).toFixed(1)}" text-anchor="middle">${escapeHtml(reference)}</text>
+    <g class="cross-ref-node cross-ref-center-node" tabindex="0" role="button" aria-label="Read ${escapeHtml(reference)}" data-reference="${escapeHtml(reference)}" data-x="${focusX.toFixed(1)}" data-y="${focusY.toFixed(1)}">
+      <circle cx="${focusX.toFixed(1)}" cy="${focusY.toFixed(1)}" r="${CROSS_REF_FOCUS_RADIUS}"></circle>
+      <text x="${focusX.toFixed(1)}" y="${(focusY - CROSS_REF_FOCUS_RADIUS - 6).toFixed(1)}" text-anchor="middle">${escapeHtml(reference)}</text>
     </g>
-    ${nodeEls}
+    <line class="cross-ref-active-pointer" x1="0" y1="0" x2="0" y2="0"></line>
+    <circle class="cross-ref-active-halo" cx="0" cy="0" r="${CROSS_REF_ACTIVE_HALO_RADIUS}"></circle>
   </svg>`;
 }
-
 function renderCrossReferenceDiagram(diagram, defaultOpen) {
   const { reference, results, totalCount } = diagram;
   if (!results || results.length === 0) return "";
@@ -799,11 +834,7 @@ function renderCrossReferenceDiagram(diagram, defaultOpen) {
   return `<details class="source-passage cross-ref-diagram"${defaultOpen ? " open" : ""}>
     <summary>Cross-references for ${escapeHtml(reference)}</summary>
     <div class="source-body">
-      <p class="section-note">From a curated scholarly dataset (chiefly the Treasury of Scripture Knowledge), ranked by how often each connection is drawn. Click a verse to read it here, or ask Claude about it.</p>
-      <div class="cross-ref-diagram-wrap">${renderCrossReferenceSvg(diagram)}</div>
-      <ul class="cross-ref-list">${listItems}</ul>
-      ${truncatedNote}
-      ${typeDisclosure}
+      <p class="section-note">From a curated scholarly dataset (chiefly the Treasury of Scripture Knowledge), ranked by how often each connection is drawn. Click a verse below to read it right here, or ask Claude about it.</p>
       <div class="cross-ref-reader" hidden aria-live="polite">
         <p class="cross-ref-reader-ref"></p>
         <p class="cross-ref-reader-text"></p>
@@ -812,6 +843,10 @@ function renderCrossReferenceDiagram(diagram, defaultOpen) {
           <button type="button" class="cross-ref-reader-close" aria-label="Close verse preview">Close</button>
         </div>
       </div>
+      <div class="cross-ref-diagram-wrap">${renderCrossReferenceSvg(diagram)}</div>
+      <ul class="cross-ref-list">${listItems}</ul>
+      ${truncatedNote}
+      ${typeDisclosure}
     </div>
   </details>`;
 }
@@ -1485,14 +1520,44 @@ function renderCrossRefReader(readerEl, reference, preview) {
   readerEl.querySelector(".cross-ref-reader-ask").dataset.reference = reference;
 }
 
+// Positions the reusable pointer line + halo ring (drawn once per
+// diagram -- see renderCrossReferenceSvg) at a node's own SVG-space
+// position, read straight off its data-x/data-y, and fades them in. A
+// plain-list click (no SVG position to point at) just clears them --
+// the reader panel above still works, it simply has nothing to point
+// to.
+function setCrossRefIndicator(diagramEl, node) {
+  const svgEl = diagramEl.querySelector(".cross-ref-svg");
+  const pointer = svgEl?.querySelector(".cross-ref-active-pointer");
+  const halo = svgEl?.querySelector(".cross-ref-active-halo");
+  if (!pointer || !halo) return;
+  const x = node?.dataset.x;
+  const y = node?.dataset.y;
+  if (x === undefined || y === undefined) {
+    pointer.classList.remove("is-visible");
+    halo.classList.remove("is-visible");
+    return;
+  }
+  pointer.setAttribute("x1", x);
+  pointer.setAttribute("x2", x);
+  pointer.setAttribute("y1", "0");
+  pointer.setAttribute("y2", y);
+  halo.setAttribute("cx", x);
+  halo.setAttribute("cy", y);
+  pointer.classList.add("is-visible");
+  halo.classList.add("is-visible");
+}
+
 async function showCrossRefReader(node) {
   const reference = node.dataset.reference;
-  const readerEl = node.closest(".cross-ref-diagram")?.querySelector(".cross-ref-reader");
-  if (!reference || !readerEl) return;
+  const diagramEl = node.closest(".cross-ref-diagram");
+  const readerEl = diagramEl?.querySelector(".cross-ref-reader");
+  if (!reference || !readerEl || !diagramEl) return;
 
   // Toggle off if this exact reference is already open in this diagram.
   if (!readerEl.hidden && readerEl.dataset.reference === reference) {
     readerEl.hidden = true;
+    setCrossRefIndicator(diagramEl, null);
     return;
   }
 
@@ -1501,6 +1566,7 @@ async function showCrossRefReader(node) {
   readerEl.querySelector(".cross-ref-reader-ref").textContent = reference;
   readerEl.querySelector(".cross-ref-reader-text").textContent = "Loading\u2026";
   readerEl.querySelector(".cross-ref-reader-text").classList.remove("cross-ref-reader-error");
+  setCrossRefIndicator(diagramEl, node);
 
   const preview = await fetchVersePreview(reference);
   // The user may have clicked a different node while this was in flight,
@@ -1519,7 +1585,9 @@ chatLog.addEventListener("click", (event) => {
   }
   const closeButton = event.target.closest(".cross-ref-reader-close");
   if (closeButton) {
+    const diagramEl = closeButton.closest(".cross-ref-diagram");
     closeButton.closest(".cross-ref-reader").hidden = true;
+    if (diagramEl) setCrossRefIndicator(diagramEl, null);
     return;
   }
   const node = event.target.closest(CROSS_REF_CLICK_SELECTOR);

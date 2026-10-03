@@ -1895,12 +1895,22 @@ table.interlinear th {
   height: auto;
 }
 
-.cross-ref-baseline {
-  stroke: var(--line);
-  stroke-width: 1;
+.cross-ref-lane-a {
+  fill: var(--panel);
+  fill-opacity: 0.5;
 }
 
-.cross-ref-era-tick {
+.cross-ref-lane-b {
+  fill: var(--accent-soft);
+  fill-opacity: 0.4;
+}
+
+.cross-ref-lane-focus {
+  fill: var(--accent-soft);
+  fill-opacity: 0.6;
+}
+
+.cross-ref-lane-divider {
   stroke: var(--line);
   stroke-width: 1;
 }
@@ -1908,8 +1918,36 @@ table.interlinear th {
 .cross-ref-era-label {
   font-family: var(--sans);
   font-size: 7.5px;
+  font-weight: 600;
   letter-spacing: 0.02em;
   fill: var(--ink-faint, var(--ink-soft));
+}
+
+/* The reusable pointer line + halo ring that showCrossRefReader (see
+   app.js) repositions and fades in on every click, instead of each
+   node baking its own "active" styling into the markup -- one pair per
+   diagram, aimed at whichever node is behind the open reader card. */
+.cross-ref-active-pointer {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 2 4;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.cross-ref-active-halo {
+  fill: none;
+  stroke: var(--accent-soft);
+  stroke-width: 3;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.cross-ref-active-pointer.is-visible,
+.cross-ref-active-halo.is-visible {
+  opacity: 1;
 }
 
 .cross-ref-edge {
@@ -2031,12 +2069,13 @@ table.interlinear th {
 }
 
 /* Inline verse preview opened by clicking a cross-reference node/list item
-   (see showCrossRefReader in app.js) -- reads the verse right where it
-   was clicked instead of jumping focus to the chat input. One of these
-   sits inside each .cross-ref-diagram, hidden until a reference is
-   picked. */
+   (see showCrossRefReader in app.js) -- a focus card that sits right
+   above the lane diagram (Direction 1 + Direction 4 from the design
+   comparison), with a dashed pointer line + halo in the diagram itself
+   (see .cross-ref-active-pointer/.cross-ref-active-halo) pointing at
+   whichever node is open. Hidden until a reference is picked. */
 .cross-ref-reader {
-  margin-top: 0.6rem;
+  margin: 0 0 0.6rem;
   padding: 0.65rem 0.8rem;
   background: var(--panel);
   border: 1px solid var(--line);
