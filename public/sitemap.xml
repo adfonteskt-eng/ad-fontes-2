@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The handful of real, server-routed, bookmarkable paths this app serves
+  (see server.js's GET route list) -- not an exhaustive content sitemap,
+  since there's no per-reference or per-conversation URL to enumerate (a
+  passage is reached by asking in chat, not by a /john-3-16 route). Kept by
+  hand alongside server.js's own route list rather than generated, since
+  both change at the same rare rate and by the same person.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://adfontes.site/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://adfontes.site/today</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://adfontes.site/plans</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://adfontes.site/subscription</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://adfontes.site/sources</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.4</priority>
+  </url>
+  <url>
+    <loc>https://adfontes.site/legal</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+</urlset>

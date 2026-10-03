@@ -1,5 +1,20 @@
 # State of the repo — audited 2026-09-21
 
+> **This snapshot is stale and kept only for history.** It was written to
+> correct one incoming spec's wrong assumptions at a single point in time,
+> not to be a living description of the app — and nearly every "does not
+> exist yet" gap it lists below has since been built (Receipts Mode's
+> verifier, Alphabet Mode's groundwork, the Depth slider, Tradition Lens,
+> the Passage Briefing card, Word-Study Web, the Sources & Licenses page,
+> the full Playwright/axe-core QA pass, the nonce-based CSP, and more — see
+> `docs/DECISIONS.md`, newest entries first, for what actually shipped and
+> when). For what's true about this app *right now*, read `docs/
+> DECISIONS.md` and `qa/CHECKLIST.md`/`qa/BUGS.md`, not this file. The one
+> thing this file got right that's worth carrying forward: ground every
+> claim in a file/line or a command actually run, not an assumption — see
+> the 2026-10-03 entry in `docs/DECISIONS.md` for the same discipline
+> applied to a fresh launch-readiness audit.
+
 This document exists because a product spec arrived describing ad-fontes as
 "currently a local prototype... fetches passage text from the YouVersion
 Platform API" with no UI. **That premise is wrong and this doc corrects it.**

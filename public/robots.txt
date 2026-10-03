@@ -1,0 +1,9 @@
+# ad fontes is entirely public content (no signed-in-only pages are worth
+# hiding from a crawler -- Reading Plans/Outlines/Notes/Subscription all
+# show a real, crawlable upsell/sign-in state for an anonymous visitor
+# rather than a blank page, same as qa/tests/navigation.spec.js checks).
+# Nothing here is disallowed.
+User-agent: *
+Allow: /
+
+Sitemap: https://adfontes.site/sitemap.xml

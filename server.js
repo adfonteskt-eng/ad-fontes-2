@@ -165,11 +165,11 @@
 //   signed in but not paid; 404 if :id doesn't exist or isn't the signed-in
 //   user's own; 400 for an unrecognized :type or format.
 //
-// GET /chat, /today, /plans, /outlines, /subscription, /sources -> all serve
-//   the same index.html as GET / -- the frontend is a single-page app with
-//   seven client-side views (home, conversation, today, plans, outlines,
-//   subscription, sources — see public/app.js's view system), and these
-//   routes exist purely so a hard
+// GET /chat, /today, /plans, /outlines, /subscription, /sources, /legal ->
+//   all serve the same index.html as GET / -- the frontend is a single-page
+//   app with eight client-side views (home, conversation, today, plans,
+//   outlines, subscription, sources, legal — see public/app.js's view
+//   system), and these routes exist purely so a hard
 //   refresh or a direct/bookmarked link to any of them still loads the app
 //   instead of 404ing. Which view actually renders is decided client-side
 //   (from localStorage for a resumed conversation, otherwise from the
@@ -258,6 +258,12 @@ const CONTENT_TYPES = {
   ".ico": "image/x-icon",
   ".woff2": "font/woff2",
   ".webp": "image/webp",
+  // robots.txt / sitemap.xml (see public/) -- plain static files, same
+  // serveStatic() path as everything else in public/, just two more
+  // extensions worth a real MIME type instead of falling through to
+  // application/octet-stream.
+  ".txt": "text/plain; charset=utf-8",
+  ".xml": "application/xml; charset=utf-8",
 };
 
 // Render (and most hosts fronted by a proxy/load balancer) terminates the
@@ -1513,7 +1519,7 @@ const server = createServer(async (req, res) => {
       await handleStripeWebhook(req, res);
       return;
     }
-    if (req.method === "GET" && ["/chat", "/today", "/plans", "/outlines", "/notes", "/subscription", "/sources"].includes(url.pathname)) {
+    if (req.method === "GET" && ["/chat", "/today", "/plans", "/outlines", "/notes", "/subscription", "/sources", "/legal"].includes(url.pathname)) {
       await serveStatic(res, "/"); // same file as the homepage -- see the GET /chat doc comment above
       return;
     }

@@ -2710,6 +2710,24 @@ table.interlinear th {
   color: var(--ink);
 }
 
+/* --- Privacy & Terms page ------------------------------------------------- */
+/* .sources-intro/.sources-list/.sources-item above are reused for the legal
+   page's own body copy (same shape: heading, intro, a list of sections) --
+   this is the one new rule the legal page actually needed, for the
+   "draft, not reviewed by a lawyer yet" banner at its top. */
+
+.legal-draft-notice {
+  max-width: 34rem;
+  margin: 0 auto 1.1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.6rem;
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
 .depth-control {
   display: flex;
   align-items: center;

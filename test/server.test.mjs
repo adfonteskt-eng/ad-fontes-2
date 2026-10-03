@@ -80,13 +80,28 @@ test("GET /chat serves the same index.html as GET / (client-side view routing)",
   assert.match(body, /<html/i);
 });
 
-test("GET /today, /plans, /outlines, and /subscription each serve the same index.html (client-side view routing)", async () => {
-  for (const path of ["/today", "/plans", "/outlines", "/subscription"]) {
+test("GET /today, /plans, /outlines, /subscription, /sources, and /legal each serve the same index.html (client-side view routing)", async () => {
+  for (const path of ["/today", "/plans", "/outlines", "/subscription", "/sources", "/legal"]) {
     const response = await fetch(BASE_URL + path);
     assert.equal(response.status, 200, `${path} should return 200`);
     const body = await response.text();
     assert.match(body, /<html/i, `${path} should serve index.html`);
   }
+});
+
+// robots.txt / sitemap.xml -- plain static files out of public/, not SPA-
+// shell routes (see server.js's CONTENT_TYPES additions for these two
+// extensions) -- added as part of the launch-readiness pass.
+test("GET /robots.txt and /sitemap.xml are served with real, non-default MIME types (not application/octet-stream)", async () => {
+  const robots = await fetch(BASE_URL + "/robots.txt");
+  assert.equal(robots.status, 200);
+  assert.match(robots.headers.get("content-type") ?? "", /text\/plain/);
+  assert.match(await robots.text(), /Sitemap: https:\/\/adfontes\.site\/sitemap\.xml/);
+
+  const sitemap = await fetch(BASE_URL + "/sitemap.xml");
+  assert.equal(sitemap.status, 200);
+  assert.match(sitemap.headers.get("content-type") ?? "", /application\/xml/);
+  assert.match(await sitemap.text(), /<urlset/);
 });
 
 // --- Nonce-based CSP (see server.js's buildContentSecurityPolicy() and

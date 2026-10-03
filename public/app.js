@@ -686,22 +686,75 @@ CROSS_REF_TIMELINE_ERAS.forEach((era, eraIndex) => {
   });
 });
 
+// Real chapter counts (every standard Protestant-canon printing agrees on
+// these, unlike anything about dating/eras above) -- used only to spread
+// two cross-references that land in the *same book* across that book's
+// own slot in the timeline, instead of every reference in, say, Romans or
+// Psalms stacking into one identical (x, y) dot. Not a claim that a verse
+// is laid out "chronologically" within its book (plenty of books aren't
+// chronological internally to begin with) -- purely declutters the common
+// case of two different-chapter citations from the same book landing on
+// top of each other (confirmed this actually happened before this table
+// existed: ROM.5.8 and ROM.8.32 collapsed to one dot).
+const CROSS_REF_CHAPTER_COUNT_BY_BOOK = {
+  GEN: 50, EXO: 40, LEV: 27, NUM: 36, DEU: 34, JOS: 24, JDG: 21, RUT: 4,
+  "1SA": 31, "2SA": 24, "1KI": 22, "2KI": 25, "1CH": 29, "2CH": 36,
+  EZR: 10, NEH: 13, EST: 10, JOB: 42, PSA: 150, PRO: 31, ECC: 12, SNG: 8,
+  ISA: 66, JER: 52, LAM: 5, EZK: 48, DAN: 12, HOS: 14, JOL: 3, AMO: 9,
+  OBA: 1, JON: 4, MIC: 7, NAM: 3, HAB: 3, ZEP: 3, HAG: 2, ZEC: 14, MAL: 4,
+  MAT: 28, MRK: 16, LUK: 24, JHN: 21, ACT: 28, ROM: 16, "1CO": 16,
+  "2CO": 13, GAL: 6, EPH: 6, PHP: 4, COL: 4, "1TH": 5, "2TH": 3, "1TI": 6,
+  "2TI": 4, TIT: 3, PHM: 1, HEB: 13, JAS: 5, "1PE": 5, "2PE": 3, "1JN": 5,
+  "2JN": 1, "3JN": 1, JUD: 1, REV: 22,
+};
+
 // Where a reference like "ROM.8.28" falls along the timeline (a 0-1
 // fraction of the timeline's horizontal span) and which era lane it
 // belongs in. Falls back to the timeline's midpoint/middle era for
 // anything unrecognized (shouldn't happen with real USFM data from this
 // app's own tools) rather than throwing off the rest of the layout.
+//
+// A reference can be a same-chapter or chapter-crossing range (see lib/
+// cross-references.js's formatCrossRefRange -- "PSA.148.4-5" or
+// "JHN.1.1-2.2"); parseInt on the chapter/verse segments below just reads
+// the start of the range and ignores anything past the first non-digit,
+// which is exactly what's wanted here (a jitter position, not a precise
+// range-aware layout).
 function placementForReference(reference) {
-  const bookCode = (reference.split(".")[0] || "").toUpperCase();
+  const parts = reference.split(".");
+  const bookCode = (parts[0] || "").toUpperCase();
   const placement = CROSS_REF_ERA_BY_BOOK.get(bookCode);
   const eraSpan = 1 / CROSS_REF_TIMELINE_ERAS.length;
   if (!placement) {
     return { eraIndex: Math.floor(CROSS_REF_TIMELINE_ERAS.length / 2), fraction: 0.5 };
   }
-  return {
-    eraIndex: placement.eraIndex,
-    fraction: placement.eraIndex * eraSpan + ((placement.bookIndex + 0.5) / placement.eraBookCount) * eraSpan,
-  };
+  const bookSpan = eraSpan / placement.eraBookCount;
+  const bookLeft = placement.eraIndex * eraSpan + placement.bookIndex * bookSpan;
+
+  const chapterCount = CROSS_REF_CHAPTER_COUNT_BY_BOOK[bookCode];
+  const chapter = parseInt(parts[1], 10);
+  const verse = parseInt(parts[2], 10);
+  let withinBook = 0.5; // dead-center of the book's slot, same as before this table existed
+  if (chapterCount && Number.isFinite(chapter)) {
+    const chapterFrac = chapterCount > 1 ? (chapter - 1) / (chapterCount - 1) : 0.5;
+    // A small additional nudge from the verse number, scaled to a single
+    // chapter's own slice of the book's span -- a tie-breaker for two
+    // references in the *same* chapter (e.g. "1JN.4.9" vs "1JN.4.10"), not
+    // a real proportional verse position (there's no per-chapter verse-
+    // count table here, and this doesn't need one to just avoid an exact
+    // overlap). Capped at a generous 60 verses so an unusually long chapter
+    // (Psalm 119 has 176) still clamps into its own slice rather than
+    // bleeding into the next chapter's.
+    const verseNudge = Number.isFinite(verse) ? Math.min(Math.max(verse - 1, 0) / 60, 1) : 0.5;
+    const chapterSlice = 1 / chapterCount;
+    withinBook = chapterFrac * (1 - chapterSlice) + verseNudge * chapterSlice;
+  }
+  // Keep every book's dot within the middle 70% of its own slot -- so it
+  // never visually crosses into a neighboring book's slot regardless of
+  // chapter/verse, the same guarantee the old fixed-center version gave
+  // unconditionally.
+  const fraction = bookLeft + bookSpan * (0.15 + withinBook * 0.7);
+  return { eraIndex: placement.eraIndex, fraction };
 }
 
 const CROSS_REF_WIDTH = 640;
@@ -2041,6 +2094,7 @@ const pageOutlines = document.getElementById("page-outlines");
 const pageNotesPage = document.getElementById("page-notes");
 const pageSubscription = document.getElementById("page-subscription");
 const pageSources = document.getElementById("page-sources");
+const pageLegal = document.getElementById("page-legal");
 
 const HOME_PATH = "/";
 const CONVERSATION_PATH = "/chat";
@@ -2050,6 +2104,7 @@ const OUTLINES_PATH = "/outlines";
 const NOTES_PATH = "/notes";
 const SUBSCRIPTION_PATH = "/subscription";
 const SOURCES_PATH = "/sources";
+const LEGAL_PATH = "/legal";
 
 const VIEW_PATHS = {
   home: HOME_PATH,
@@ -2060,6 +2115,7 @@ const VIEW_PATHS = {
   notes: NOTES_PATH,
   subscription: SUBSCRIPTION_PATH,
   sources: SOURCES_PATH,
+  legal: LEGAL_PATH,
 };
 const PATH_VIEWS = Object.fromEntries(Object.entries(VIEW_PATHS).map(([view, path]) => [path, view]));
 
@@ -2088,6 +2144,11 @@ const NAV_BUTTON_ID_BY_VIEW = {
   notes: "menu-notes-button",
   subscription: "menu-subscription-button",
   sources: "menu-sources-button",
+  // No menu button for "legal" -- it's reached from the footer link, not
+  // the top-left nav (see index.html's <footer>), same reasoning as there
+  // being no dedicated "conversation" menu entry above. setActiveNavButton()
+  // already handles a view with no entry here by just clearing every
+  // button's active state.
 };
 
 // So the menu itself shows which page you're on -- previously every
@@ -2124,6 +2185,7 @@ function renderView(view) {
   const isNotesPage = view === "notes";
   const isSubscription = view === "subscription";
   const isSources = view === "sources";
+  const isLegal = view === "legal";
 
   emptyState.hidden = !isHome;
   examplesContainer.hidden = !isHome;
@@ -2134,6 +2196,7 @@ function renderView(view) {
   pageNotesPage.hidden = !isNotesPage;
   pageSubscription.hidden = !isSubscription;
   pageSources.hidden = !isSources;
+  pageLegal.hidden = !isLegal;
   // The message box only makes sense on the chat-flow views -- the
   // standalone pages have their own actions (a passage button, a reading-
   // plan day, a saved outline, static plan copy) that route back into chat
@@ -2189,6 +2252,10 @@ function goToSubscriptionView(options) {
 
 function goToSourcesView(options) {
   goToView("sources", options);
+}
+
+function goToLegalView(options) {
+  goToView("legal", options);
 }
 
 window.addEventListener("popstate", (event) => {
@@ -3004,6 +3071,7 @@ window.adFontesChat = {
   goToOutlines: () => goToOutlinesView(),
   goToNotesPage: () => goToNotesPageView(),
   goToSubscription: () => goToSubscriptionView(),
+  goToLegal: () => goToLegalView(),
   goToSources: () => goToSourcesView(),
   // Called by auth.js once window.adFontesAuth.isPaid is (re-)known --
   // signing in/out, or the initial page load's loadPreferences() call, can

@@ -1,7 +1,93 @@
-# Decisions log
+## 2026-10-03 — Launch-readiness pass: audited the real gaps, fixed what
+could be fixed without a human decision, left the rest as a punch list
 
-Recorded as I go, per the "don't stop to ask, record reasonable calls"
-instruction. Newest at the top.
+Kaleb asked to "work through polishing everything up to be ready and
+functional for a launch." Read the existing QA artifacts first
+(`qa/CHECKLIST.md`, `qa/BUGS.md`, `qa/REPORT.md`, this file's own "Not yet
+built" section, `docs/STATE.md`) rather than re-discovering everything from
+scratch, then did a fresh audit pass of the areas those docs didn't already
+cover: Supabase RLS policies (`supabase/schema.sql` — every table already
+has RLS enabled with a correct `auth.uid()`-scoped policy; no gap found),
+SEO basics (`public/index.html`'s `<head>` already had a real meta
+description + Open Graph tags; no gap found), analytics/error-monitoring
+(none exists — a real, if lower-urgency, gap), and `robots.txt`/
+`sitemap.xml` (neither existed — a real gap).
+
+Fixed directly, in this pass, with real test coverage:
+
+- **`lib/stripe.js` test coverage** — was a documented gap (see
+  `docs/STATE.md`'s 2026-09-21 audit: "has zero test coverage"), still true
+  as of this pass. Added `test/stripe.test.mjs` (13 tests): Checkout/
+  Portal session field-by-field assertions against a stubbed Stripe API
+  (same `globalThis.fetch`-stubbing convention as `test/gather.test.mjs`),
+  the customer-vs-customer_email branch, a non-ok-response error path, and
+  `verifyWebhookEvent()`'s signature/timestamp/replay-tolerance logic
+  against hand-computed HMACs (missing header, malformed header, tampered
+  body, wrong secret, wrong-length signature, stale timestamp, and the
+  happy path). `npm test` is 364 passing (was 350) with this pass's other
+  additions included.
+- **Privacy Policy & Terms of Service page** (`/legal`, linked from the
+  footer) — there was no legal page anywhere in the app; a real gap for a
+  production app taking accounts and payments. Added as an eighth SPA view
+  (`#page-legal`, same `VIEW_PATHS`/`renderView()` wiring as every other
+  standalone page), reusing the existing `.sources-intro`/`.sources-list`/
+  `.sources-item` classes for the body copy. **This is explicitly a
+  drafted starting point, not a reviewed legal document** — it says so, in
+  a `.legal-draft-notice` banner at the top of the page itself, and every
+  [bracketed] placeholder (business name, contact email, governing-law
+  jurisdiction, refund policy, children's-privacy confirmation) needs a
+  human decision and, ideally, a real lawyer's review before this is
+  accurate to call "live." The factual claims below the placeholders (what
+  data is collected, which third parties process it) were read directly
+  out of `supabase/schema.sql`, `lib/`, and `.env.example`, not guessed.
+- **`robots.txt` + `sitemap.xml`** (`public/`) — neither existed. Added
+  both; `server.js`'s `CONTENT_TYPES` map gained `.txt`/`.xml` entries so
+  they're served with real MIME types instead of falling through to
+  `application/octet-stream`. `test/server.test.mjs` gained a test
+  asserting both are reachable with the right content-type and that
+  `sitemap.xml` is well-formed enough to parse as `<urlset>`.
+- **Cross-reference timeline dot-overlap** — a pre-existing limitation
+  (present even in the old flat-baseline layout, not a regression from the
+  2026-10-03 braided-lanes rework earlier this session): `placementForReference()`
+  placed every reference purely by book + the book's ordinal position in
+  its era, so two references from the same book landed on the exact same
+  (x, y) (confirmed: `ROM.5.8`/`ROM.8.32` and `1JN.4.9`/`1JN.4.10` each
+  collapsed to one dot). Added a real, standard chapter-count table
+  (`CROSS_REF_CHAPTER_COUNT_BY_BOOK`, all 66 books — static canonical data,
+  not something that needed sourcing) and used chapter number (and, as a
+  same-chapter tie-breaker, verse number) to spread references within their
+  book's own slot in the timeline, clamped to the middle 70% of that slot
+  so a dot never crosses into a neighboring book's. Not a claim of real
+  chronological precision within a book (the file's own comment already
+  disclaims that at the era level) — purely decluttering. Verified with the
+  same standalone-extraction-into-`node`-with-a-fake-DOM technique used
+  earlier this session for the braided-lanes math: no NaN/out-of-range
+  fractions across 15 real and edge-case references (including a chapter-
+  crossing range, an unrecognized book code, and both previously-colliding
+  pairs — now distinct).
+
+Tried and couldn't finish in this environment: re-running the Playwright +
+axe-core suite (`qa/tests/`) against the current build to confirm it still
+passes after the Ivory Aurora reskin and the timeline rework. `npx
+playwright test` failed immediately — `channel: "chrome"` in
+`playwright.config.js` expects a real installed Google Chrome, and this
+session's own sandboxed device shell has neither Chrome nor `sudo` to
+install it (`npx playwright install chrome` fails with "sudo: ... no new
+privileges flag is set"). The 350-plus-14 unit suite (`node --test`, no
+browser needed) passes clean at 364. Flagged on the punch list handed back
+to Kaleb as something to run from his own machine or CI, not something I
+could verify here.
+
+Left as a punch list for Kaleb, because each needs either a human decision
+I can't make for him or access to an account I'm not able to create/sign
+into on his behalf (see this session's own standing rule on account
+creation and entering real financial credentials): Stripe going live
+(new, separate live-mode Price IDs, not just swapping the secret key — see
+`.env.example`'s own documented warning on this); reviewing/finalizing the
+Privacy Policy & Terms draft above; picking an error-monitoring tool (none
+wired up today); confirming Render's production env vars are actually set;
+and running the real signed-in-account + Playwright/axe pass against the
+live site.
 
 ## 2026-09-21 — Pacing: build Phase 2 features in priority order across
 multiple turns, not all at once, in one honest pass

@@ -585,6 +585,178 @@
       </div>
     </div>
 
+    <!-- Privacy Policy & Terms of Service -- added as part of the launch-
+         readiness pass (see docs/STATE.md). Reuses the same
+         .page/.page-heading/.sources-intro/.sources-list/.sources-item
+         classes as #page-sources above rather than inventing new ones --
+         structurally it's the same shape (a heading, an intro paragraph,
+         a list of labeled sections), just legal copy instead of licensing
+         copy.
+
+         IMPORTANT: this is a drafted starting point, not reviewed by a
+         lawyer. The .legal-draft-notice banner and every [bracketed]
+         placeholder below (business name, contact address, governing
+         law) needs a human decision before this is real -- see the
+         launch-readiness punch list for the full "before this is legally
+         live" checklist. Nothing about the *factual* claims below (what
+         data is collected, which third parties process it) is a
+         placeholder -- those were read directly out of supabase/
+         schema.sql, lib/, and .env.example, not guessed. -->
+    <div id="page-legal" class="page" hidden>
+      <h2 class="page-heading">Privacy &amp; Terms</h2>
+
+      <div class="legal-draft-notice">
+        <strong>Draft, not final.</strong> This page was generated from a reading of
+        this app's own code and data model, to get real launch-readiness work started
+        quickly -- it is <em>not</em> legal advice, and it has not been reviewed by a
+        lawyer. Every [bracketed] placeholder below needs a real value filled in by
+        the site operator, and the whole page deserves a professional legal review,
+        before it's accurate to call this "live" for a public launch.
+      </div>
+
+      <p class="sources-intro">
+        Last updated: [date]. ad fontes is operated by [your legal business name, or
+        your own name if you're operating as an individual] ("we," "us"). This page
+        covers both how we handle your data (Privacy Policy) and the terms you're
+        agreeing to by using the site (Terms of Service).
+      </p>
+
+      <div class="sources-list">
+        <div class="sources-item">
+          <h3>What we collect</h3>
+          <p>
+            Using ad fontes without an account requires nothing from you -- chat
+            messages and passage lookups aren't tied to your identity. Creating an
+            account (via Supabase Auth) adds: your email address; your chosen answer
+            depth and home-tradition preferences; the notes, saved outlines, and
+            reading-plan progress you create; a log of the passages and topics Claude
+            has gathered for you, so it can recall "you looked at this before" in a
+            later conversation; your saved conversation history; and, only if you
+            opt in, push-notification subscription details and a daily-digest email
+            preference. If you subscribe, Stripe's own customer and subscription
+            identifiers are stored against your account so we know your plan is
+            active -- we never see or store your card number ourselves.
+          </p>
+        </div>
+
+        <div class="sources-item">
+          <h3>Who else sees it</h3>
+          <p>
+            A few outside services necessarily see parts of what you do here, each
+            for exactly the purpose you'd expect: <a href="https://www.anthropic.com" target="_blank" rel="noopener">Anthropic</a>
+            processes your chat messages to generate Claude's replies; <a href="https://supabase.com" target="_blank" rel="noopener">Supabase</a>
+            hosts the account database described above; <a href="https://stripe.com" target="_blank" rel="noopener">Stripe</a>
+            processes payment and subscription billing if you subscribe; <a href="https://developers.youversion.com" target="_blank" rel="noopener">YouVersion</a>
+            and <a href="https://biblehub.com" target="_blank" rel="noopener">biblehub.com</a>
+            are called live, per request, to fetch the translation text and commentary
+            shown to you (see <a href="/sources">Sources &amp; Licenses</a> for the
+            full list and their own licenses); and, if you opt into either, [email
+            sending provider] delivers the daily digest email and your browser's own
+            push service (e.g. Google's or Apple's) delivers push notifications. None
+            of these receive more than what's needed to do that one job, and we don't
+            sell or rent your data to anyone, for any reason.
+          </p>
+        </div>
+
+        <div class="sources-item">
+          <h3>How long we keep it</h3>
+          <p>
+            Account data (notes, outlines, conversations, reading-plan progress,
+            study history) is kept for as long as your account exists. You can delete
+            individual notes and outlines yourself from the app; to delete your whole
+            account and everything tied to it, contact [your contact email] and we'll
+            remove it. An anonymous (signed-out) chat session is held only briefly in
+            server memory to keep a conversation coherent, then discarded -- it's
+            never written to the account database at all.
+          </p>
+        </div>
+
+        <div class="sources-item">
+          <h3>Children's privacy</h3>
+          <p>
+            ad fontes is not directed at children under 13, and we don't knowingly
+            collect account information from anyone under that age. [Confirm this is
+            accurate for your intended audience -- if you expect a meaningfully younger
+            or school-aged audience, this section and your actual data practices need
+            a closer look, possibly including COPPA compliance, before launch.]
+          </p>
+        </div>
+
+        <div class="sources-item">
+          <h3>Your choices</h3>
+          <p>
+            Daily digest email and reading-plan reminder pushes are both opt-in, off
+            by default -- turning them on (and off again) is a setting inside the app,
+            not something you need to ask us for. You can review, correct, or delete
+            your own notes and outlines directly in the app at any time. For anything
+            else -- exporting your data, deleting your account entirely, or a question
+            about how any of this works -- contact [your contact email].
+          </p>
+        </div>
+
+        <div class="sources-item">
+          <h3>Using the AI responsibly</h3>
+          <p>
+            Claude's conversational replies are generated by an AI model, not written
+            or reviewed by a person before you see them. Every direct Bible quotation
+            is checked against the real fetched translation text for that turn (see
+            the "Quote verified" note under a reply, and <a href="https://github.com/adfonteskt-eng/ad-fontes-2/blob/main/docs/receipts-mode.md" target="_blank" rel="noopener">Receipts Mode</a>
+            for exactly what that does and doesn't prove) -- but the AI's own
+            commentary, explanations, and theological framing can still be mistaken,
+            incomplete, or reflect a particular tradition's reading more than it lets
+            on. ad fontes is a study aid, not a substitute for your own reading, a
+            pastor, a qualified counselor, or a theologian, and nothing here should be
+            treated as professional, pastoral, legal, or medical advice.
+          </p>
+        </div>
+
+        <div class="sources-item">
+          <h3>Subscriptions &amp; billing</h3>
+          <p>
+            Paid features are billed through Stripe on a recurring monthly or annual
+            subscription, starting with a 14-day free trial on a card on file. You can
+            cancel, change plans, or update your payment method at any time from the
+            Subscription page, which hands off to Stripe's own secure Customer Portal
+            -- we don't build or store your payment details ourselves. [Confirm your
+            actual refund policy here -- e.g. whether a cancellation mid-trial or
+            mid-period is refunded, prorated, or simply not re-billed going forward.]
+          </p>
+        </div>
+
+        <div class="sources-item">
+          <h3>Acceptable use</h3>
+          <p>
+            Don't use ad fontes to attempt to extract, scrape, or resell the
+            underlying licensed data at scale (see <a href="/sources">Sources &amp; Licenses</a>
+            for each source's own terms), to send abusive or illegal content through
+            the chat interface, or to attempt to circumvent the per-account usage
+            limits that keep the service available for everyone. We reserve the right
+            to suspend or terminate accounts that violate this.
+          </p>
+        </div>
+
+        <div class="sources-item">
+          <h3>Changes to this page</h3>
+          <p>
+            If we materially change what we collect or how we use it, we'll update
+            the date at the top of this page and, for a signed-in user, make a
+            reasonable effort to let you know (e.g. in-app or by email) before the
+            change takes effect.
+          </p>
+        </div>
+
+        <div class="sources-item">
+          <h3>Governing law &amp; contact</h3>
+          <p>
+            These terms are governed by the laws of [your state/country], without
+            regard to its conflict-of-laws rules. [Add any arbitration/dispute-
+            resolution clause here if you want one -- not included by default.]
+            Questions about this page, or about your data: [your contact email].
+          </p>
+        </div>
+      </div>
+    </div>
+
     <!-- Depth slider (spec item 3): how technical an answer should be --
          free for everyone, signed in or not. Persisted locally for an
          anonymous visitor (see app.js) and, for a signed-in user, also
@@ -615,6 +787,9 @@
       Text &amp; lexicons: <a href="https://github.com/STEPBible/STEPBible-Data" target="_blank" rel="noopener">STEPBible / Tyndale House Cambridge</a> (CC BY 4.0).
       Commentary: public domain, via <a href="https://biblehub.com" target="_blank" rel="noopener">biblehub.com</a>.
       Translations: <a href="https://developers.youversion.com" target="_blank" rel="noopener">YouVersion Platform API</a>.
+    </p>
+    <p>
+      <a href="/legal">Privacy Policy</a> &middot; <a href="/legal">Terms of Service</a>
     </p>
   </footer>
 
