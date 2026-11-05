@@ -47,6 +47,7 @@
 import { mkdir, stat } from "node:fs/promises";
 import { writeFile } from "node:fs/promises";
 import { inflateRawSync } from "node:zlib";
+import { LOCAL_TRANSLATIONS, translationFile, convertCompleteJson } from "../lib/local-bible.js";
 
 const RAW_BASE =
   "https://raw.githubusercontent.com/STEPBible/STEPBible-Data/master";
@@ -145,6 +146,35 @@ async function download({ name, path, description }) {
 // deliberately not derived from, the YouVersion API translations.
 const BSB_URL = "https://bereanbible.com/bsb.txt";
 const BSB_FILE = "bsb.txt";
+
+// On-screen translations (BSB, KJV, WEB, ASV): all public domain, fetched
+// from AO Lab's Free Use Bible API (bible.helloao.org), which serves only
+// public-domain and openly licensed texts and permits commercial use. These
+// replaced the YouVersion Platform API, whose terms require a
+// non-commercial app (see lib/local-bible.js). Each complete.json is
+// converted to a compact verse map, data/bible-<ABBR>.json.
+async function downloadTranslations() {
+  for (const translation of LOCAL_TRANSLATIONS) {
+    const name = translationFile(translation.abbr);
+    const target = dataFile(name);
+    if (await exists(target)) {
+      console.log(`  ${name} — already present, skipping`);
+      continue;
+    }
+    const url = `https://bible.helloao.org/api/${translation.sourceId}/complete.json`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to download ${translation.abbr}: ${response.status} ${response.statusText}\n  ${url}`);
+    }
+    const converted = convertCompleteJson(await response.json(), translation);
+    const count = Object.keys(converted.verses).length;
+    if (count < 30000) {
+      throw new Error(`${translation.abbr} looks incomplete: only ${count} verses parsed from ${url}`);
+    }
+    await writeFile(target, JSON.stringify(converted));
+    console.log(`  ${name} — ${count} verses (${translation.name}, public domain)`);
+  }
+}
 
 async function downloadBsb() {
   const target = dataFile(BSB_FILE);
@@ -261,6 +291,9 @@ async function main() {
 
   console.log("Fetching Berean Standard Bible full text (public domain / CC0):");
   await downloadBsb();
+
+  console.log("Fetching on-screen translations (public domain, bible.helloao.org):");
+  await downloadTranslations();
 
   console.log("Fetching cross-references dataset (CC BY 4.0, openbible.info):");
   await downloadCrossReferences();

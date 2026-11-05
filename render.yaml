@@ -32,8 +32,6 @@ services:
       # first deploy (Environment tab). The build will succeed without
       # them, but the site will report the matching feature as
       # unconfigured until they're set.
-      - key: YVP_APP_KEY
-        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
 

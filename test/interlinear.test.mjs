@@ -16,11 +16,13 @@ import {
   classifyVariantSignificance,
 } from "../lib/interlinear.js";
 import { gatherPassage, clearGatherCache } from "../lib/gather.js";
+import { setPassageLookupForTests } from "../lib/local-bible.js";
 
 let realFetch;
 
 before(() => {
   realFetch = globalThis.fetch;
+  setPassageLookupForTests(async () => ({ content: "stub", reference: "stub" }));
   // gatherPassage() also fetches translations; stub YouVersion so these
   // tests only exercise the original-language path they're actually about.
   globalThis.fetch = async (url) => {
@@ -34,6 +36,7 @@ before(() => {
 
 after(() => {
   globalThis.fetch = realFetch;
+  setPassageLookupForTests(null);
 });
 
 test("JHN.3.16 returns real tagged Greek with the expected word count", async () => {

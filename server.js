@@ -1201,14 +1201,9 @@ async function handleStripeWebhook(req, res) {
 }
 
 async function handlePassage(req, res, searchParams) {
-  const appKey = process.env.YVP_APP_KEY;
-  if (!appKey) {
-    sendJson(res, 500, {
-      error:
-        "YVP_APP_KEY is not set on the server. Copy .env.example to .env and add your app key.",
-    });
-    return;
-  }
+  // Translations are local public-domain text (lib/local-bible.js); no
+  // Bible API key is needed any more.
+  const appKey = undefined;
 
   const usfm = searchParams.get("ref");
   if (!usfm) {
@@ -1314,14 +1309,9 @@ async function readJsonBody(req, { maxBytes = MAX_CHAT_BODY_BYTES } = {}) {
 }
 
 async function handleChat(req, res) {
-  const appKey = process.env.YVP_APP_KEY;
-  if (!appKey) {
-    sendJson(res, 500, {
-      error:
-        "YVP_APP_KEY is not set on the server. Copy .env.example to .env and add your app key.",
-    });
-    return;
-  }
+  // Translations are local public-domain text (lib/local-bible.js); no
+  // Bible API key is needed any more.
+  const appKey = undefined;
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   if (!anthropicKey) {

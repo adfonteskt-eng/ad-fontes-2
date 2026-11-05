@@ -165,12 +165,7 @@ async function printSummary(gathered) {
 }
 
 async function main() {
-  const appKey = process.env.YVP_APP_KEY;
-  if (!appKey) {
-    throw new Error(
-      "YVP_APP_KEY is not set. Copy .env.example to .env and add your app key.",
-    );
-  }
+  const appKey = undefined; // translations are local text now; no key needed
 
   const args = process.argv.slice(2);
   const includeVariants = args.includes("--variants");

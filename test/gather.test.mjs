@@ -1,10 +1,11 @@
 // gatherPassage()'s in-memory cache (lib/gather.js) — coalescing concurrent
 // requests, TTL isolation by option combo, and not caching a thrown error.
-// Network is stubbed throughout; nothing here needs a real YouVersion key.
+// Translation lookups are stubbed throughout (lib/local-bible.js test hook).
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 
 import { gatherPassage, clearGatherCache } from "../lib/gather.js";
+import { setPassageLookupForTests } from "../lib/local-bible.js";
 
 let realFetch;
 let fetchCount;
@@ -15,17 +16,19 @@ before(() => {
 
 after(() => {
   globalThis.fetch = realFetch;
+  setPassageLookupForTests(null);
 });
 
+// fetchCount now counts translation lookups (local text), the work the
+// cache is meant to avoid repeating.
 function stubYouVersion() {
   fetchCount = 0;
+  setPassageLookupForTests(async () => {
+    fetchCount++;
+    return { content: "stub", reference: "John 3:16" };
+  });
   globalThis.fetch = async (url) => {
-    const href = url.toString();
-    if (href.includes("youversion")) {
-      fetchCount++;
-      return { ok: true, json: async () => ({ content: "<p>stub</p>", reference: "Jhn.3.16" }) };
-    }
-    throw new Error(`unexpected fetch in gather cache test: ${href}`);
+    throw new Error(`unexpected fetch in gather cache test: ${url}`);
   };
 }
 

@@ -4,7 +4,7 @@
 
 A scripture-studying partner. Give it a Bible reference and it prints, in one go:
 
-- The passage in several English translations (via the [YouVersion Platform API](https://developers.youversion.com))
+- The passage in four public-domain English translations (BSB, KJV, WEB, ASV), served locally from text fetched from the [Free Use Bible API](https://bible.helloao.org) by `npm run fetch-data`
 - The tagged Greek (New Testament) or Hebrew (Old Testament) — each word with its Strong's number and a short lexicon definition
 - A handful of public-domain commentaries on the passage
 - An AI-generated plain-language takeaway and study notes summarizing all of the above
@@ -693,11 +693,12 @@ won't result in any email actually going out until the cron service exists.
 
 ## Translations
 
-Defaults to BSB, KJV, WEB, and ASV. Override with `BIBLE_IDS` in `.env` (comma-separated
-YouVersion version ids) if your app key only has access to a different set — YouVersion
-app keys are approved per-app for specific translations, so the defaults here may not all
-be available to every key. Translations that fail to fetch are noted inline rather than
-aborting the whole run.
+BSB, KJV, WEB, and ASV, all public domain, served from `data/bible-<ABBR>.json`
+(downloaded from the Free Use Bible API by `npm run fetch-data`; see `lib/local-bible.js`).
+This replaced the YouVersion Platform API in Nov 2026: YouVersion's Platform requires a
+non-commercial app (no ads, paywalls or subscriptions), and Ad Fontes has a paid tier.
+Choose and order a subset with `BIBLE_IDS=BSB,KJV` in `.env`. A verse a translation
+omits (e.g. Matthew 17:21 in BSB) is noted inline for that translation only.
 
 ## Manuscript variants (Greek NT)
 
@@ -874,7 +875,7 @@ with `SUMMARY_MODEL` in `.env`.
 
 | Variable            | Description                                          |
 | ------------------- | ---------------------------------------- |
-| `YVP_APP_KEY`        | App key from developers.youversion.com. Required.     |
+| `YVP_APP_KEY`        | No longer used (translations are local text since Nov 2026). |
 | `BIBLE_IDS`          | Comma-separated Bible version ids. Defaults to BSB, KJV, WEB, ASV. |
 | `BIBLE_ID`           | Single-translation override, kept for backward compatibility. Ignored if `BIBLE_IDS` is set. |
 | `ANTHROPIC_API_KEY`  | Key from console.anthropic.com. Optional — enables the summary section and chat. |

@@ -10,6 +10,7 @@ import { chatTurn, getSessionCount, clearSession, trimHistory } from "../lib/cha
 import { dataFile } from "../scripts/fetch-data.js";
 import { BSB_FILE, clearBibleSearchCache } from "../lib/bible-search.js";
 import { clearGatherCache } from "../lib/gather.js";
+import { setPassageLookupForTests } from "../lib/local-bible.js";
 
 // Whether data/bsb.txt actually exists depends on whether `npm run
 // fetch-data` has run somewhere with network access to bereanbible.com --
@@ -44,7 +45,12 @@ before(() => {
   realFetch = globalThis.fetch;
 });
 
+beforeEach(() => {
+  setPassageLookupForTests(null);
+});
+
 after(() => {
+  setPassageLookupForTests(null);
   globalThis.fetch = realFetch;
   Date.now = Date.now; // no-op; real Date.now is restored per-test below
 });
@@ -562,6 +568,8 @@ const REAL_JHN_3_16_BSB = "For God so loved the world that He gave His one and o
 
 function stubGatherThenReply(replyText) {
   let step = 0;
+  clearGatherCache();
+  setPassageLookupForTests(async () => ({ content: REAL_JHN_3_16_BSB, reference: "John 3:16" }));
   globalThis.fetch = async (url, opts) => {
     const href = url.toString();
     if (href.includes("api.youversion.com")) {

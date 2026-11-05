@@ -1,3 +1,28 @@
+## 2026-11-04 — Translations moved off the YouVersion Platform API to local public-domain text
+
+YouVersion's Platform requires non-commercial use, defined as no ads,
+paywalls or subscriptions, and removes apps that break it
+(help.youversion.com, "How To Sign Up For Platform"). Ad Fontes has Stripe
+subscriptions, so it couldn't keep using the Platform. All four translations
+it pulled (BSB, KJV, WEB, ASV) are public domain, so the same text now comes
+from local files: `scripts/fetch-data.js` downloads each translation's
+complete.json from AO Lab's Free Use Bible API (bible.helloao.org, public
+domain and openly licensed texts only, commercial use allowed) at build time
+and converts it to `data/bible-<ABBR>.json`; `lib/local-bible.js` serves
+single verses and same-chapter ranges. `gatherPassage()`'s output shape is
+unchanged (`content` is now plain text instead of YouVersion's HTML).
+`YVP_APP_KEY` is no longer required by server.js or index.js and was
+removed from render.yaml and .env.example; it can be deleted from Render.
+Tests: 369 passing (5 new in `test/local-bible.test.mjs`; the old YouVersion
+fetch stubs now use `setPassageLookupForTests()`).
+
+Known differences from the YouVersion copy: BSB omits the 16 verses the
+critical text omits (e.g. Matthew 17:21), shown as a per-translation
+"not found" row; the WEB edition is ENGWEBP (current WEB), so a few verses
+differ in wording from older WEB copies such as bible-api.com's (John 1:14:
+"only born Son" vs. "one and only Son"); book names come from the source
+("Psalms 23:1").
+
 ## 2026-10-03 — Launch-readiness pass: audited the real gaps, fixed what
 could be fixed without a human decision, left the rest as a punch list
 
