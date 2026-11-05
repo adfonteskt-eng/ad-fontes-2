@@ -1,0 +1,34 @@
+[
+  {
+    "id": "ark-dimensions",
+    "type": "fill",
+    "hook": "Bible scholars only",
+    "question": "",
+    "options": [
+      "three hundred cubits",
+      "two hundred cubits",
+      "four hundred cubits",
+      "one hundred cubits"
+    ],
+    "reference": "Genesis 6:15",
+    "scene": "scene-08-noahs-ark",
+    "excerpt": "The length of the ship shall be three hundred cubits, its width fifty cubits, and its height thirty cubits.",
+    "blank": "three hundred cubits"
+  },
+  {
+    "id": "jonah-fish-time",
+    "type": "fill",
+    "hook": "Think you know your Bible?",
+    "question": "",
+    "options": [
+      "three days and three nights",
+      "seven days and seven nights",
+      "forty days and forty nights",
+      "one day and one night"
+    ],
+    "reference": "Jonah 1:17",
+    "scene": "scene-07-jonah-storm",
+    "excerpt": "Yahweh prepared a great fish to swallow up Jonah, and Jonah was in the belly of the fish three days and three nights.",
+    "blank": "three days and three nights"
+  }
+]

@@ -26,3 +26,8 @@ qa/playwright-report/
 qa/screenshots/
 /test-results/
 blob-report/
+
+# Trivia reels: rendered output and scratch (regenerate with reels/make_reels.sh)
+reels/out/
+reels/build/
+reels/_to_delete/

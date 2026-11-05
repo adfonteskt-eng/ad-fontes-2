@@ -1,0 +1,49 @@
+[
+  {
+    "id": "moses-wife",
+    "type": "open",
+    "question": "What was the name of Moses' wife?",
+    "answer": "Zipporah",
+    "answer_in_verse": "He gave Moses Zipporah, his daughter",
+    "reference": "Exodus 2:21",
+    "scene": "scene-02-burning-bush"
+  },
+  {
+    "id": "ruth-mother-in-law",
+    "type": "open",
+    "question": "What was the name of Ruth's mother-in-law?",
+    "answer": "Naomi",
+    "answer_in_verse": "Naomi returned, and Ruth the Moabitess, her daughter-in-law",
+    "reference": "Ruth 1:22",
+    "excerpt": "So Naomi returned, and Ruth the Moabitess, her daughter-in-law, with her, who returned out of the country of Moab.",
+    "scene": "scene-10-bethlehem-star"
+  },
+  {
+    "id": "loaves-5000",
+    "type": "open",
+    "question": "How many loaves did the disciples have before Jesus fed the 5,000?",
+    "answer": "Five",
+    "answer_in_verse": "five loaves",
+    "reference": "Matthew 14:17",
+    "scene": "scene-11-walking-on-water"
+  },
+  {
+    "id": "phil-4-13",
+    "type": "fill",
+    "question": "Finish the verse",
+    "excerpt": "I can do all things through Christ, who strengthens me.",
+    "blank": "all things",
+    "answer": "All things",
+    "reference": "Philippians 4:13",
+    "scene": "scene-15-ascension"
+  },
+  {
+    "id": "judas-replacement",
+    "type": "open",
+    "question": "Who replaced Judas as the twelfth apostle?",
+    "answer": "Matthias",
+    "answer_in_verse": "the lot fell on Matthias",
+    "reference": "Acts 1:26",
+    "scene": "scene-14-pentecost"
+  }
+]

@@ -1,0 +1,49 @@
+[
+  {
+    "id": "q001-methuselah",
+    "type": "mc",
+    "hook": "Only 1 in 10 get this right",
+    "question": "How old was Methuselah when he died?",
+    "options": [
+      "912",
+      "950",
+      "969",
+      "1,000"
+    ],
+    "answer": "969",
+    "answer_in_verse": "nine hundred sixty-nine years",
+    "reference": "Genesis 5:27",
+    "scene": "scene-08-noahs-ark"
+  },
+  {
+    "id": "q002-micah-6-8",
+    "type": "fill",
+    "hook": "Can you finish this verse?",
+    "reference": "Micah 6:8",
+    "excerpt": "What does Yahweh require of you, but to act justly, to love mercy, and to walk humbly with your God?",
+    "blank": "walk humbly",
+    "options": [
+      "pray daily",
+      "walk humbly",
+      "give freely"
+    ],
+    "scene": "scene-02-burning-bush"
+  },
+  {
+    "id": "q003-ehud",
+    "type": "mc",
+    "hook": "Most Christians miss this one",
+    "question": "Which judge of Israel was left-handed?",
+    "options": [
+      "Gideon",
+      "Othniel",
+      "Ehud",
+      "Jephthah"
+    ],
+    "answer": "Ehud",
+    "answer_in_verse": "Ehud the son of Gera, the Benjamite, a left-handed man",
+    "reference": "Judges 3:15",
+    "excerpt": "Yahweh raised up a savior for them, Ehud the son of Gera, the Benjamite, a left-handed man.",
+    "scene": "scene-05-david-goliath"
+  }
+]
