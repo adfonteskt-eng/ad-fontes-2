@@ -1,3 +1,21 @@
+## 2026-11-04 — Free-tier weekly allowance (off until FREE_WEEKLY_LIMIT is set)
+
+`checkFreeTier()` in lib/rate-limit.js meters signed-in free accounts per
+account and anonymous visitors per IP, per calendar week (Monday 00:00
+UTC), on top of the existing 60/day per-IP abuse cap. Paid accounts skip it;
+a failed plan lookup fails open. server.js returns 429 with
+`code: "free_limit"` when the allowance is used up, and adds `freeTier` to
+successful replies; the UI shows a quiet "N free questions left" note once
+3 or fewer remain. Deliberately off by default so it could ship before the
+pricing decision: set FREE_WEEKLY_LIMIT (and optionally ANON_WEEKLY_LIMIT)
+in Render to turn it on.
+
+First real usage reading (local, one fresh anonymous question): 1 API call,
+267 output tokens, 8,606 tokens written to the 1h prompt cache, ~$0.056.
+The 1h cache write (2x input price) dominates single-question sessions; if
+most sessions turn out to be one or two questions, the 5-minute cache
+(1.25x) would be cheaper. Decide from `npm run usage` data after launch.
+
 ## 2026-11-04 — Commentary from the Free Use Bible API instead of scraping biblehub; token usage logging
 
 Commentary: `lib/commentary.js` now reads per-chapter JSON from

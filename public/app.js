@@ -2018,6 +2018,15 @@ async function sendChatMessage(message) {
     if (sourceChipsHtml) assistantEl.insertAdjacentHTML("beforeend", sourceChipsHtml);
     const followUpActionsHtml = renderFollowUpActions(turnSnapshot);
     if (followUpActionsHtml) assistantEl.insertAdjacentHTML("beforeend", followUpActionsHtml);
+    // Free-tier allowance (server.js, only when FREE_WEEKLY_LIMIT is set):
+    // a quiet heads-up once three or fewer questions are left this week.
+    const freeLeft = data.freeTier ? Math.max(0, Number(data.freeTier.limit) - Number(data.freeTier.used)) : null;
+    if (freeLeft !== null && freeLeft <= 3) {
+      assistantEl.insertAdjacentHTML(
+        "beforeend",
+        `<p class="section-note free-tier-note">${freeLeft} free question${freeLeft === 1 ? "" : "s"} left this week.</p>`,
+      );
+    }
     const defaultOpen = countSourceCards(data) <= MANY_SOURCES_THRESHOLD;
     appendPassageBriefings(data.briefings, defaultOpen);
     appendSources(data.gathered, defaultOpen);

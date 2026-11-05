@@ -203,7 +203,7 @@ import { bookOrder } from "./lib/bible-books.js";
 import { chatTurn } from "./lib/chat.js";
 import { getDailyPassage } from "./lib/daily-passage.js";
 import { gatherPassage } from "./lib/gather.js";
-import { CHAT_DAILY_LIMIT, SUMMARY_DAILY_LIMIT, checkAndIncrement } from "./lib/rate-limit.js";
+import { CHAT_DAILY_LIMIT, SUMMARY_DAILY_LIMIT, checkAndIncrement, checkFreeTier, freeTierLimits } from "./lib/rate-limit.js";
 import { EXPORT_FORMATS, conversationExportModel, exportModel, noteExportModel, outlineExportModel, studyTrailExportModel } from "./lib/export.js";
 import { getReadingPlan, isValidPlanDay, READING_PLANS } from "./lib/reading-plans.js";
 import { summarizePassage } from "./lib/summarize.js";
@@ -1372,6 +1372,34 @@ async function handleChat(req, res) {
     console.error("Supabase auth check failed, proceeding anonymously:", error.message);
   }
 
+  // Free-tier weekly allowance (lib/rate-limit.js's checkFreeTier) -- off
+  // unless FREE_WEEKLY_LIMIT is set. Paid accounts skip it. A Supabase
+  // failure looking up the plan fails open (treated as paid for this one
+  // request) rather than blocking a possibly-paying user.
+  let freeTier = null;
+  if (freeTierLimits().enabled) {
+    let isPaid = false;
+    if (user?.id) {
+      try {
+        ({ isPaid } = await getPaidProfile(user.id));
+      } catch (error) {
+        console.error("Plan lookup failed, not metering this request:", error.message);
+        isPaid = true;
+      }
+    }
+    freeTier = await checkFreeTier({ userId: user?.id ?? null, isPaid, ip: clientIp(req) });
+    if (freeTier && !freeTier.allowed) {
+      sendJson(res, 429, {
+        code: "free_limit",
+        freeTier,
+        error: user?.id
+          ? `You've used your ${freeTier.limit} free question${freeTier.limit === 1 ? "" : "s"} this week. They reset ${freeTier.resetsOn}, or upgrade to Premium for more.`
+          : `You've used ${freeTier.limit} free question${freeTier.limit === 1 ? "" : "s"} this week. Create a free account or upgrade to Premium for more. Questions reset ${freeTier.resetsOn}.`,
+      });
+      return;
+    }
+  }
+
   try {
     const result = await chatTurn({
       sessionId,
@@ -1382,7 +1410,7 @@ async function handleChat(req, res) {
       userId: user?.id ?? null,
       depthLevel,
     });
-    sendJson(res, 200, result);
+    sendJson(res, 200, freeTier ? { ...result, freeTier } : result);
   } catch (error) {
     sendJson(res, 500, { error: error.message });
   }
