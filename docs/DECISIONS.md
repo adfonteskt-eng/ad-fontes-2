@@ -1,3 +1,21 @@
+## 2026-11-04 — Commentary from the Free Use Bible API instead of scraping biblehub; token usage logging
+
+Commentary: `lib/commentary.js` now reads per-chapter JSON from
+bible.helloao.org/api/c (public-domain commentaries, commercial use
+allowed) instead of slicing biblehub.com's HTML by headings. Set: Matthew
+Henry, Jamieson-Fausset-Brown, Gill, Adam Clarke, and Keil-Delitzsch for
+OT books. Barnes' Notes and the Geneva notes aren't offered there and were
+dropped. Matthew Henry comments by section, so a verse without its own
+entry gets its containing section, labeled `section` ("verses 1–21") and
+shown in the UI. Chapters are cached in memory (300 max).
+
+Usage: `lib/usage.js` sums each Claude response's `usage` across a turn;
+chatTurn() returns it, logs one `chat_usage` JSON line, and adds daily
+totals to Upstash (`adfontes:usage:YYYY-MM-DD`, split paid/free/anon).
+`npm run usage [days]` prints cost per answer. Prices default to $3 input,
+$15 output, $0.30 cache read, $6 1h-cache write per million tokens,
+overridable with PRICE_*_PER_MTOK env vars.
+
 ## 2026-11-04 — Translations moved off the YouVersion Platform API to local public-domain text
 
 YouVersion's Platform requires non-commercial use, defined as no ads,

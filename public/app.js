@@ -260,14 +260,14 @@ function renderCommentary(commentary) {
   const entries = commentary.entries
     .map(
       (entry) => `<details class="commentary-entry">
-        <summary>${escapeHtml(entry.name)}</summary>
+        <summary>${escapeHtml(entry.name)}${entry.section ? ` <span class="section-note">(on ${escapeHtml(entry.section)})</span>` : ""}</summary>
         <div class="body">${escapeHtml(entry.body)}${entry.truncated ? "\n[...truncated]" : ""}</div>
       </details>`,
     )
     .join("");
 
   return `<h2 class="source-heading">Commentary</h2>${entries}
-    <p class="section-note">Public domain, via <a href="${escapeHtml(commentary.url)}" target="_blank" rel="noopener">biblehub.com</a>.</p>`;
+    <p class="section-note">Public domain, via the <a href="https://bible.helloao.org" target="_blank" rel="noopener">Free Use Bible API</a>.</p>`;
 }
 
 // A signed-in user's own notes on this exact reference — see the "Notes"
