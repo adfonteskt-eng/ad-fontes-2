@@ -12,7 +12,8 @@
     "digest": "node scripts/send-daily-digest.js",
     "push": "node scripts/send-daily-push.js",
     "test": "node --test",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "usage": "node scripts/usage-report.js"
   },
   "engines": {
     "node": ">=20.12"
